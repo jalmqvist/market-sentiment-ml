@@ -148,18 +148,39 @@ These are still research-stage findings, not production claims.
 
 ---
 
+## License and data availability
+
+This repository is distributed under a **non-commercial, source-available license** for the original code and repository-authored documentation.
+
+- Personal, educational, academic, and non-commercial research use is allowed.
+- Commercial use, resale, sublicensing, and inclusion in paid products or services is not allowed without prior written permission.
+
+### Data availability
+
+Raw broker-exported FX price data, raw sentiment scrape files, and full derived datasets are **not distributed** in this repository due to licensing and redistribution uncertainty.
+
+The repository contains the code and documentation needed to reproduce the pipeline using data that you have the right to access and use locally.
+
+---
+
 ## Project structure
 
 ```text
 .
-├── build_fx_sentiment_dataset.py
+├── build_fx_sentiment_dataset.py      # Main dataset construction pipeline
 ├── data
 │   ├── input
-│   │   ├── fx
-│   │   └── sentiment
+│   │   ├── fx/                        # Raw hourly FX CSV inputs
+│   │   └── sentiment/                 # Raw sentiment snapshot CSV inputs
 │   └── output
 │       ├── master_research_dataset.csv
-│       └── master_research_dataset.parquet
-├── LICENSE
-├── pair_coverage_summary.csv
-└── project_description.md
+│       ├── master_research_dataset_core.csv
+│       ├── master_research_dataset_extended.csv
+│       └── pair_coverage_summary.csv
+├── DATA_AVAILABILITY.md               # Data redistribution and access note
+├── LICENSE                            # Non-commercial source-available license
+├── project_description.md             # Short project summary / notes
+└── README.md
+```
+
+Note: `data/input/` and `data/output/` are **expected local directories**
