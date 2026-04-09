@@ -10,15 +10,7 @@ __pycache__/
 # OS
 .DS_Store
 
-# Large generated outputs
-data/output/*.csv
-data/output/*.parquet
-master_research_dataset*.csv
-master_research_dataset*.parquet
-pair_coverage_summary.csv
-old
-
-# Raw/input market data
+# Raw input data
 data/input/fx/
 data/input/sentiment/
 
