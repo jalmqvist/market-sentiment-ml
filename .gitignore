@@ -17,3 +17,16 @@ master_research_dataset*.csv
 master_research_dataset*.parquet
 pair_coverage_summary.csv
 old
+
+# Raw/input market data
+data/input/fx/
+data/input/sentiment/
+
+# Generated outputs
+data/output/*.csv
+data/output/*.parquet
+
+# Root-level generated files
+master_research_dataset*.csv
+master_research_dataset*.parquet
+pair_coverage_summary.csv
