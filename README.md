@@ -209,7 +209,15 @@ However, the current evidence suggests a more specific and defensible empirical 
 
 In the current research setup, this relative JPY-cross effect remains stronger than the non-JPY cross benchmark both in holdout and in walk-forward validation.
 
-The next step is to test whether this effect depends on **market regime**, likely starting with a simple **trend vs non-trend** classification.
+A stricter pre-registered evaluation was also run on the most recent untouched period. That test did **not** provide strong confirmatory support for the JPY-cross effect in its unconditional form, largely because the final period was short, sparse, and concentrated in a mostly rangebound market environment.
+
+The current best interpretation is therefore:
+
+- the JPY-cross persistence effect remains a credible **exploratory** finding
+- it survives several intermediate validation steps
+- but its strict final-period confirmation is currently **inconclusive**, not definitive
+
+This shifts the next research step toward **regime-conditioned analysis**, to test whether the effect is more likely to appear in trending conditions than in rangebound markets.
 
 ---
 
@@ -247,7 +255,16 @@ This JPY-cross persistence effect has so far survived:
 
 In the current cleaned research setup, the JPY-cross subgroup outperformed the non-JPY cross benchmark under persistent extreme sentiment in all 6 walk-forward test windows at the 12-bar horizon, and in 5 of 6 windows at the 48-bar horizon.
 
-This should still be treated as a **research finding**, not as proof of a production-ready trading strategy.
+### Pre-registered final-period check
+
+A stricter locked test was run on the most recent untouched period using the fixed rule:
+
+- `abs_sentiment >= 70`
+- `extreme_streak_70 >= 3`
+- JPY crosses
+- horizons: `12b` and `48b`
+
+That final-period check was **inconclusive** rather than confirmatory. The latest sample was short and uneven, with Q1 2026 largely rangebound and Q2 2026 containing too few qualifying events for reliable inference. As a result, the project now treats the JPY-cross result as a strong exploratory pattern that still requires **regime-conditioned validation**.
 
 ---
 
