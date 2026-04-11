@@ -15,8 +15,7 @@ data/input/fx/
 data/input/sentiment/
 
 # Generated outputs
-data/output/*.csv
-data/output/*.parquet
+data/output/
 
 # Root-level generated files
 master_research_dataset*.csv

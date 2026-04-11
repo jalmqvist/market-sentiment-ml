@@ -133,18 +133,79 @@ Interpretation:
 
 ---
 
-## What has been learned so far
+## Current research status
 
-Initial diagnostics show:
+The project has progressed beyond raw data assembly into exploratory signal validation.
 
-- the merge pipeline is working end-to-end
-- low raw match ratios were mostly explained by **weekend sentiment rows**
-- weekday alignment quality is high for most pairs
-- pair coverage diagnostics make it easy to detect genuinely weak or truncated price histories
-- a few pairs have incomplete market data and should be excluded or treated separately
-- preliminary summaries suggest a possible contrarian effect that strengthens with stronger sentiment extremes and medium horizons
+### Completed work
 
-These are still research-stage findings, not production claims.
+- built a multi-source FX research pipeline linking:
+  - retail sentiment snapshots
+  - hourly FX market data
+- normalized pair naming across sources
+- aligned timestamps across different timezones
+- added pair-level coverage diagnostics
+- filtered weak/incomplete price histories
+- replaced wall-clock forward returns with trading-bar forward returns
+- created filtered research universes for cleaner downstream analysis
+
+### Exploratory findings so far
+
+Initial aggregate threshold analysis suggested a contrarian effect, but outlier diagnostics showed that this was largely driven by problematic price behavior in a small number of thin/exotic pairs.
+
+After pair-level quality filtering:
+
+- the broad aggregate threshold effect became weak
+- major pairs appeared mostly flat
+- thin/exotic pairs were weak or negative in the simple threshold framework
+- a subset of liquid crosses looked more promising
+
+Persistence analysis then suggested that any remaining effect is conditional rather than universal.
+
+The most interesting exploratory result so far is:
+
+- within the cleaned cross universe
+- persistent extreme sentiment (`abs_sentiment >= 70` and `extreme_streak_70 >= 3`)
+- appears stronger in a cluster of **JPY crosses**
+
+A permutation test on pair-cluster membership suggested that this JPY-cross clustering is unlikely under a null of random pair-group assignment within the cross universe.
+
+### Current interpretation
+
+This does **not** yet establish a production-ready trading signal.
+
+At this stage, the more defensible conclusion is:
+
+- simple threshold-based sentiment fading is not broadly robust in the cleaned universe
+- but there may be a more specific, regime- or pair-dependent effect
+- particularly in persistent extreme sentiment conditions within JPY crosses
+
+
+The next step is time-based validation and walk-forward testing to determine whether this effect holds up out of sample.
+
+---
+
+## Running the project
+
+### 1. Build the research dataset
+
+```bash
+python build_fx_sentiment_dataset.py
+```
+
+### 2. Run exploratory analysis
+
+Examples:
+
+```bash
+python analyze_thresholds.py
+python analyze_pair_quality.py
+python analyze_persistence.py
+python analyze_by_pair_group.py
+python analyze_jpy_cluster_permutation.py
+```
+
+These scripts generate summary tables and validation outputs under `data/output/analysis/`.
 
 ---
 
@@ -167,19 +228,31 @@ The repository contains the code and documentation needed to reproduce the pipel
 
 ```text
 .
-├── build_fx_sentiment_dataset.py      # Main dataset construction pipeline
+├── analyze_by_pair_group.py
+├── analyze_cross_pair_persistence.py
+├── analyze_jpy_cluster_permutation.py
+├── analyze_outliers.py
+├── analyze_pair_quality.py
+├── analyze_persistence.py
+├── analyze_thresholds.py
+├── build_fx_sentiment_dataset.py
 ├── data
 │   ├── input
-│   │   ├── fx/                        # Raw hourly FX CSV inputs
-│   │   └── sentiment/                 # Raw sentiment snapshot CSV inputs
-│   └── output
-│       ├── master_research_dataset.csv
-│       ├── master_research_dataset_core.csv
-│       ├── master_research_dataset_extended.csv
-│       └── pair_coverage_summary.csv
-├── DATA_AVAILABILITY.md               # Data redistribution and access note
-├── LICENSE                            # Non-commercial source-available license
-├── project_description.md             # Short project summary / notes
+│   │   ├── fx/
+│   │   └── sentiment/
+│   ├── output
+│   │   ├── analysis/
+│   │   ├── master_research_dataset.csv
+│   │   ├── master_research_dataset_core.csv
+│   │   ├── master_research_dataset_extended.csv
+│   │   └── pair_coverage_summary.csv
+│   └── sample
+│       ├── fx/
+│       └── sentiment/
+├── DATA_AVAILABILITY.md
+├── INPUT_SCHEMA.md
+├── LICENSE
+├── project_description.md
 └── README.md
 ```
 
