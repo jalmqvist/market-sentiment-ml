@@ -111,6 +111,26 @@ def compute_same_value_streak(series: pd.Series) -> pd.Series:
 
     return pd.Series(out, index=series.index)
 
+def compute_crowd_side(net_sentiment: pd.Series) -> pd.Series:
+    """
+    Convert signed net sentiment into crowd-side labels.
+
+    Convention:
+    - +1 => crowd net long
+    - -1 => crowd net short
+    -  0 => exactly neutral / zero sentiment
+    """
+    return np.select(
+        [
+            net_sentiment > 0,
+            net_sentiment < 0,
+        ],
+        [
+            1,
+            -1,
+        ],
+        default=0,
+    ).astype(int)
 
 # =========================
 # Sentiment loading
@@ -162,7 +182,7 @@ def load_all_sentiment_files(sentiment_dir: Path) -> pd.DataFrame:
     ).astype(float)
 
     sentiment["abs_sentiment"] = sentiment["net_sentiment"].abs()
-    sentiment["crowd_side"] = np.where(sentiment["net_sentiment"] >= 0, 1, -1)
+    sentiment["crowd_side"] = compute_crowd_side(sentiment["net_sentiment"])
 
     sentiment = sentiment.sort_values(["pair", "snapshot_time"]).reset_index(drop=True)
 
@@ -373,7 +393,7 @@ def ensure_output_dir(path: Path) -> None:
 
 def add_crowd_side(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
-    out["crowd_side"] = np.where(out["net_sentiment"] > 0, 1, -1)
+    out["crowd_side"] = compute_crowd_side(out["net_sentiment"])
     return out
 
 

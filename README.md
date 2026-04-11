@@ -347,7 +347,6 @@ The repository contains the code and documentation needed to reproduce the pipel
 │       ├── fx/
 │       └── sentiment/
 ├── DATA_AVAILABILITY.md
-├── DATASET_MANIFEST.json
 ├── INPUT_SCHEMA.md
 ├── LICENSE
 ├── OUTPUT_SCHEMA.md
