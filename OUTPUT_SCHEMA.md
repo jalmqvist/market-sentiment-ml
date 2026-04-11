@@ -135,7 +135,7 @@ This normalization must be consistent across all output artifacts.
 - `abs_sentiment`
    float; absolute value of `net_sentiment`
 - `crowd_side`
-   integer; `+1` for crowd long, `-1` for crowd short
+   integer; `+1` for crowd long, `-1` for crowd short, `0` neutral (rare)
 - `sentiment_change`
    float; change in `net_sentiment` vs previous snapshot within pair
 - `side_streak`
