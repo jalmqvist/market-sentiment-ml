@@ -2,6 +2,20 @@
 
 A research pipeline for combining multi-year retail FX sentiment snapshots with hourly FX market data, producing a clean event-level dataset for signal testing and downstream ML workflows.
 
+## Executive summary
+
+> This project builds and validates a research pipeline for testing whether **retail FX sentiment** contains predictive information.
+>
+> It demonstrates end-to-end quantitative workflow skills:
+>
+> - large-scale multi-file data engineering
+> - timestamp alignment across heterogeneous market data sources
+> - feature engineering and target construction
+> - data-quality diagnostics and outlier filtering
+> - exploratory signal validation with permutation, holdout, and walk-forward testing
+>
+> A key current finding is that while simple contrarian sentiment effects are weak in the aggregate after cleaning, a more specific effect appears in **JPY crosses under persistent extreme retail sentiment**, and this relative effect has so far survived multiple validation steps.
+
 ## Project goal
 
 This project is primarily about demonstrating:
@@ -11,6 +25,7 @@ This project is primarily about demonstrating:
 - reproducible feature engineering
 - practical data-quality diagnostics
 - research-oriented dataset construction for machine learning and predictive modeling
+
 
 The goal is **not** to present a production trading system or claim a fully validated profitable strategy.  
 Instead, the project shows how to go from messy raw market data to a structured, analysis-ready dataset using sound data engineering and research practices.
@@ -25,7 +40,8 @@ The working hypothesis is mainly **contrarian**:
 - the effect may depend on time horizon
 - the effect may depend on persistence of extreme sentiment
 
-This repository currently focuses on **dataset assembly and validation**, which is the foundation for later statistical testing and ML modeling.
+
+This repository focuses on **dataset assembly, validation, and exploratory signal research**, which form the basis for later statistical testing and ML modeling.
 
 ---
 
@@ -41,6 +57,7 @@ The sentiment dataset consists of many CSV files scraped over several years. Eac
 - `time`
 
 Example interpretation:
+
 - `72 long` means 72% of visible retail crowd is long the pair
 - `61 short` means 61% is short
 
@@ -54,6 +71,7 @@ Hourly market data is exported from MT4 `.hst` files into CSV format with column
 - `low`
 - `close`
 - `tick_volume`
+
 
 There is one file per FX pair.
 
@@ -95,6 +113,7 @@ During validation, the following was established:
 
 - sentiment timestamps correspond to `UTC+2`
 - FX price data corresponds to `UTC+1`
+
 
 So sentiment snapshot times are shifted by **-1 hour** before merging.
 
@@ -148,6 +167,7 @@ The project has progressed beyond raw data assembly into exploratory signal vali
 - filtered weak/incomplete price histories
 - replaced wall-clock forward returns with trading-bar forward returns
 - created filtered research universes for cleaner downstream analysis
+- added threshold, persistence, pair-group, outlier, permutation, and time-based validation scripts
 
 ### Exploratory findings so far
 
@@ -162,26 +182,72 @@ After pair-level quality filtering:
 
 Persistence analysis then suggested that any remaining effect is conditional rather than universal.
 
-The most interesting exploratory result so far is:
+The most interesting result so far is:
 
 - within the cleaned cross universe
 - persistent extreme sentiment (`abs_sentiment >= 70` and `extreme_streak_70 >= 3`)
 - appears stronger in a cluster of **JPY crosses**
 
-A permutation test on pair-cluster membership suggested that this JPY-cross clustering is unlikely under a null of random pair-group assignment within the cross universe.
+This JPY-cross clustering has so far survived several increasingly strict checks:
+
+- pair-level outlier filtering
+- subgroup analysis within crosses
+- a permutation test on pair-cluster membership
+- a simple time-based holdout split
+- expanding-window walk-forward validation
 
 ### Current interpretation
 
 This does **not** yet establish a production-ready trading signal.
 
-At this stage, the more defensible conclusion is:
+However, the current evidence suggests a more specific and defensible empirical pattern:
 
 - simple threshold-based sentiment fading is not broadly robust in the cleaned universe
-- but there may be a more specific, regime- or pair-dependent effect
-- particularly in persistent extreme sentiment conditions within JPY crosses
+- but there appears to be a more conditional effect
+- particularly in **persistent extreme sentiment conditions within JPY crosses**
 
 
-The next step is time-based validation and walk-forward testing to determine whether this effect holds up out of sample.
+In the current research setup, this relative JPY-cross effect remains stronger than the non-JPY cross benchmark both in holdout and in walk-forward validation.
+
+The next step is to test whether this effect depends on **market regime**, likely starting with a simple **trend vs non-trend** classification.
+
+---
+
+## Key results
+
+Current exploratory findings suggest that the sentiment effect is **not broad across all FX pairs**, but may be more specific and conditional.
+
+### Main observations
+
+- After pair-level quality filtering, the broad aggregate contrarian threshold effect became weak.
+- Major pairs appeared mostly flat in the simple threshold framework.
+- Thin/exotic pairs were generally weak or negative after cleaning.
+- A subset of **liquid crosses**, especially **JPY crosses**, showed more promising behavior.
+
+### Most interesting validated pattern so far
+
+The strongest current signal candidate is:
+
+- **universe:** cross pairs
+- **subgroup:** JPY crosses
+- **condition:** `abs_sentiment >= 70` and `extreme_streak_70 >= 3`
+- **interpretation:** persistent extreme retail sentiment in JPY crosses appears more contrarian-informative than in non-JPY crosses
+
+### Validation status
+
+This JPY-cross persistence effect has so far survived:
+
+- pair-level outlier filtering
+- subgroup analysis within crosses
+- a permutation test on pair-cluster membership
+- a simple time-based holdout split
+- expanding-window walk-forward validation
+
+### Example walk-forward result
+
+In the current cleaned research setup, the JPY-cross subgroup outperformed the non-JPY cross benchmark under persistent extreme sentiment in all 6 walk-forward test windows at the 12-bar horizon, and in 5 of 6 windows at the 48-bar horizon.
+
+This should still be treated as a **research finding**, not as proof of a production-ready trading strategy.
 
 ---
 
@@ -193,28 +259,32 @@ The next step is time-based validation and walk-forward testing to determine whe
 python build_fx_sentiment_dataset.py
 ```
 
-### 2. Run exploratory analysis
+### 2. Run exploratory analysis and validation
 
 Examples:
 
-```bash
+```
 python analyze_thresholds.py
+python analyze_outliers.py
 python analyze_pair_quality.py
-python analyze_persistence.py
 python analyze_by_pair_group.py
+python analyze_persistence.py
+python analyze_cross_pair_persistence.py
 python analyze_jpy_cluster_permutation.py
+python validate_jpy_effect_time_split.py
+python validate_jpy_effect_walkforward.py
 ```
 
 These scripts generate summary tables and validation outputs under `data/output/analysis/`.
 
----
+------
 
 ## License and data availability
 
 This repository is distributed under a **non-commercial, source-available license** for the original code and repository-authored documentation.
 
-- Personal, educational, academic, and non-commercial research use is allowed.
-- Commercial use, resale, sublicensing, and inclusion in paid products or services is not allowed without prior written permission.
+- Personal, educational, academic, and non-commercial research use is allowed
+- Commercial use, resale, sublicensing, and inclusion in paid products or services is not allowed without prior written permission
 
 ### Data availability
 
@@ -222,11 +292,11 @@ Raw broker-exported FX price data, raw sentiment scrape files, and full derived 
 
 The repository contains the code and documentation needed to reproduce the pipeline using data that you have the right to access and use locally.
 
----
+------
 
 ## Project structure
 
-```text
+```
 .
 ├── analyze_by_pair_group.py
 ├── analyze_cross_pair_persistence.py
@@ -236,6 +306,8 @@ The repository contains the code and documentation needed to reproduce the pipel
 ├── analyze_persistence.py
 ├── analyze_thresholds.py
 ├── build_fx_sentiment_dataset.py
+├── validate_jpy_effect_time_split.py
+├── validate_jpy_effect_walkforward.py
 ├── data
 │   ├── input
 │   │   ├── fx/
@@ -252,8 +324,8 @@ The repository contains the code and documentation needed to reproduce the pipel
 ├── DATA_AVAILABILITY.md
 ├── INPUT_SCHEMA.md
 ├── LICENSE
-├── project_description.md
+├── PROJECT_DESCRIPTION.md
 └── README.md
 ```
 
-Note: `data/input/` and `data/output/` are **expected local directories**
+Note: `data/input/` and `data/output/` are **expected local directories** and are not distributed with the repository.
