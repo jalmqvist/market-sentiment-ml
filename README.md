@@ -277,6 +277,30 @@ python validate_jpy_effect_walkforward.py
 
 These scripts generate summary tables and validation outputs under `data/output/analysis/`.
 
+---
+
+## Output artifact contract
+
+The pipeline now defines a stable output contract for downstream integration.
+
+Key documents:
+
+- `INPUT_SCHEMA.md`
+- `OUTPUT_SCHEMA.md`
+
+
+A machine-readable dataset manifest is written at build time:
+
+- `data/output/DATASET_MANIFEST.json`
+
+
+The canonical downstream research artifact is:
+
+- `data/output/master_research_dataset_core.csv`
+
+
+unless otherwise stated.
+
 ------
 
 ## License and data availability
@@ -314,6 +338,7 @@ The repository contains the code and documentation needed to reproduce the pipel
 │   │   └── sentiment/
 │   ├── output
 │   │   ├── analysis/
+│   │   ├── DATASET_MANIFEST.json
 │   │   ├── master_research_dataset.csv
 │   │   ├── master_research_dataset_core.csv
 │   │   ├── master_research_dataset_extended.csv
@@ -322,8 +347,10 @@ The repository contains the code and documentation needed to reproduce the pipel
 │       ├── fx/
 │       └── sentiment/
 ├── DATA_AVAILABILITY.md
+├── DATASET_MANIFEST.json
 ├── INPUT_SCHEMA.md
 ├── LICENSE
+├── OUTPUT_SCHEMA.md
 ├── PROJECT_DESCRIPTION.md
 └── README.md
 ```

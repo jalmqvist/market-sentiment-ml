@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -18,7 +20,14 @@ OUTPUT_FILE = Path("data/output/master_research_dataset.csv")
 
 HORIZONS = [1, 2, 4, 6, 12, 24, 48]
 
-
+SCHEMA_VERSION = "1.0"
+CORE_MIN_ELIGIBLE_MATCH_RATIO = 0.95
+EXTENDED_MIN_ELIGIBLE_MATCH_RATIO = 0.90
+MERGE_TOLERANCE = "90min"
+SENTIMENT_ASSUMED_UTC_OFFSET = "+02:00"
+PRICE_ASSUMED_UTC_OFFSET = "+01:00"
+SNAPSHOT_SHIFT = "-1h"
+CANONICAL_DATASET = "data/output/master_research_dataset_core.csv"
 # =========================
 # Helpers
 # =========================
@@ -356,6 +365,118 @@ def add_forward_returns(
 
     return out
 
+### Manifest helpers
+
+def ensure_output_dir(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+
+def add_crowd_side(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    out["crowd_side"] = np.where(out["net_sentiment"] > 0, 1, -1)
+    return out
+
+
+def align_dataset_columns(
+    full_df: pd.DataFrame,
+    core_df: pd.DataFrame,
+    extended_df: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """
+    Guarantee identical column sets and column order across dataset variants.
+    Columns missing from a variant are added as NA.
+    """
+    all_cols = list(full_df.columns)
+
+    for extra_col in core_df.columns:
+        if extra_col not in all_cols:
+            all_cols.append(extra_col)
+
+    for extra_col in extended_df.columns:
+        if extra_col not in all_cols:
+            all_cols.append(extra_col)
+
+    def _align(df: pd.DataFrame) -> pd.DataFrame:
+        out = df.copy()
+        for col in all_cols:
+            if col not in out.columns:
+                out[col] = pd.NA
+        return out[all_cols]
+
+    return _align(full_df), _align(core_df), _align(extended_df)
+
+
+def write_dataset_manifest(
+    output_dir: Path,
+    full_df: pd.DataFrame,
+    core_df: pd.DataFrame,
+    extended_df: pd.DataFrame,
+    git_commit: str | None = None,
+) -> None:
+    manifest = {
+        "schema_version": SCHEMA_VERSION,
+        "canonical_dataset": CANONICAL_DATASET,
+        "dataset_variants": {
+            "full": "data/output/master_research_dataset.csv",
+            "core": "data/output/master_research_dataset_core.csv",
+            "extended": "data/output/master_research_dataset_extended.csv",
+            "coverage_summary": "data/output/pair_coverage_summary.csv",
+        },
+        "pair_normalization": "lowercase 3-3 with '-' separator",
+        "return_definition": "trading bars ahead within pair series",
+        "horizons_bars": list(HORIZONS),
+        "merge": {
+            "direction": "forward",
+            "tolerance": MERGE_TOLERANCE,
+            "allow_exact_matches": True,
+        },
+        "timezone_alignment": {
+            "sentiment_assumed_utc_offset": SENTIMENT_ASSUMED_UTC_OFFSET,
+            "price_assumed_utc_offset": PRICE_ASSUMED_UTC_OFFSET,
+            "snapshot_shift": SNAPSHOT_SHIFT,
+        },
+        "universe_filters": {
+            "core_min_eligible_match_ratio": CORE_MIN_ELIGIBLE_MATCH_RATIO,
+            "extended_min_eligible_match_ratio": EXTENDED_MIN_ELIGIBLE_MATCH_RATIO,
+        },
+        "build": {
+            "created_at_utc": datetime.now(timezone.utc).isoformat(),
+            "git_commit": git_commit,
+            "row_counts": {
+                "full": int(len(full_df)),
+                "core": int(len(core_df)),
+                "extended": int(len(extended_df)),
+            },
+            "pairs": {
+                "full": int(full_df["pair"].nunique()) if "pair" in full_df.columns else 0,
+                "core": int(core_df["pair"].nunique()) if "pair" in core_df.columns else 0,
+                "extended": int(extended_df["pair"].nunique()) if "pair" in extended_df.columns else 0,
+            },
+        },
+    }
+
+    manifest_path = output_dir / "DATASET_MANIFEST.json"
+    ensure_output_dir(manifest_path)
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2)
+
+    print(f"Saved dataset manifest to: {manifest_path.resolve()}")
+
+
+def get_git_commit_hash() -> str | None:
+    try:
+        from subprocess import run, PIPE
+        result = run(
+            ["git", "rev-parse", "HEAD"],
+            stdout=PIPE,
+            stderr=PIPE,
+            text=True,
+            check=False,
+        )
+        sha = result.stdout.strip()
+        return sha if sha else None
+    except Exception:
+        return None
 
 def build_master_dataset(
     sentiment_dir: Path,
@@ -382,7 +503,7 @@ def build_master_dataset(
     pair_overlap = sorted(set(sentiment["pair"]).intersection(set(prices["pair"])))
     print(f"\nOverlapping pairs: {len(pair_overlap):,}")
 
-    # Attach first valid hourly bar at or after each sentiment snapshot
+    # Attach entry bars
     master = attach_entry_bar(sentiment, prices)
 
     # Add price window info for coverage diagnostics
@@ -391,10 +512,9 @@ def build_master_dataset(
         .agg(price_start="min", price_end="max", price_bars="count")
         .reset_index()
     )
-
     master = master.merge(price_window, on="pair", how="left")
 
-    # Eligibility: weekday sentiment row that falls inside the available price-history window
+    # Eligibility helpers
     master["is_weekday"] = master["snapshot_time"].dt.dayofweek < 5
     master["within_price_window"] = (
         (master["snapshot_time"] >= master["price_start"]) &
@@ -416,7 +536,6 @@ def build_master_dataset(
         .reset_index()
         .sort_values("dayofweek")
     )
-
     week_summary["unmatched"] = week_summary["total"] - week_summary["matched"]
     week_summary["match_ratio"] = week_summary["matched"] / week_summary["total"]
 
@@ -453,24 +572,38 @@ def build_master_dataset(
     print("\nEligible coverage by pair:")
     print(coverage.to_string(index=False))
 
-    coverage.to_csv("data/output/pair_coverage_summary.csv", index=False)
-    print("\nSaved pair coverage summary to pair_coverage_summary.csv")
+    coverage_path = Path("data/output/pair_coverage_summary.csv")
+    ensure_output_dir(coverage_path)
+    coverage.to_csv(coverage_path, index=False)
+    print(f"\nSaved pair coverage summary to {coverage_path}")
 
     # Coverage-based universes
-    core_pairs = coverage.loc[coverage["eligible_match_ratio"] >= 0.95, "pair"]
-    extended_pairs = coverage.loc[coverage["eligible_match_ratio"] >= 0.90, "pair"]
+    core_pairs = coverage.loc[
+        coverage["eligible_match_ratio"] >= CORE_MIN_ELIGIBLE_MATCH_RATIO, "pair"
+    ]
+    extended_pairs = coverage.loc[
+        coverage["eligible_match_ratio"] >= EXTENDED_MIN_ELIGIBLE_MATCH_RATIO, "pair"
+    ]
 
-    print(f"\nCore pairs (eligible_match_ratio >= 0.95): {len(core_pairs):,}")
+    print(f"\nCore pairs (eligible_match_ratio >= {CORE_MIN_ELIGIBLE_MATCH_RATIO:.2f}): {len(core_pairs):,}")
     print(sorted(core_pairs.tolist()))
 
-    print(f"\nExtended pairs (eligible_match_ratio >= 0.90): {len(extended_pairs):,}")
+    print(f"\nExtended pairs (eligible_match_ratio >= {EXTENDED_MIN_ELIGIBLE_MATCH_RATIO:.2f}): {len(extended_pairs):,}")
     print(sorted(extended_pairs.tolist()))
 
-    # Keep only rows with a valid entry bar before forward-return calculation
+    # Keep only rows with a valid entry bar
     master_valid = master.dropna(subset=["entry_time", "entry_close"]).copy()
     print(f"\nRows with valid entry bar: {len(master_valid):,}")
 
-    # Build filtered datasets
+    # Add forward returns BEFORE splitting, so column parity stays easier to maintain
+    master_valid = add_forward_returns(master_valid, prices, horizons=horizons)
+
+    # Stable sentiment side fields
+    master_valid = add_crowd_side(master_valid)
+    master_valid["is_long_crowd"] = master_valid["crowd_side"] == 1
+    master_valid["is_short_crowd"] = master_valid["crowd_side"] == -1
+
+    # Split into filtered datasets
     master_core = master_valid[master_valid["pair"].isin(core_pairs)].copy()
     master_extended = master_valid[master_valid["pair"].isin(extended_pairs)].copy()
 
@@ -480,35 +613,48 @@ def build_master_dataset(
     print(f"Extended-universe rows: {len(master_extended):,}")
     print(f"Extended-universe pairs: {master_extended['pair'].nunique():,}")
 
-    # Add forward returns
-    master_valid = add_forward_returns(master_valid, prices, horizons=horizons)
-    master_core = add_forward_returns(master_core, prices, horizons=horizons)
-    master_extended = add_forward_returns(master_extended, prices, horizons=horizons)
-
-    # Add convenience flags
-    for df in (master_valid, master_core, master_extended):
-        df["is_long_crowd"] = df["net_sentiment"] > 0
-        df["is_short_crowd"] = df["net_sentiment"] < 0
-
-    # Final sorting
+    # Sorting
     master_valid = master_valid.sort_values(["pair", "snapshot_time"]).reset_index(drop=True)
     master_core = master_core.sort_values(["pair", "snapshot_time"]).reset_index(drop=True)
     master_extended = master_extended.sort_values(["pair", "snapshot_time"]).reset_index(drop=True)
 
-    # Save default outputs
-    master_valid.to_csv("data/output/master_research_dataset.csv", index=False)
-    master_core.to_csv("data/output/master_research_dataset_core.csv", index=False)
-    master_extended.to_csv("data/output/master_research_dataset_extended.csv", index=False)
+    # Guarantee identical columns and order across outputs
+    master_valid, master_core, master_extended = align_dataset_columns(
+        master_valid,
+        master_core,
+        master_extended,
+    )
+
+    # Save dataset variants
+    full_path = Path("data/output/master_research_dataset.csv")
+    core_path = Path("data/output/master_research_dataset_core.csv")
+    extended_path = Path("data/output/master_research_dataset_extended.csv")
+
+    ensure_output_dir(full_path)
+    master_valid.to_csv(full_path, index=False)
+    master_core.to_csv(core_path, index=False)
+    master_extended.to_csv(extended_path, index=False)
 
     print("\nSaved:")
-    print("  master_research_dataset.csv")
-    print("  master_research_dataset_core.csv")
-    print("  master_research_dataset_extended.csv")
+    print(f"  {full_path}")
+    print(f"  {core_path}")
+    print(f"  {extended_path}")
 
     # Optional custom output_file writes the full valid dataset
     if output_file is not None:
+        ensure_output_dir(output_file)
         master_valid.to_csv(output_file, index=False)
         print(f"\nSaved master dataset to: {output_file.resolve()}")
+
+    # Manifest
+    git_commit = get_git_commit_hash()
+    write_dataset_manifest(
+        output_dir=Path("data/output"),
+        full_df=master_valid,
+        core_df=master_core,
+        extended_df=master_extended,
+        git_commit=git_commit,
+    )
 
     return master_valid
 

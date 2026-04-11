@@ -1,0 +1,282 @@
+# Output Schema
+
+This document defines the stable output artifact contract for the FX retail sentiment research pipeline.
+
+The purpose of this contract is to make downstream usage predictable across repositories, including integration with external research workflows such as market-phase-ml.
+
+## Schema version
+
+Current schema version: **1.0**
+
+## Canonical dataset
+
+The canonical research dataset is:
+
+```text
+data/output/master_research_dataset_core.csv
+```
+
+Unless explicitly stated otherwise, downstream analysis should use the **core** dataset by default.
+
+## Dataset variants
+
+The pipeline produces three compatible dataset variants:
+
+- `data/output/master_research_dataset_core.csv`
+- `data/output/master_research_dataset_extended.csv`
+- `data/output/master_research_dataset.csv`
+
+### Intended meaning
+
+- **core**: canonical dataset; stricter coverage filter
+- **extended**: looser coverage filter; broader universe
+- **full**: all valid matched events before universe filtering; used mainly for diagnostics and robustness checks
+
+## Required invariants
+
+### Column parity
+
+All three dataset variants must have identical columns and column meanings.
+They may differ in row count, but not in schema.
+
+The `full`, `core`, and `extended` artifacts are required to have identical columns and column order.
+
+### Subset relationship
+
+Using `(pair, snapshot_time, entry_time)` as row identity for subset checks:
+
+- `core ⊆ extended`
+- `extended ⊆ full(valid-entry)`
+
+### Core definition
+
+The current core universe is defined by:
+
+- `eligible_match_ratio >= 0.95`
+
+The current extended universe is defined by:
+
+- `eligible_match_ratio >= 0.90`
+
+These thresholds must be recorded in `DATASET_MANIFEST.json`.
+
+------
+
+## Grain
+
+The dataset grain is:
+
+- one row per `(pair, snapshot_time)` sentiment event
+- aligned to the first valid hourly entry bar at or after the event time
+
+### Event key
+
+The sentiment event key is:
+
+- `(pair, snapshot_time)`
+
+### Aligned execution key
+
+The aligned market-bar key is:
+
+- `(pair, entry_time)`
+
+Note: multiple sentiment events may map to the same `entry_time` in the full dataset.
+
+------
+
+## Time semantics
+
+### `snapshot_time`
+
+The sentiment event timestamp after timezone correction.
+
+### `entry_time`
+
+The first hourly price bar timestamp at or after `snapshot_time` that satisfies the configured merge tolerance.
+
+### Time consistency
+
+Datetime columns may be timezone-naive in CSV output, but their interpretation must remain stable and consistent across all artifacts.
+
+------
+
+## Pair normalization
+
+Pairs must be normalized to lowercase 3-3 format with `-` separator.
+
+Examples:
+
+- `eur-usd`
+- `usd-jpy`
+- `gbp-chf`
+
+This normalization must be consistent across all output artifacts.
+
+------
+
+## Required columns
+
+## 1. Identity and time
+
+- `pair`
+   string; normalized pair identifier such as `eur-usd`
+- `snapshot_time`
+   datetime; sentiment event timestamp after timezone correction
+- `entry_time`
+   datetime; first valid hourly bar at or after `snapshot_time`
+- `source_file`
+   string; source sentiment snapshot filename
+
+## 2. Sentiment features
+
+- `net_sentiment`
+   float; signed crowd positioning, where positive means crowd long and negative means crowd short
+- `abs_sentiment`
+   float; absolute value of `net_sentiment`
+- `crowd_side`
+   integer; `+1` for crowd long, `-1` for crowd short
+- `sentiment_change`
+   float; change in `net_sentiment` vs previous snapshot within pair
+- `side_streak`
+   integer; consecutive same-side crowd positioning count within pair
+- `extreme_70`
+   boolean; whether `abs_sentiment >= 70`
+- `extreme_80`
+   boolean; whether `abs_sentiment >= 80`
+- `extreme_streak_70`
+   integer; consecutive `extreme_70` streak length within pair
+- `extreme_streak_80`
+   integer; consecutive `extreme_80` streak length within pair
+
+## 3. Entry-bar market context
+
+- `entry_open`
+- `entry_high`
+- `entry_low`
+- `entry_close`
+   float; OHLC values of the aligned entry bar
+- `entry_tick_volume`
+   float or integer; tick activity measure from the aligned entry bar
+
+## 4. Forward returns
+
+For each horizon `h` in:
+
+```
+[1, 2, 4, 6, 12, 24, 48]
+```
+
+the dataset must include:
+
+- `ret_{h}b`
+   float; forward return defined as:
+
+  ```
+  future_close_h / entry_close - 1
+  ```
+
+- `contrarian_ret_{h}b`
+   float; contrarian return defined as:
+
+  ```
+  -sign(net_sentiment) * ret_{h}b
+  ```
+
+### Return semantics
+
+Returns are defined on **trading bars ahead**, not wall-clock hours.
+
+Example:
+
+- `ret_12b` means return after 12 future hourly trading bars within that pair’s price series
+
+### Contrarian sign convention
+
+A positive `contrarian_ret_{h}b` means:
+
+- fading the retail crowd would have been profitable
+
+A negative `contrarian_ret_{h}b` means:
+
+- the crowd was correct over that horizon
+
+## 5. Quality and filtering helpers
+
+- `eligible`
+   boolean; row qualifies for coverage-based universe evaluation
+- `within_price_window`
+   boolean; `snapshot_time` falls within available price history window for that pair
+- `is_weekday`
+   boolean; event falls on a weekday according to current pipeline logic
+- `price_start`
+   datetime; first available price timestamp for the pair
+- `price_end`
+   datetime; last available price timestamp for the pair
+- `price_bars`
+   integer; number of hourly price bars available for the pair
+
+------
+
+## Missingness rules
+
+### Entry alignment
+
+If no valid `entry_time` can be assigned, then:
+
+- `entry_time` is `NA`
+- entry-bar OHLC fields are `NA`
+- forward returns are `NA`
+
+Rows without valid entry bars may be removed in filtered outputs.
+
+### Forward returns
+
+If the required future price bar does not exist for a given horizon, then:
+
+- `ret_{h}b` is `NA`
+- `contrarian_ret_{h}b` is `NA`
+
+This is expected near the end of the available price series.
+
+------
+
+## Merge contract
+
+The current merge contract is:
+
+- merge type: forward alignment
+- by pair
+- align to first hourly bar at or after `snapshot_time`
+- exact matches allowed
+- tolerance: `90min`
+
+These settings must be recorded in `DATASET_MANIFEST.json`.
+
+------
+
+## Timezone alignment contract
+
+The current timezone alignment assumption is:
+
+- sentiment timestamps correspond to `UTC+2`
+- price timestamps correspond to `UTC+1`
+- therefore `snapshot_time` is shifted by `-1h` before merging
+
+This assumption must be recorded in `DATASET_MANIFEST.json`.
+
+------
+
+## Compatibility and evolution
+
+### Immutability rule
+
+After schema version `1.0` is published:
+
+- existing columns must not be renamed
+- existing column meanings must not change
+- new columns may be added only in a backward-compatible way
+
+### Backward compatibility rule
+
+Downstream consumers should be able to rely on all required columns documented here remaining present and semantically stable across `1.x` versions.
