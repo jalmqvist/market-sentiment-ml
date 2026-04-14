@@ -383,6 +383,13 @@ def add_forward_returns(
         out[ret_col] = out[future_close_col] / out["entry_close"] - 1.0
         out[contrarian_col] = -np.sign(out["net_sentiment"]) * out[ret_col]
 
+    # After computing returns: safety net
+    for h in horizons:
+        ret_col = f"ret_{h}b"
+        contrarian_col = f"contrarian_ret_{h}b"
+
+        mask = out[ret_col].abs() > 0.2
+        out.loc[mask, [ret_col, contrarian_col]] = np.nan
     return out
 
 ### Manifest helpers
@@ -497,6 +504,43 @@ def get_git_commit_hash() -> str | None:
         return sha if sha else None
     except Exception:
         return None
+
+def add_trend_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Adds backward-looking trend features based on entry prices.
+
+    Features:
+    - trend_12b: past 12-bar return (close-to-close)
+    - trend_dir_12b: sign of trend (+1, -1)
+    - trend_alignment_12b: crowd_side * trend_dir
+    - trend_strength_12b: absolute trend magnitude
+    """
+    out = df.copy()
+
+    # Ensure proper ordering for pct_change
+    out = out.sort_values(["pair", "entry_time"]).reset_index(drop=True)
+
+    # Past 12-bar return (backward-looking)
+    out["trend_12b"] = (
+        out.groupby("pair")["entry_close"]
+        .pct_change(12)
+    )
+
+    # Direction: +1 (up), -1 (down), NaN if no history
+    out["trend_dir_12b"] = np.sign(out["trend_12b"])
+
+    # Optional: remove 0 (flat) cases → treat as NaN
+    out.loc[out["trend_dir_12b"] == 0, "trend_dir_12b"] = np.nan
+
+    # Alignment: +1 (with trend), -1 (against trend)
+    out["trend_alignment_12b"] = (
+        out["crowd_side"] * out["trend_dir_12b"]
+    )
+
+    # Strength (magnitude only)
+    out["trend_strength_12b"] = out["trend_12b"].abs()
+
+    return out
 
 def build_master_dataset(
     sentiment_dir: Path,
@@ -615,11 +659,34 @@ def build_master_dataset(
     master_valid = master.dropna(subset=["entry_time", "entry_close"]).copy()
     print(f"\nRows with valid entry bar: {len(master_valid):,}")
 
+    # ============================================
+    # Remove known corrupted pairs (price scaling issues)
+    # ============================================
+    BAD_PAIRS = {
+        "eur-mxn",
+        "gbp-zar",  # optional but recommended
+    }
+
+    before_rows = len(master_valid)
+    before_pairs = master_valid["pair"].nunique()
+
+    master_valid = master_valid[~master_valid["pair"].isin(BAD_PAIRS)].copy()
+
+    after_rows = len(master_valid)
+    after_pairs = master_valid["pair"].nunique()
+
+    print("\nRemoved corrupted pairs:")
+    print(f"  pairs removed: {sorted(BAD_PAIRS)}")
+    print(f"  rows removed: {before_rows - after_rows:,}")
+    print(f"  remaining pairs: {after_pairs:,} (was {before_pairs:,})")
+
     # Add forward returns BEFORE splitting, so column parity stays easier to maintain
     master_valid = add_forward_returns(master_valid, prices, horizons=horizons)
 
     # Stable sentiment side fields
     master_valid = add_crowd_side(master_valid)
+    master_valid = add_trend_features(master_valid)
+
     master_valid["is_long_crowd"] = master_valid["crowd_side"] == 1
     master_valid["is_short_crowd"] = master_valid["crowd_side"] == -1
 
