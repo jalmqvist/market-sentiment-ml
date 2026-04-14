@@ -15,7 +15,7 @@ def filter_base(df):
     return df[
         (df["abs_sentiment"] >= 70)
         & (df["extreme_streak_70"] >= 3)
-        & df["trend_alignment_12b"].notna()
+        & df["trend_alignment_12b"].isin([-1, 1])
     ].copy()
 
 

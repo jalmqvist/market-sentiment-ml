@@ -218,6 +218,72 @@ A negative `contrarian_ret_{h}b` means:
 
 ------
 
+## 6. Trend features (analysis-only)
+
+The dataset includes trend-related columns derived from **past returns**.
+
+These features are intended for **behavioral analysis only** and must not be used as predictive inputs without careful leakage consideration.
+
+### Definition
+
+For horizons:
+
+[12, 48]
+
+
+the dataset includes:
+
+- `past_ret_{h}b`
+  float; return over the previous `h` trading bars:
+
+
+entry_close / entry_close_shifted_h - 1
+
+
+- `trend_dir_{h}b`
+float; sign of `past_ret_{h}b`:
+- `+1` → uptrend
+- `-1` → downtrend
+- `0` → neutral
+
+- `trend_alignment_{h}b`
+float; alignment between crowd and trend:
+
+
+crowd_side * trend_dir_{h}b
+
+
+Interpretation:
+- `+1` → crowd aligned with trend (trend-following / late chasing)
+- `-1` → crowd fighting trend (early reversal behavior)
+
+- `trend_strength_{h}b`
+float; absolute magnitude of past trend:
+
+
+abs(past_ret_{h}b)
+
+
+### Important constraint
+
+These features are computed using **past price information only** and are therefore safe for conditional analysis.
+
+They are intentionally separated from forward returns to avoid leakage.
+
+------
+
+## 7. Analysis filtering convention
+
+All downstream analysis scripts are expected to apply the following return filter:
+
+
+-0.1 < contrarian_ret_{h}b < 0.1
+
+
+This removes extreme outliers caused by data issues or illiquid price jumps and ensures comparability across analyses.
+
+---
+
 ## Missingness rules
 
 ### Entry alignment
