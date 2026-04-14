@@ -392,6 +392,44 @@ def add_forward_returns(
         out.loc[mask, [ret_col, contrarian_col]] = np.nan
     return out
 
+# =========================
+# Trend features
+# =========================
+
+def add_trend_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Add trend features based on PAST returns (causal-safe).
+
+    trend_{h}b: past return over h bars
+    trend_dir_{h}b: sign of past trend
+    trend_alignment_{h}b:
+        +1 → crowd aligned with past trend
+        -1 → crowd fighting past trend
+         0 → neutral / undefined
+    trend_strength_{h}b: absolute past return
+    """
+    out = df.copy()
+
+    for h in [12, 48]:
+        # --- compute past return ---
+        out[f"past_ret_{h}b"] = (
+            out.groupby("pair")["entry_close"]
+            .pct_change(periods=h)
+        )
+
+        # --- trend direction ---
+        out[f"trend_dir_{h}b"] = np.sign(out[f"past_ret_{h}b"])
+
+        # --- alignment ---
+        out[f"trend_alignment_{h}b"] = (
+            out["crowd_side"] * out[f"trend_dir_{h}b"]
+        )
+
+        # --- strength ---
+        out[f"trend_strength_{h}b"] = out[f"past_ret_{h}b"].abs()
+
+    return out
+
 ### Manifest helpers
 
 def ensure_output_dir(path: Path) -> None:
@@ -682,6 +720,11 @@ def build_master_dataset(
 
     # Add forward returns BEFORE splitting, so column parity stays easier to maintain
     master_valid = add_forward_returns(master_valid, prices, horizons=horizons)
+
+    # Add trend features (analysis-only, uses forward returns)
+    master_valid = add_trend_features(master_valid)
+    print("Trend feature columns added:",
+          [c for c in master_valid.columns if c.startswith("trend_")][:5])
 
     # Stable sentiment side fields
     master_valid = add_crowd_side(master_valid)

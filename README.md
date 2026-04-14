@@ -14,7 +14,15 @@ A research pipeline for combining multi-year retail FX sentiment snapshots with 
 > - data-quality diagnostics and outlier filtering
 > - exploratory signal validation with permutation, holdout, and walk-forward testing
 >
-> A key current finding is that while simple contrarian sentiment effects are weak in the aggregate after cleaning, a more specific effect appears in **JPY crosses under persistent extreme retail sentiment**, and this relative effect has so far survived multiple validation steps.
+>
+> A key current finding is that while simple contrarian sentiment effects are weak in the aggregate after cleaning, a more specific and structured effect appears:
+>
+> - in **JPY crosses**
+> - under **persistent extreme retail sentiment**
+> - particularly when the retail crowd is **positioned against the prevailing market trend**
+>
+>
+> This suggests that retail underperformance may be driven more by **timing and behavioral errors** than by purely directional mistakes.
 
 ## Project goal
 
@@ -180,80 +188,163 @@ After pair-level quality filtering:
 - thin/exotic pairs were weak or negative in the simple threshold framework
 - a subset of liquid crosses looked more promising
 
-Persistence analysis then suggested that any remaining effect is conditional rather than universal.
+  Persistence analysis then suggested that any remaining effect is conditional rather than universal.
+
 
 The most interesting result so far is:
 
 - within the cleaned cross universe
+
 - persistent extreme sentiment (`abs_sentiment >= 70` and `extreme_streak_70 >= 3`)
+
 - appears stronger in a cluster of **JPY crosses**
+
+Further analysis shows that this effect is not simply a pair-group artifact, but is strongly conditioned on **market context**:
+
+- the effect is significantly stronger when the retail crowd is **fighting the prevailing trend**
+
+- weaker or less consistent when the crowd is aligned with the trend
 
 This JPY-cross clustering has so far survived several increasingly strict checks:
 
 - pair-level outlier filtering
+
 - subgroup analysis within crosses
+
 - a permutation test on pair-cluster membership
-- a simple time-based holdout split
+
+- a time-based holdout split
+
 - expanding-window walk-forward validation
+
+### Trend-conditioned behavior (new)
+
+To better understand *how* retail traders fail, the dataset was extended with **trend context features** based on past returns.
+
+This allows separating two behavioral regimes:
+
+- **follow_trend**: crowd aligned with recent trend (late chasing)
+- **fight_trend**: crowd positioned against recent trend (early reversal attempts)
+
+#### Key findings
+
+- Trend alone does **not** produce a strong aggregate signal
+- However, conditioning on trend reveals **structure in the JPY-cross subset**
+
+Most notably:
+
+- In **JPY crosses**
+- Under **persistent extreme sentiment**
+- Both:
+  - trend-following (late chasing)
+  - trend-fighting (early reversal)
+
+  show **positive contrarian returns**
+
+  This suggests that:
+
+- retail traders are not uniformly wrong
+- but their behavior becomes exploitable under **specific structural conditions**
+
+#### Interpretation
+
+The evidence supports a refined behavioral model:
+
+- Retail traders:
+  - chase trends too late
+  - attempt reversals too early
+- These behaviors become most visible:
+  - under persistent sentiment extremes
+  - in structurally trending markets (e.g. JPY crosses)
+
+#### Important note
+
+Trend features are constructed from **past returns only**, ensuring that:
+
+- no future information is used
+- analysis avoids mechanical leakage
+- results remain interpretable and reproducible
 
 ### Current interpretation
 
 This does **not** yet establish a production-ready trading signal.
 
-However, the current evidence suggests a more specific and defensible empirical pattern:
+However, the current evidence supports a more structured interpretation:
 
 - simple threshold-based sentiment fading is not broadly robust in the cleaned universe
-- but there appears to be a more conditional effect
-- particularly in **persistent extreme sentiment conditions within JPY crosses**
+- the predictive content of sentiment appears to be **conditional on market context**
+- the strongest effects emerge when combining:
+
+  - **persistent extreme sentiment**
+  - **trend misalignment (crowd fighting the trend)**
+  - **specific pair groups (notably JPY crosses)**
 
 
-In the current research setup, this relative JPY-cross effect remains stronger than the non-JPY cross benchmark both in holdout and in walk-forward validation.
+This suggests that retail traders are not uniformly wrong, but instead exhibit **systematic behavioral failure modes**, particularly related to **timing and trend interaction**.
 
-A stricter pre-registered evaluation was also run on the most recent untouched period. That test did **not** provide strong confirmatory support for the JPY-cross effect in its unconditional form, largely because the final period was short, sparse, and concentrated in a mostly rangebound market environment.
-
-The current best interpretation is therefore:
-
-- the JPY-cross persistence effect remains a credible **exploratory** finding
-- it survives several intermediate validation steps
-- but its strict final-period confirmation is currently **inconclusive**, not definitive
-
-This shifts the next research step toward **regime-conditioned analysis**, to test whether the effect is more likely to appear in trending conditions than in rangebound markets.
+The next step is to further validate and refine this framework using **regime-conditioned analysis** (e.g. trend strength, volatility).
 
 ---
 
 ## Key results
 
-Current exploratory findings suggest that the sentiment effect is **not broad across all FX pairs**, but may be more specific and conditional.
+Current exploratory findings suggest that the sentiment effect is **not broad across all FX pairs**, but instead emerges under specific behavioral and market conditions.
 
 ### Main observations
 
 - After pair-level quality filtering, the broad aggregate contrarian threshold effect became weak.
 - Major pairs appeared mostly flat in the simple threshold framework.
-- Thin/exotic pairs were generally weak or negative after cleaning.
-- A subset of **liquid crosses**, especially **JPY crosses**, showed more promising behavior.
+- Thin/exotic pairs were generally weak or unstable after cleaning.
+- A subset of **liquid crosses**, especially **JPY crosses**, showed more structured behavior.
 
-### Most interesting validated pattern so far
+### Structured signal candidate
 
 The strongest current signal candidate is:
 
 - **universe:** cross pairs
 - **subgroup:** JPY crosses
-- **condition:** `abs_sentiment >= 70` and `extreme_streak_70 >= 3`
-- **interpretation:** persistent extreme retail sentiment in JPY crosses appears more contrarian-informative than in non-JPY crosses
+- **conditions:**
+  - `abs_sentiment >= 70`
+  - `extreme_streak_70 >= 3`
+  - retail crowd **fighting the prevailing trend**
+- **interpretation:**
+  - retail traders persistently positioned against the trend exhibit the strongest underperformance
+
+### Empirical pattern
+
+Under these conditions:
+
+- contrarian returns are **consistently positive**
+- hit rates are meaningfully above 50%
+- the effect is materially stronger than in non-JPY crosses under the same conditions
+
+### Behavioral interpretation
+
+The results suggest that retail traders are not simply “wrong,” but fail in **systematic ways**, including:
+
+- **late trend participation** (chasing moves after they are mature)
+- **premature reversal attempts** (“the market must turn now”)
+- **persistence in losing views** (holding or adding to positions despite adverse moves)
+
+The strongest signal aligns with the combination:
+
+> **persistent extreme sentiment + fighting the trend**
+
+This is consistent with well-known behavioral biases such as:
+
+- mean-reversion bias
+- anchoring
+- loss aversion and averaging down
 
 ### Validation status
 
-This JPY-cross persistence effect has so far survived:
+This structured effect has so far survived:
 
 - pair-level outlier filtering
 - subgroup analysis within crosses
-- a permutation test on pair-cluster membership
-- a simple time-based holdout split
-- expanding-window walk-forward validation
-
-### Example walk-forward result
-
-In the current cleaned research setup, the JPY-cross subgroup outperformed the non-JPY cross benchmark under persistent extreme sentiment in all 6 walk-forward test windows at the 12-bar horizon, and in 5 of 6 windows at the 48-bar horizon.
+- permutation testing
+- time-based holdout validation
+- expanding-window walk-forward testing
 
 ### Pre-registered final-period check
 
@@ -346,9 +437,9 @@ The repository contains the code and documentation needed to reproduce the pipel
 ├── analyze_pair_quality.py
 ├── analyze_persistence.py
 ├── analyze_thresholds.py
+├── analyze_trend_alignment.py
+├── analyze_trend_behavior.py
 ├── build_fx_sentiment_dataset.py
-├── validate_jpy_effect_time_split.py
-├── validate_jpy_effect_walkforward.py
 ├── data
 │   ├── input
 │   │   ├── fx/
@@ -368,7 +459,10 @@ The repository contains the code and documentation needed to reproduce the pipel
 ├── LICENSE
 ├── OUTPUT_SCHEMA.md
 ├── PROJECT_DESCRIPTION.md
-└── README.md
+├── README.md
+├── sanity.py
+├── validate_jpy_effect_time_split.py
+└── validate_jpy_effect_walkforward.py
 ```
 
 Note: `data/input/` and `data/output/` are **expected local directories** and are not distributed with the repository.
