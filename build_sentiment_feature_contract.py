@@ -248,28 +248,11 @@ def build_feature_contract(
     merged["schema_version"] = SCHEMA_VERSION
 
     # ------------------------------------------------------------------
-    # 6.  Null out feature columns where there is no snapshot
-    #     (ensures no implicit backward-fill artefacts from merge)
+    # 6.  Select and order contract columns
     # ------------------------------------------------------------------
-    feature_cols = [
-        "net_sentiment",
-        "abs_sentiment",
-        "crowd_side",
-        "extreme_70",
-        "extreme_streak_70",
-        "side_streak",
-        "sentiment_change",
-    ]
-    no_snap_mask = ~merged["has_snapshot"]
-    for col in feature_cols:
-        if col in merged.columns:
-            # Cast to object first so None can be assigned regardless of dtype
-            merged[col] = merged[col].astype(object)
-            merged.loc[no_snap_mask, col] = None
-
-    # ------------------------------------------------------------------
-    # 7.  Select and order contract columns
-    # ------------------------------------------------------------------
+    # Note: rows with no prior snapshot (has_snapshot=False) already have
+    # NaN in all feature columns from merge_asof; no explicit nulling is
+    # needed here.
     contract_cols = [
         # Keys
         "schema_version",
@@ -303,7 +286,7 @@ def build_feature_contract(
     result = merged[contract_cols].copy()
 
     # ------------------------------------------------------------------
-    # 8.  Type enforcement
+    # 7.  Type enforcement
     # ------------------------------------------------------------------
     result["entry_time"] = pd.to_datetime(result["entry_time"])
     result["snapshot_time"] = pd.to_datetime(result["snapshot_time"])
@@ -321,12 +304,12 @@ def build_feature_contract(
     result = result.sort_values(["pair", "entry_time"]).reset_index(drop=True)
 
     # ------------------------------------------------------------------
-    # 9.  QA checks
+    # 8.  QA checks
     # ------------------------------------------------------------------
     _run_qa(result)
 
     # ------------------------------------------------------------------
-    # 10. Write outputs
+    # 9.  Write outputs
     # ------------------------------------------------------------------
     output_parquet.parent.mkdir(parents=True, exist_ok=True)
     result.to_parquet(output_parquet, index=False)
