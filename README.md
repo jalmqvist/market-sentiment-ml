@@ -109,7 +109,28 @@ The dataset builder performs the following steps:
 
 ---
 
-## Key implementation choices
+## Hourly feature contract (`sentiment_features_h1_v1`)
+
+In addition to the event-level research dataset, the pipeline can produce a
+downstream-ready **hourly feature table** via a second build script:
+
+```bash
+python build_sentiment_feature_contract.py
+```
+
+This generates:
+
+| Artifact | Path |
+|---|---|
+| Feature table (Parquet) | `data/output/features/sentiment_features_h1_v1.parquet` |
+| Build manifest (JSON) | `data/output/features/SENTIMENT_FEATURE_MANIFEST_h1_v1.json` |
+
+The contract uses **as-of (forward-fill) semantics**: at each H1 bar open
+(`entry_time`), features reflect the latest sentiment snapshot with
+`snapshot_time ≤ entry_time`.  No backward filling is applied.
+
+See [`docs/SENTIMENT_FEATURE_SCHEMA.md`](docs/SENTIMENT_FEATURE_SCHEMA.md)
+for the full schema definition and contract rules.
 
 ### Snapshot-level sentiment alignment
 
@@ -440,12 +461,16 @@ The repository contains the code and documentation needed to reproduce the pipel
 ├── analyze_trend_alignment.py
 ├── analyze_trend_behavior.py
 ├── build_fx_sentiment_dataset.py
+├── build_sentiment_feature_contract.py
 ├── data
 │   ├── input
 │   │   ├── fx/
 │   │   └── sentiment/
 │   ├── output
 │   │   ├── analysis/
+│   │   ├── features/
+│   │   │   ├── sentiment_features_h1_v1.parquet
+│   │   │   └── SENTIMENT_FEATURE_MANIFEST_h1_v1.json
 │   │   ├── DATASET_MANIFEST.json
 │   │   ├── master_research_dataset.csv
 │   │   ├── master_research_dataset_core.csv
@@ -454,6 +479,8 @@ The repository contains the code and documentation needed to reproduce the pipel
 │   └── sample
 │       ├── fx/
 │       └── sentiment/
+├── docs
+│   └── SENTIMENT_FEATURE_SCHEMA.md
 ├── DATA_AVAILABILITY.md
 ├── INPUT_SCHEMA.md
 ├── LICENSE
