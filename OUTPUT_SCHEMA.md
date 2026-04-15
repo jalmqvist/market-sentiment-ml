@@ -87,17 +87,48 @@ Note: multiple sentiment events may map to the same `entry_time` in the full dat
 
 ## Time semantics
 
-### `snapshot_time`
+### Snapshot timestamp
+- `snapshot_time` represents the **final corrected UTC timestamp** used in the dataset.
+- Sentiment snapshots are originally recorded in UTC+2 and shifted by -1 hour to align with FX price data (UTC+1).
+- The stored `snapshot_time` is the **canonical reference time** used for all joins and downstream analysis.
 
-The sentiment event timestamp after timezone correction.
+------
 
-### `entry_time`
+### Entry timestamp (H1 bars)
+- `entry_time` is the **open time of the H1 bar** (start of the hour, UTC).
+- Sentiment is aligned using a forward-asof rule:
+  - each snapshot is matched to the **first bar with time ≥ snapshot_time** within a fixed tolerance (see DATASET_MANIFEST.json).
+- Interpretation:
+  - sentiment is assumed to be available **at or before `entry_time`**
+  - and informs decisions for that bar
 
-The first hourly price bar timestamp at or after `snapshot_time` that satisfies the configured merge tolerance.
+------
 
-### Time consistency
+### Execution alignment (important)
+- All features are defined at `entry_time` (bar open).
+- Forward returns are computed relative to `entry_close`.
+- Backtesting systems may apply execution delays (e.g., enter at next bar close), but:
+  - this must be handled in the backtester
+  - the dataset itself remains **unshifted and time-consistent**
 
-Datetime columns may be timezone-naive in CSV output, but their interpretation must remain stable and consistent across all artifacts.
+------
+
+### Causality guarantee
+The dataset enforces the following ordering:
+
+```
+snapshot_time ≤ entry_time < future return horizon timestamps
+```
+
+This ensures that:
+- no future information is used in feature construction
+- all forward returns are strictly out-of-sample relative to the signal
+
+------
+
+### Column naming clarity
+- `snapshot_time`: UTC timestamp of sentiment observation
+- `entry_time`: UTC timestamp of bar open used for evaluation
 
 ------
 
@@ -228,45 +259,46 @@ These features are intended for **behavioral analysis only** and must not be use
 
 For horizons:
 
+```
 [12, 48]
-
+```
 
 the dataset includes:
 
 - `past_ret_{h}b`
   float; return over the previous `h` trading bars:
 
-
-entry_close / entry_close_shifted_h - 1
-
+  ```
+  entry_close / entry_close_shifted_h - 1
+  ```
 
 - `trend_dir_{h}b`
-float; sign of `past_ret_{h}b`:
-- `+1` → uptrend
-- `-1` → downtrend
-- `0` → neutral
+  float; sign of `past_ret_{h}b`:
+  - `+1` → uptrend
+  - `-1` → downtrend
+  - `0` → neutral
 
 - `trend_alignment_{h}b`
-float; alignment between crowd and trend:
+  float; alignment between crowd and trend:
 
+  ```
+  crowd_side * trend_dir_{h}b
+  ```
 
-crowd_side * trend_dir_{h}b
-
-
-Interpretation:
-- `+1` → crowd aligned with trend (trend-following / late chasing)
-- `-1` → crowd fighting trend (early reversal behavior)
+  Interpretation:
+  - `+1` → crowd aligned with trend (trend-following / late chasing)
+  - `-1` → crowd fighting trend (early reversal behavior)
 
 - `trend_strength_{h}b`
-float; absolute magnitude of past trend:
+  float; absolute magnitude of past trend:
 
-
-abs(past_ret_{h}b)
-
+  ```
+  abs(past_ret_{h}b)
+  ```
 
 ### Important constraint
 
-These features are computed using **past price information only** and are therefore safe for conditional analysis.
+These features are computed using **past price information only** and are therefore causally safe for conditional analysis.
 
 They are intentionally separated from forward returns to avoid leakage.
 
