@@ -380,6 +380,67 @@ That final-period check was **inconclusive** rather than confirmatory. The lates
 
 ---
 
+### Signal vs risk trade-off
+
+![Signal vs risk](docs/images/signal_vs_risk_jpy.png)
+
+This plot shows the trade-off between return magnitude and variability across trend strength regimes.
+
+Key observation:
+
+- Strong trends offer the best balance of consistency and return
+- Extreme trends deliver higher average returns but with increased variability
+
+---
+
+### Trend-conditioned behavior (JPY crosses)
+
+The chart below illustrates how contrarian returns vary with **trend strength** under persistent sentiment conditions.
+
+- X-axis: trend strength buckets (weak → extreme)
+- Y-axis: mean contrarian return
+- Split by:
+  - **fight_trend** (retail positioned against trend)
+  - **follow_trend** (retail aligned with trend)
+
+    ![Trend strength vs contrarian returns](docs/images/trend_strength_jpy.png)
+
+Key observation:
+
+- When retail traders fight the trend:
+
+  - The signal becomes stronger as trend strength increases
+  - Predictability (hit rate) peaks in strong trends
+  - Return magnitude peaks in extreme trends, but with higher variability
+
+
+This suggests a trade-off between consistency and payoff under extreme market conditions.
+
+- When retail traders **follow the trend**, the strongest signal appears in **extreme trends** (late chasing)
+
+- The effect is concentrated in **JPY crosses** and largely absent in non-JPY pairs
+
+  This supports a behavioral interpretation where retail traders systematically mistime both entries and reversals under different market conditions.
+
+---
+
+### Practical interpretation (decision rule)
+
+The results suggest two distinct behavioral opportunities in JPY crosses under persistent sentiment:
+
+- When retail traders **fight the trend**:
+  - strongest and most consistent signal occurs in **strong trends**
+
+- When retail traders **follow the trend**:
+  - strongest signal occurs in **extreme trends**
+
+  This implies a regime-dependent approach:
+
+- use **strong trends** for more stable signals
+- use **extreme trends** for higher-risk, higher-reward opportunities
+
+---
+
 ## Running the project
 
 ### 1. Build the research dataset

@@ -45,6 +45,16 @@ def classify_jpy_group(df: pd.DataFrame) -> pd.DataFrame:
 
     return out
 
+def ensure_trend_strength(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Ensure trend strength bucket exists (defensive).
+    """
+    out = df.copy()
+
+    if "trend_strength_bucket_12b" not in out.columns:
+        raise ValueError("Missing trend_strength_bucket_12b — rebuild dataset")
+
+    return out
 
 def summarize(df: pd.DataFrame, ret_col: str) -> dict:
     x = df[ret_col].dropna()
@@ -156,7 +166,51 @@ def run_analysis(df: pd.DataFrame):
                         "pair_group": pg,
                         **stats
                     })
+        # 5. Trend × strength (NEW)
+        for strength in ["weak", "medium", "strong", "extreme"]:
+            for trend_bucket in ["follow_trend", "fight_trend"]:
 
+                subset = df[
+                    (df["trend_behavior"] == trend_bucket) &
+                    (df["trend_strength_bucket_12b"] == strength)
+                ]
+
+                stats = summarize(subset, ret_col)
+
+                results.append({
+                    "horizon": h,
+                    "analysis": "trend_x_strength",
+                    "trend_bucket": trend_bucket,
+                    "trend_strength": strength,
+                    "persistence": "all",
+                    "pair_group": "all",
+                    **stats
+                })
+
+        # 6. Full interaction × strength (🔥)
+        for strength in ["weak", "medium", "strong", "extreme"]:
+            for trend_bucket in ["follow_trend", "fight_trend"]:
+                for persistence in ["persistent", "non_persistent"]:
+                    for pg in ["JPY_cross", "non_JPY"]:
+
+                        subset = df[
+                            (df["trend_behavior"] == trend_bucket) &
+                            (df["trend_strength_bucket_12b"] == strength) &
+                            (df["persistence_bucket"] == persistence) &
+                            (df["pair_group_simple"] == pg)
+                        ]
+
+                        stats = summarize(subset, ret_col)
+
+                        results.append({
+                            "horizon": h,
+                            "analysis": "full_interaction_strength",
+                            "trend_bucket": trend_bucket,
+                            "trend_strength": strength,
+                            "persistence": persistence,
+                            "pair_group": pg,
+                            **stats
+                        })
     return pd.DataFrame(results)
 
 
@@ -173,6 +227,7 @@ def main():
     df = classify_trend_alignment(df)
     df = classify_persistence(df)
     df = classify_jpy_group(df)
+    df = ensure_trend_strength(df)
 
     # Only keep rows with valid trend
     df = df[

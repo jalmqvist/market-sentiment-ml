@@ -398,35 +398,35 @@ def add_forward_returns(
 
 def add_trend_features(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Add trend features based on PAST returns (causal-safe).
+    Add causal (backward-looking) trend features.
 
-    trend_{h}b: past return over h bars
-    trend_dir_{h}b: sign of past trend
-    trend_alignment_{h}b:
-        +1 → crowd aligned with past trend
-        -1 → crowd fighting past trend
-         0 → neutral / undefined
-    trend_strength_{h}b: absolute past return
+    trend_12b / trend_48b: past returns
+    trend_dir: sign of past return
+    trend_alignment: crowd_side * trend_dir
+    trend_strength: absolute return
     """
     out = df.copy()
 
+    out = out.sort_values(["pair", "entry_time"]).reset_index(drop=True)
+
     for h in [12, 48]:
-        # --- compute past return ---
-        out[f"past_ret_{h}b"] = (
+        # past return
+        out[f"trend_{h}b"] = (
             out.groupby("pair")["entry_close"]
-            .pct_change(periods=h)
+            .pct_change(h)
         )
 
-        # --- trend direction ---
-        out[f"trend_dir_{h}b"] = np.sign(out[f"past_ret_{h}b"])
+        # direction
+        out[f"trend_dir_{h}b"] = np.sign(out[f"trend_{h}b"])
+        out.loc[out[f"trend_dir_{h}b"] == 0, f"trend_dir_{h}b"] = np.nan
 
-        # --- alignment ---
+        # alignment
         out[f"trend_alignment_{h}b"] = (
             out["crowd_side"] * out[f"trend_dir_{h}b"]
         )
 
-        # --- strength ---
-        out[f"trend_strength_{h}b"] = out[f"past_ret_{h}b"].abs()
+        # strength
+        out[f"trend_strength_{h}b"] = out[f"trend_{h}b"].abs()
 
     return out
 
@@ -542,43 +542,6 @@ def get_git_commit_hash() -> str | None:
         return sha if sha else None
     except Exception:
         return None
-
-def add_trend_features(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Adds backward-looking trend features based on entry prices.
-
-    Features:
-    - trend_12b: past 12-bar return (close-to-close)
-    - trend_dir_12b: sign of trend (+1, -1)
-    - trend_alignment_12b: crowd_side * trend_dir
-    - trend_strength_12b: absolute trend magnitude
-    """
-    out = df.copy()
-
-    # Ensure proper ordering for pct_change
-    out = out.sort_values(["pair", "entry_time"]).reset_index(drop=True)
-
-    # Past 12-bar return (backward-looking)
-    out["trend_12b"] = (
-        out.groupby("pair")["entry_close"]
-        .pct_change(12)
-    )
-
-    # Direction: +1 (up), -1 (down), NaN if no history
-    out["trend_dir_12b"] = np.sign(out["trend_12b"])
-
-    # Optional: remove 0 (flat) cases → treat as NaN
-    out.loc[out["trend_dir_12b"] == 0, "trend_dir_12b"] = np.nan
-
-    # Alignment: +1 (with trend), -1 (against trend)
-    out["trend_alignment_12b"] = (
-        out["crowd_side"] * out["trend_dir_12b"]
-    )
-
-    # Strength (magnitude only)
-    out["trend_strength_12b"] = out["trend_12b"].abs()
-
-    return out
 
 def build_master_dataset(
     sentiment_dir: Path,
@@ -722,7 +685,6 @@ def build_master_dataset(
     master_valid = add_forward_returns(master_valid, prices, horizons=horizons)
 
     # Add trend features (analysis-only, uses forward returns)
-    master_valid = add_trend_features(master_valid)
     print("Trend feature columns added:",
           [c for c in master_valid.columns if c.startswith("trend_")][:5])
 
@@ -732,6 +694,23 @@ def build_master_dataset(
 
     master_valid["is_long_crowd"] = master_valid["crowd_side"] == 1
     master_valid["is_short_crowd"] = master_valid["crowd_side"] == -1
+
+    # --------------------------------
+    # Trend strength buckets (v1)
+    # --------------------------------
+
+    for h in [12, 48]:
+        col = f"trend_strength_{h}b"
+        bucket_col = f"trend_strength_bucket_{h}b"
+
+        # avoid NaNs / extreme outliers
+        valid = master_valid[col].notna()
+
+        master_valid.loc[valid, bucket_col] = pd.qcut(
+            master_valid.loc[valid, col],
+            q=4,
+            labels=["weak", "medium", "strong", "extreme"]
+        )
 
     # Split into filtered datasets
     master_core = master_valid[master_valid["pair"].isin(core_pairs)].copy()
