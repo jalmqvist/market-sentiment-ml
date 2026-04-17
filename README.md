@@ -4,306 +4,192 @@ A research pipeline for combining multi-year retail FX sentiment snapshots with 
 
 ## Executive summary
 
-> This project builds and validates a research pipeline for testing whether **retail FX sentiment** contains predictive information.
->
-> It demonstrates end-to-end quantitative workflow skills:
->
-> - large-scale multi-file data engineering
-> - timestamp alignment across heterogeneous market data sources
-> - feature engineering and target construction
-> - data-quality diagnostics and outlier filtering
-> - exploratory signal validation with permutation, holdout, and walk-forward testing
->
->
-> A key current finding is that while simple contrarian sentiment effects are weak in the aggregate after cleaning, a more specific and structured effect appears:
->
-> - in **JPY crosses**
-> - under **persistent extreme retail sentiment**
-> - particularly when the retail crowd is **positioned against the prevailing market trend**
->
->
-> This suggests that retail underperformance may be driven more by **timing and behavioral errors** than by purely directional mistakes.
+This project builds and validates a research pipeline for testing whether **retail FX sentiment** contains predictive information.
 
-## Project goal
+It demonstrates an end-to-end quantitative workflow:
 
-This project is primarily about demonstrating:
+- large-scale data ingestion and normalization
+- timestamp alignment across heterogeneous sources
+- feature engineering and target construction
+- data-quality diagnostics and filtering
+- structured signal validation (permutation, holdout, walk-forward)
 
-- robust handling of large financial datasets
-- careful timestamp alignment across heterogeneous sources
-- reproducible feature engineering
-- practical data-quality diagnostics
-- research-oriented dataset construction for machine learning and predictive modeling
+The main result is **not a broad contrarian effect**, but a **conditional behavioral signal**:
 
+- concentrated in **JPY crosses**
+- requiring **persistent extreme sentiment**
+- strongly dependent on **trend context**
 
-The goal is **not** to present a production trading system or claim a fully validated profitable strategy.  
-Instead, the project shows how to go from messy raw market data to a structured, analysis-ready dataset using sound data engineering and research practices.
-
-## Research idea
-
-The core research question is whether **retail crowd positioning in FX** contains predictive information.
-
-The working hypothesis is mainly **contrarian**:
-
-- when retail positioning becomes strongly one-sided, fading the crowd may have predictive value
-- the effect may depend on time horizon
-- the effect may depend on persistence of extreme sentiment
-
-
-This repository focuses on **dataset assembly, validation, and exploratory signal research**, which form the basis for later statistical testing and ML modeling.
+This suggests that retail underperformance is driven primarily by **timing errors**, not directional bias alone.
 
 ---
 
-## Data sources
+## Research idea
 
-### 1. Sentiment snapshots
+The core question is whether **retail crowd positioning in FX** contains predictive information.
 
-The sentiment dataset consists of many CSV files scraped over several years. Each file represents one sentiment snapshot and contains rows such as:
+The working hypothesis is contrarian but conditional:
 
-- `pair`
-- `perc`
-- `direction`
-- `time`
+- extreme positioning may be exploitable
+- persistence matters
+- market context (trend) determines when the effect appears
 
-Example interpretation:
-
-- `72 long` means 72% of visible retail crowd is long the pair
-- `61 short` means 61% is short
-
-### 2. FX hourly market data
-
-Hourly market data is exported from MT4 `.hst` files into CSV format with columns:
-
-- `time_utc`
-- `open`
-- `high`
-- `low`
-- `close`
-- `tick_volume`
-
-
-There is one file per FX pair.
+The goal of this repository is not to present a trading strategy, but to show how to move from raw data to a **structured, testable hypothesis**.
 
 ---
 
 ## What the pipeline does
 
-The dataset builder performs the following steps:
+The pipeline transforms raw sentiment snapshots and FX price data into a clean research dataset:
 
-1. Loads and combines all sentiment snapshot files into one panel
-2. Parses snapshot timestamps from filenames
-3. Normalizes pair names across sources
-4. Corrects timezone differences between sentiment and price data
-5. Creates signed sentiment features such as:
-   - `net_sentiment`
-   - `abs_sentiment`
-   - `sentiment_change`
-   - `side_streak`
-   - `extreme_streak_70`
-6. Loads hourly FX data from MT4 CSV exports
-7. Aligns each sentiment snapshot to the **first hourly price bar at or after the snapshot time**
-8. Uses merge tolerance rules to prevent incorrect long-gap matches
-9. Produces pair-level coverage diagnostics
-10. Builds filtered research universes based on data completeness
-11. Computes **trading-bar forward returns**
-12. Computes **contrarian returns** for signal testing
+- aggregates multi-year sentiment snapshots
+- parses timestamps and aligns timezones
+- normalizes pair naming across sources
+- merges sentiment to hourly price bars using forward alignment
+- computes trading-bar forward returns
+- constructs contrarian return targets
+- builds persistence and behavioral features
+
+It also produces an **hourly feature contract** (`sentiment_features_h1_v1`) for downstream ML use.
 
 ---
 
-## Hourly feature contract (`sentiment_features_h1_v1`)
+## Key findings
 
-In addition to the event-level research dataset, the pipeline can produce a
-downstream-ready **hourly feature table** via a second build script:
+### 1. No robust aggregate effect
 
-```bash
-python build_sentiment_feature_contract.py
-```
+After cleaning:
 
-This generates:
+- simple threshold-based contrarian signals are weak
+- major pairs are mostly flat
+- thin/exotic pairs are unstable or misleading
 
-| Artifact | Path |
-|---|---|
-| Feature table (Parquet) | `data/output/features/sentiment_features_h1_v1.parquet` |
-| Build manifest (JSON) | `data/output/features/SENTIMENT_FEATURE_MANIFEST_h1_v1.json` |
-
-The contract uses **as-of (forward-fill) semantics**: at each H1 bar open
-(`entry_time`), features reflect the latest sentiment snapshot with
-`snapshot_time ≤ entry_time`.  No backward filling is applied.
-
-See [`docs/SENTIMENT_FEATURE_SCHEMA.md`](docs/SENTIMENT_FEATURE_SCHEMA.md)
-for the full schema definition and contract rules.
-
-### Snapshot-level sentiment alignment
-
-Each sentiment CSV is treated as a single market snapshot, using the timestamp embedded in the filename as the reference time for all rows in that file.
-
-### Timezone correction
-
-During validation, the following was established:
-
-- sentiment timestamps correspond to `UTC+2`
-- FX price data corresponds to `UTC+1`
-
-
-So sentiment snapshot times are shifted by **-1 hour** before merging.
-
-### Pair-by-pair merge
-
-Sentiment and price data are merged **pair by pair** using forward alignment to the next hourly bar. This avoids unstable global asof-merge behavior and makes debugging much easier.
-
-### Merge tolerance
-
-A merge tolerance is used so that a sentiment snapshot is only matched to a nearby future price bar. This prevents silently matching old sentiment rows to price bars that are days, months, or years later in incomplete price files.
-
-### Trading-bar forward returns
-
-Forward returns are computed in **bars ahead**, not wall-clock hours:
-
-- `ret_1b`
-- `ret_2b`
-- `ret_4b`
-- `ret_6b`
-- `ret_12b`
-- `ret_24b`
-- `ret_48b`
-
-This is more robust in FX because weekends and market closures make wall-clock horizons misleading.
-
-### Contrarian return target
-
-A unified target variable is created:
-
-`contrarian_ret_h = -sign(net_sentiment) * ret_h`
-
-Interpretation:
-
-- positive contrarian return → fading the crowd would have made money
-- negative contrarian return → the crowd was right
+This indicates that **sentiment alone is not broadly predictive**.
 
 ---
 
-## Current research status
+### 2. Structured signal in JPY crosses
 
-The project has progressed beyond raw data assembly into exploratory signal validation.
+A consistent pattern emerges under specific conditions:
 
-### Completed work
+- **pair group:** JPY crosses  
+- **sentiment:** `abs_sentiment ≥ 70`  
+- **persistence:** `extreme_streak_70 ≥ 3`  
 
-- built a multi-source FX research pipeline linking:
-  - retail sentiment snapshots
-  - hourly FX market data
-- normalized pair naming across sources
-- aligned timestamps across different timezones
-- added pair-level coverage diagnostics
-- filtered weak/incomplete price histories
-- replaced wall-clock forward returns with trading-bar forward returns
-- created filtered research universes for cleaner downstream analysis
-- added threshold, persistence, pair-group, outlier, permutation, and time-based validation scripts
+Under these conditions:
 
-### Exploratory findings so far
+- contrarian returns are positive  
+- hit rates are consistently above 50%  
+- the effect is largely absent in non-JPY pairs  
 
-Initial aggregate threshold analysis suggested a contrarian effect, but outlier diagnostics showed that this was largely driven by problematic price behavior in a small number of thin/exotic pairs.
+---
 
-After pair-level quality filtering:
+### 3. Behavior depends on trend alignment
 
-- the broad aggregate threshold effect became weak
-- major pairs appeared mostly flat
-- thin/exotic pairs were weak or negative in the simple threshold framework
-- a subset of liquid crosses looked more promising
+Introducing trend context reveals two distinct regimes:
 
-  Persistence analysis then suggested that any remaining effect is conditional rather than universal.
+- **fight_trend** (retail against trend → early reversal attempts)
+- **follow_trend** (retail with trend → late chasing)
 
+Both can produce positive contrarian returns, but under different conditions.
 
-The most interesting result so far is:
+---
 
-- within the cleaned cross universe
+### 4. Trend strength introduces nonlinearity
 
-- persistent extreme sentiment (`abs_sentiment >= 70` and `extreme_streak_70 >= 3`)
+Conditioning on trend strength reveals a structured pattern:
 
-- appears stronger in a cluster of **JPY crosses**
+- For **fight_trend**:
+  - mean return increases with trend strength
+  - hit rate peaks at **strong** trends
+  - extreme trends deliver larger but noisier returns
 
-Further analysis shows that this effect is not simply a pair-group artifact, but is strongly conditioned on **market context**:
+- For **follow_trend**:
+  - signal is strongest in **extreme** trends
 
-- the effect is significantly stronger when the retail crowd is **fighting the prevailing trend**
+  This implies a **risk–return trade-off** rather than a single optimal regime.
 
-- weaker or less consistent when the crowd is aligned with the trend
+---
 
-This JPY-cross clustering has so far survived several increasingly strict checks:
+### Signal vs risk trade-off
 
-- pair-level outlier filtering
+![Signal vs risk](docs/images/signal_vs_risk_jpy.png)
 
-- subgroup analysis within crosses
+- strong trends → best balance of consistency and return  
+- extreme trends → higher return, higher variability  
 
-- a permutation test on pair-cluster membership
+---
 
-- a time-based holdout split
+### Trend-conditioned behavior (JPY crosses)
 
-- expanding-window walk-forward validation
+![Trend strength vs contrarian returns](docs/images/trend_strength_jpy.png)
 
-### Trend-conditioned behavior (new)
+Key observations:
 
-To better understand *how* retail traders fail, the dataset was extended with **trend context features** based on past returns.
+- fighting strong trends → most reliable signal  
+- following extreme trends → highest payoff but less stable  
+- effect is concentrated in JPY crosses  
 
-This allows separating two behavioral regimes:
+---
 
-- **follow_trend**: crowd aligned with recent trend (late chasing)
-- **fight_trend**: crowd positioned against recent trend (early reversal attempts)
+### Practical interpretation
 
-#### Key findings
+Retail traders fail in two systematic ways:
 
-- Trend alone does **not** produce a strong aggregate signal
-- However, conditioning on trend reveals **structure in the JPY-cross subset**
+- **early reversal** → fighting strong trends too soon  
+- **late chasing** → joining extreme trends too late  
 
-Most notably:
+A simple regime-based interpretation:
 
-- In **JPY crosses**
-- Under **persistent extreme sentiment**
-- Both:
-  - trend-following (late chasing)
-  - trend-fighting (early reversal)
+- use **strong trends** for more stable signals  
+- use **extreme trends** for higher-risk opportunities  
 
-  show **positive contrarian returns**
+---
 
-  This suggests that:
+## Validation status
 
-- retail traders are not uniformly wrong
-- but their behavior becomes exploitable under **specific structural conditions**
+The signal has been tested using:
 
-#### Interpretation
+- pair-level outlier filtering  
+- subgroup analysis  
+- permutation testing  
+- time-based holdout  
+- walk-forward validation  
 
-The evidence supports a refined behavioral model:
+### Walk-forward results
 
-- Retail traders:
-  - chase trends too late
-  - attempt reversals too early
-- These behaviors become most visible:
-  - under persistent sentiment extremes
-  - in structurally trending markets (e.g. JPY crosses)
+- **12-bar horizon:**
+  - consistent positive returns across most folds  
+  - stable hit rates (~0.55–0.60)  
+  - moderate but persistent signal  
 
-#### Important note
+- **48-bar horizon:**
+  - higher variance  
+  - regime-dependent performance  
+  - occasional breakdowns  
 
-Trend features are constructed from **past returns only**, ensuring that:
+  Interpretation:
 
-- no future information is used
-- analysis avoids mechanical leakage
-- results remain interpretable and reproducible
+- the signal is **short-horizon and structural**
+- longer horizons introduce macro noise and reduce stability
 
-### Current interpretation
+---
 
-This does **not** yet establish a production-ready trading signal.
+## Current interpretation
 
-However, the current evidence supports a more structured interpretation:
+The evidence supports a conditional behavioral model:
 
-- simple threshold-based sentiment fading is not broadly robust in the cleaned universe
-- the predictive content of sentiment appears to be **conditional on market context**
-- the strongest effects emerge when combining:
+- retail traders are not uniformly wrong  
+- errors emerge under specific structural conditions  
+- timing relative to trend is the key driver  
 
-  - **persistent extreme sentiment**
-  - **trend misalignment (crowd fighting the trend)**
-  - **specific pair groups (notably JPY crosses)**
+This project therefore reframes sentiment from:
 
+> a generic contrarian signal  
 
-This suggests that retail traders are not uniformly wrong, but instead exhibit **systematic behavioral failure modes**, particularly related to **timing and trend interaction**.
+to:
 
-The next step is to further validate and refine this framework using **regime-conditioned analysis** (e.g. trend strength, volatility).
+> a **regime-dependent behavioral indicator**
 
 ---
 
@@ -405,7 +291,7 @@ The chart below illustrates how contrarian returns vary with **trend strength** 
 
     ![Trend strength vs contrarian returns](docs/images/trend_strength_jpy.png)
 
-Key observation:
+  Key observation:
 
 - When retail traders fight the trend:
 
@@ -521,6 +407,7 @@ The repository contains the code and documentation needed to reproduce the pipel
 ├── analyze_thresholds.py
 ├── analyze_trend_alignment.py
 ├── analyze_trend_behavior.py
+├── analyze_trend_strength_results.py
 ├── build_fx_sentiment_dataset.py
 ├── build_sentiment_feature_contract.py
 ├── data
@@ -541,16 +428,23 @@ The repository contains the code and documentation needed to reproduce the pipel
 │       ├── fx/
 │       └── sentiment/
 ├── docs
+│   ├── images
+│   │   ├── signal_vs_risk_jpy.png
+│   │   └── trend_strength_jpy.png
 │   └── SENTIMENT_FEATURE_SCHEMA.md
 ├── DATA_AVAILABILITY.md
 ├── INPUT_SCHEMA.md
+├── JPY_BEHAVIORAL_HYPOTHESIS.md
 ├── LICENSE
 ├── OUTPUT_SCHEMA.md
+├── PRE_REGISTERED_JPY_EFFECT_TEST.md
 ├── PROJECT_DESCRIPTION.md
 ├── README.md
-├── sanity.py
+├── time_alignment_diagram.md
+├── validate_jpy_effect_preregistered.py
 ├── validate_jpy_effect_time_split.py
-└── validate_jpy_effect_walkforward.py
+├── validate_jpy_effect_walkforward.py
+└── walk_forward_jpy_hypothesis.py
 ```
 
 Note: `data/input/` and `data/output/` are **expected local directories** and are not distributed with the repository.
