@@ -4,6 +4,10 @@ This document defines the stable output artifact contract for the FX retail sent
 
 The purpose of this contract is to make downstream usage predictable across repositories, including integration with external research workflows such as market-phase-ml.
 
+Note:
+This schema describes the research dataset used for analysis.
+Not all fields are included in downstream feature contracts.
+
 ## Schema version
 
 Current schema version: **1.0**
@@ -304,7 +308,29 @@ They are intentionally separated from forward returns to avoid leakage.
 
 ------
 
-## 7. Analysis filtering convention
+### 7. Trend strength features
+
+- `trend_strength_12b` (float)  
+  Absolute magnitude of past return over 12 bars, used as a proxy for trend intensity.
+
+- `trend_strength_48b` (float)  
+  Absolute magnitude of past return over 48 bars.
+
+- `trend_strength_bucket_12b` (string)  
+  Discretized trend strength for 12-bar horizon.  
+  Values: `weak`, `medium`, `strong`, `extreme` (quantile-based).
+
+- `trend_strength_bucket_48b` (string)  
+  Discretized trend strength for 48-bar horizon.  
+  Values: `weak`, `medium`, `strong`, `extreme`.
+
+  Notes:
+- Buckets are computed cross-sectionally using quantiles.
+- Used for regime-conditioned behavioral analysis (not part of feature contract v1).
+
+---
+
+## 8. Analysis filtering convention
 
 All downstream analysis scripts are expected to apply the following return filter:
 
