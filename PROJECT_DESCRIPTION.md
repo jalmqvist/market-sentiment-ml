@@ -69,6 +69,17 @@ This JPY-cross effect has so far survived:
 The current working research direction is:
 
 - validate whether the JPY-cross persistence effect continues to hold under stricter testing
-- test whether the effect depends on **market regime**
-- likely begin with a simple **trend vs non-trend** framework
+- test whether the effect depends on market regime
+
+  Recent results indicate that the signal is strongly conditioned on:
+
+  - volatility regime (high vs low volatility)
+  - trend alignment and strength
+  - persistence of sentiment
+
+  This shifts the research direction toward:
+
+  - regime-aware modeling
+  - integration with external regime detection (market-phase-ml)
+  - evaluation of volatility-gated behavioral signals
 - eventually connect the sentiment features to a broader FX ML feature pipeline

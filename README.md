@@ -18,7 +18,7 @@ The main result is **not a broad contrarian effect**, but a **conditional behavi
 
 - concentrated in **JPY crosses**
 - requiring **persistent extreme sentiment**
-- strongly dependent on **trend context**
+- dependent on both **trend context** and **volatility regime**
 
 This suggests that retail underperformance is driven primarily by **timing errors**, not directional bias alone.
 
@@ -108,6 +108,41 @@ Conditioning on trend strength reveals a structured pattern:
   - signal is strongest in **extreme** trends
 
   This implies a **risk–return trade-off** rather than a single optimal regime.
+
+---
+
+### 5. Volatility regime dependency (NEW)
+
+Recent cross-repo analysis (integration with market-phase-ml) shows that the signal is strongly dependent on volatility regime:
+
+- The signal is **positive and strongest in high-volatility (HV) regimes**
+- The signal is **weak or negative in low-volatility (LV) regimes**
+
+Empirical observation (JPY crosses, persistent extreme sentiment):
+
+- HV regimes → positive mean returns (~ +0.001)
+- LV regimes → near-zero or negative returns
+
+Interpretation:
+
+Retail traders’ behavioral errors are amplified under **high-volatility conditions**, where:
+
+- uncertainty is higher
+- trend structure is less stable
+- emotional and reactive behavior increases
+
+This reframes the signal from:
+
+> trend-conditioned  
+
+to:
+
+> **volatility-gated + behavior-conditioned**
+
+This also explains why:
+
+- the signal appears inconsistent across time
+- performance improves post-2022 (higher volatility regime)
 
 ---
 

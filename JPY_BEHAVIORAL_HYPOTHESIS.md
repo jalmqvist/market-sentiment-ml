@@ -22,6 +22,41 @@ These failure modes are strongest in JPY cross pairs and depend on:
 
 ---
 
+## Extension candidate (v2 — volatility-aware)
+
+Recent results suggest that the behavioral signal is strongly conditioned on volatility regime.
+
+Proposed extension:
+
+Add volatility conditioning:
+
+- is_high_vol == True (from market-phase-ml)
+
+Revised signal structure:
+
+signal_regime_v2 = (
+    pair_group == "JPY_cross"
+    AND extreme_streak_70 >= 3
+    AND is_high_vol == True
+    AND (
+        (trend_alignment == -1 AND trend_strength_bucket IN {"medium", "strong"})
+        OR
+        (trend_alignment == +1 AND trend_strength_bucket == "extreme")
+    )
+)
+
+Preliminary evidence:
+
+- signal is concentrated in HV regimes
+- signal weakens or reverses in LV regimes
+
+Status:
+
+- exploratory (not yet formally pre-registered)
+- candidate for v2 hypothesis specification
+
+---
+
 ## Universe restriction
 
 pair_group == "JPY_cross"
@@ -263,3 +298,38 @@ It defines a testable behavioral structure.
 This specification represents the transition from exploratory analysis to a structured, testable hypothesis.
 
 Any future extensions (e.g. volatility conditioning, regime overlays) should be introduced as new versions (v2, v3) rather than modifying this specification.
+
+---
+
+## Extension candidate (v2 — volatility-aware)
+
+Recent results suggest that the behavioral signal is strongly conditioned on volatility regime.
+
+Proposed extension:
+
+Add volatility conditioning:
+
+- is_high_vol == True (from market-phase-ml)
+
+Revised signal structure:
+
+signal_regime_v2 = (
+    pair_group == "JPY_cross"
+    AND extreme_streak_70 >= 3
+    AND is_high_vol == True
+    AND (
+        (trend_alignment == -1 AND trend_strength_bucket IN {"medium", "strong"})
+        OR
+        (trend_alignment == +1 AND trend_strength_bucket == "extreme")
+    )
+)
+
+Preliminary evidence:
+
+- signal is concentrated in HV regimes
+- signal weakens or reverses in LV regimes
+
+Status:
+
+- exploratory (not yet formally pre-registered)
+- candidate for v2 hypothesis specification

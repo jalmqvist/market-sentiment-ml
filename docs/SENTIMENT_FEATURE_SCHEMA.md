@@ -20,6 +20,10 @@ surfaces the *current sentiment state* at every H1 bar open, keyed by
 ML and backtesting workflows without requiring any joins back to the raw
 snapshot data.
 
+This contract is also designed to support integration with external regime
+datasets (e.g. market-phase-ml), where daily or lower-frequency regime
+labels can be joined to the hourly grid using `(pair, entry_time → date)` alignment.
+
 ---
 
 ## Grain
@@ -139,6 +143,7 @@ a forward-filled series.
 | Column | Type | Description |
 |---|---|---|
 | `pair_group` | string | `JPY_cross` if pair ends with `-jpy`; otherwise `non_JPY` |
+| `pair_group` | string | `JPY_cross` if pair ends with `-jpy`; otherwise `non_JPY`. Used in behavioral regime definitions. |
 
 ---
 
