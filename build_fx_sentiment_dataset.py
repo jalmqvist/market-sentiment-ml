@@ -692,6 +692,54 @@ def build_master_dataset(
     master_valid = add_crowd_side(master_valid)
     master_valid = add_trend_features(master_valid)
 
+    # ============================================
+    # Trend persistence feature (macro proxy)
+    # ============================================
+
+    def compute_trend_persistence(df, horizon=12, window=24):
+        trend_dir_col = f"trend_dir_{horizon}b"
+
+        # Sign of 1-bar returns
+        df["ret_sign"] = np.sign(df["ret_1b"])
+        df.loc[df["ret_sign"] == 0, "ret_sign"] = np.nan
+
+        # Alignment with trend
+        df["trend_alignment_sign"] = df["ret_sign"] * df[trend_dir_col]
+
+        # 1 if aligned, 0 otherwise
+        df["aligned"] = (df["trend_alignment_sign"] > 0).astype(int)
+
+        # Rolling persistence per pair
+        df[f"trend_persistence_{horizon}b"] = (
+            df.groupby("pair")["aligned"]
+            .rolling(window, min_periods=window)
+            .mean()
+            .reset_index(level=0, drop=True)
+        )
+
+        return df
+
+    def bucket_trend_persistence(df, horizon=12):
+        col = f"trend_persistence_{horizon}b"
+
+        def bucket(x):
+            if pd.isna(x):
+                return None
+            elif x < 0.55:
+                return "low"
+            elif x < 0.7:
+                return "medium"
+            else:
+                return "high"
+
+        df[f"trend_persistence_bucket_{horizon}b"] = df[col].apply(bucket)
+
+        return df
+
+    # Apply feature
+    master_valid = compute_trend_persistence(master_valid, horizon=12, window=24)
+    master_valid = bucket_trend_persistence(master_valid, horizon=12)
+
     master_valid["is_long_crowd"] = master_valid["crowd_side"] == 1
     master_valid["is_short_crowd"] = master_valid["crowd_side"] == -1
 

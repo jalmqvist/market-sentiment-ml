@@ -76,6 +76,10 @@ def run():
     df = add_features(df)
     df = df.dropna(subset=["contrarian_ret_12b"])
 
+    # Ensure persistence feature exists
+    if "trend_persistence_bucket_12b" not in df.columns:
+        raise ValueError("Missing column: trend_persistence_bucket_12b. Rebuild dataset.")
+
     print(f"\nRows with regime: {len(df):,}")
 
     # --------------------------------------------------
@@ -103,8 +107,9 @@ def run():
 
     subset = df[
         (df["pair_group"] == "JPY_cross") &
-        (df["extreme_streak_70"] > 0)   # proxy for persistence
-    ]
+        (df["extreme_streak_70"] > 0) &
+        (df["trend_persistence_bucket_12b"] == "medium")
+        ]
 
     res = summarize(
         subset,
@@ -123,8 +128,9 @@ def run():
     subset = df[
         (df["pair_group"] == "JPY_cross") &
         (df["trend_bucket"] == "fight_trend") &
-        (df["extreme_streak_70"] > 0)
-    ]
+        (df["extreme_streak_70"] > 0) &
+        (df["trend_persistence_bucket_12b"] == "medium")
+        ]
 
     res = summarize(
         subset,
@@ -163,8 +169,9 @@ def run():
     subset = df[
         (df["pair_group"] == "JPY_cross") &
         (df["trend_bucket"] == "fight_trend") &
-        (df["extreme_streak_70"] > 0)
-    ]
+        (df["extreme_streak_70"] > 0) &
+        (df["trend_persistence_bucket_12b"] == "medium")
+        ]
 
     res = summarize(
         subset,
@@ -173,7 +180,6 @@ def run():
     )
 
     print(res.sort_values(["phase", "trend_strength_bucket_12b"]).to_string(index=False))
-
 
 if __name__ == "__main__":
     run()

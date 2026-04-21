@@ -42,9 +42,10 @@ def prepare(df):
 
 def apply_signal(df):
     return df[
-        (df["fight_trend"]) &
-        (df["is_strong_plus"])
-    ]
+    (df["fight_trend"]) &
+    (df["is_strong_plus"]) &
+    (df["trend_persistence_bucket_12b"].isin(["low", "medium"]))
+]
 
 
 # --------------------------------------------------
