@@ -16,8 +16,8 @@ def prepare(df):
     # Keep only rows with valid regime
     df = df[df["phase"].notna()].copy()
 
-    # Keep only JPY crosses
-    df = df[df["pair"].str.contains("jpy")].copy()
+    # Pair group (needed for signal)
+    df["pair_group"] = np.where(df["pair"].str.contains("jpy"), "JPY_cross", "non_JPY")
 
     # Behavioral filters
     df = df[df["extreme_streak_70"] > 0].copy()  # persistent sentiment
@@ -40,12 +40,20 @@ def prepare(df):
 # Signal definition (UPDATED)
 # --------------------------------------------------
 
-def apply_signal(df):
-    return df[
-    (df["fight_trend"]) &
-    (df["is_strong_plus"]) &
-    (df["trend_persistence_bucket_12b"].isin(["low", "medium"]))
-]
+def apply_signal(df, strength_levels=("strong", "extreme")):
+    signal = df[
+        (df["pair_group"] == "JPY_cross") &
+        (df["fight_trend"]) &
+        (df["trend_strength_bucket_12b"].isin(strength_levels)) &
+        (df["crowd_persistence_bucket_70"] == "high")
+    ]
+
+    print("\n=== SIGNAL DEBUG ===")
+    print("Strength levels:", strength_levels)
+    print("Total signals:", len(signal))
+    print("====================\n")
+
+    return signal
 
 
 # --------------------------------------------------
@@ -72,7 +80,7 @@ def compute_stats(df, ret_col):
 # Walk-forward
 # --------------------------------------------------
 
-def walk_forward(df, ret_col):
+def walk_forward(df, ret_col, strength_levels):
     results = []
 
     df = df.copy()
@@ -86,7 +94,7 @@ def walk_forward(df, ret_col):
         if len(test) == 0:
             continue
 
-        test_sig = apply_signal(test)
+        test_sig = apply_signal(test, strength_levels)
 
         stats = compute_stats(test_sig, ret_col)
         stats["year"] = y
@@ -106,24 +114,43 @@ def main():
 
     df = prepare(df)
 
+    print("\nSignals by year (extreme_only):")
+    tmp = apply_signal(df, ("extreme",))
+    tmp["year"] = tmp["entry_time"].dt.year
+    print(tmp.groupby("year").size())
+
     print(f"\nFiltered dataset size (after base filters): {len(df):,}")
 
-    # Show how many signals total (sanity check)
-    total_signals = len(apply_signal(df))
-    print(f"Total signal observations: {total_signals:,}")
+    # ------------------------------------------
+    # Strength configurations to test
+    # ------------------------------------------
+    configs = [
+        ("strong+extreme", ("strong", "extreme")),
+        ("extreme_only", ("extreme",)),
+        ("medium+strong", ("medium", "strong")),
+        ("all", ("weak", "medium", "strong", "extreme")),
+    ]
 
-    for horizon, col in [(12, "contrarian_ret_12b"), (48, "contrarian_ret_48b")]:
-        print(f"\n=== WALK-FORWARD (horizon={horizon}) ===")
+    for name, strength_levels in configs:
+        print("\n" + "=" * 80)
+        print(f"CONFIG: {name} | strength_levels={strength_levels}")
+        print("=" * 80)
 
-        wf = walk_forward(df, col)
+        total_signals = len(apply_signal(df, strength_levels))
+        print(f"Total signal observations: {total_signals:,}")
 
-        print(wf)
+        for horizon, col in [(12, "contrarian_ret_12b"), (48, "contrarian_ret_48b")]:
+            print(f"\n=== WALK-FORWARD (horizon={horizon}) ===")
 
-        print("\nSummary (mean over folds):")
-        print(wf[["mean", "hit_rate", "sharpe"]].mean())
+            wf = walk_forward(df, col, strength_levels)
 
-        print("\nTrades per year:")
-        print(wf[["year", "n"]])
+            print(wf)
+
+            print("\nSummary (mean over folds):")
+            print(wf[["mean", "hit_rate", "sharpe"]].mean())
+
+            print("\nTrades per year:")
+            print(wf[["year", "n"]])
 
 
 if __name__ == "__main__":

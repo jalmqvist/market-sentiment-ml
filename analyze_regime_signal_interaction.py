@@ -107,8 +107,9 @@ def run():
 
     subset = df[
         (df["pair_group"] == "JPY_cross") &
-        (df["extreme_streak_70"] > 0) &
-        (df["trend_persistence_bucket_12b"] == "medium")
+        (df["trend_bucket"] == "fight_trend") &
+        (df["trend_strength_bucket_12b"].isin(["strong", "extreme"])) &
+        (df["crowd_persistence_bucket_70"] == "high")
         ]
 
     res = summarize(
@@ -128,8 +129,7 @@ def run():
     subset = df[
         (df["pair_group"] == "JPY_cross") &
         (df["trend_bucket"] == "fight_trend") &
-        (df["extreme_streak_70"] > 0) &
-        (df["trend_persistence_bucket_12b"] == "medium")
+        (df["crowd_persistence_bucket_70"] == "high")
         ]
 
     res = summarize(
@@ -169,8 +169,7 @@ def run():
     subset = df[
         (df["pair_group"] == "JPY_cross") &
         (df["trend_bucket"] == "fight_trend") &
-        (df["extreme_streak_70"] > 0) &
-        (df["trend_persistence_bucket_12b"] == "medium")
+        (df["crowd_persistence_bucket_70"] == "high")
         ]
 
     res = summarize(

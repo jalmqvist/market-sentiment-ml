@@ -693,6 +693,28 @@ def build_master_dataset(
     master_valid = add_trend_features(master_valid)
 
     # ============================================
+    # Crowd persistence feature (behavioral regime)
+    # ============================================
+
+    def bucket_crowd_persistence(streak):
+        if pd.isna(streak):
+            return None
+        elif streak == 0:
+            return "none"
+        elif streak <= 2:
+            return "low"
+        elif streak <= 5:
+            return "medium"
+        else:
+            return "high"
+
+    master_valid["crowd_persistence_bucket_70"] = (
+        master_valid["extreme_streak_70"]
+        .apply(bucket_crowd_persistence)
+    )
+
+
+    # ============================================
     # Trend persistence feature (macro proxy)
     # ============================================
 
