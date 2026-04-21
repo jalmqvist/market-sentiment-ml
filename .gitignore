@@ -21,3 +21,9 @@ data/output/
 master_research_dataset*.csv
 master_research_dataset*.parquet
 pair_coverage_summary.csv
+
+# quick sanity tests / plots
+sanity.py
+
+# temporary files
+old
