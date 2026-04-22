@@ -1,335 +1,92 @@
-# JPY Behavioral Hypothesis Spec v1
+# JPY Behavioral Hypothesis Spec v1 (ARCHIVED)
 
-## Objective
+## Status
 
-Define a pre-specified behavioral hypothesis for retail FX sentiment that:
+⚠️ This hypothesis is now **invalidated under corrected validation**.
 
-- is grounded in observed empirical structure
-- avoids researcher degrees of freedom
-- can be evaluated out-of-sample and reused across repositories (e.g. market-phase-ml)
+It is retained for documentation purposes only.
 
 ---
 
-## Hypothesis (v1)
+## Original hypothesis
 
 Retail traders exhibit systematic, regime-dependent failure modes in FX markets.
 
-These failure modes are strongest in JPY cross pairs and depend on:
+These were hypothesized to be strongest in JPY cross pairs and dependent on:
 
-- trend direction relative to positioning
-- trend strength
-- persistence of sentiment
-
----
-
-## Extension candidate (v2 — volatility-aware)
-
-Recent results suggest that the behavioral signal is strongly conditioned on volatility regime.
-
-Proposed extension:
-
-Add volatility conditioning:
-
-- is_high_vol == True (from market-phase-ml)
-
-Revised signal structure:
-
-signal_regime_v2 = (
-    pair_group == "JPY_cross"
-    AND extreme_streak_70 >= 3
-    AND is_high_vol == True
-    AND (
-        (trend_alignment == -1 AND trend_strength_bucket IN {"medium", "strong"})
-        OR
-        (trend_alignment == +1 AND trend_strength_bucket == "extreme")
-    )
-)
-
-Preliminary evidence:
-
-- signal is concentrated in HV regimes
-- signal weakens or reverses in LV regimes
-
-Status:
-
-- exploratory (not yet formally pre-registered)
-- candidate for v2 hypothesis specification
+- trend alignment  
+- trend strength  
+- persistence of sentiment  
 
 ---
 
-## Universe restriction
+## What changed
 
-pair_group == "JPY_cross"
+After correcting the research pipeline:
 
----
+- overlapping signals removed  
+- strict walk-forward validation enforced  
+- proper aggregation used  
+- regime holdout testing applied  
 
-## Persistence condition
-
-abs_sentiment >= 70  
-AND extreme_streak_70 >= 3
-
-This defines persistent extreme sentiment.
+👉 The hypothesized effects **do not persist**
 
 ---
 
-## Trend definition
+## Result
 
-For horizon h ∈ {12, 48}:
+The following do **not** produce robust signals:
 
-- trend_h: past return over h bars
-- trend_dir_h: sign(trend_h)
-- trend_strength_h: abs(trend_h)
+- JPY cross restriction  
+- persistence conditioning  
+- trend alignment  
+- trend strength  
+- volatility regime  
 
----
+All effects collapse to:
 
-## Trend strength buckets
-
-trend_strength_bucket ∈ {weak, medium, strong, extreme}
-
-Defined using global quantiles (q = 4) on trend_strength_h.
-
-These buckets are fixed once computed and must not be re-tuned.
+- mean ≈ 0  
+- Sharpe ≈ 0  
 
 ---
 
-## Alignment definition
+## Interpretation
 
-trend_alignment_h = crowd_side × trend_dir_h
+The original hypothesis was influenced by:
 
-- -1 → fight trend (counter-trend positioning)
-- +1 → follow trend (trend-following positioning)
-
----
-
-## Behavioral regimes
-
-### Regime A — Early reversal (fight trend)
-
-Condition:
-
-- trend_alignment_h == -1  
-- trend_strength_bucket ∈ {medium, strong}
-
-Interpretation:
-
-Retail traders attempt to call reversals and enter too early.
-
-Expected outcome:
-
-- Positive contrarian returns  
-- Peak signal in "strong" (not extreme)
+- clustering in specific time periods  
+- pair concentration (e.g. SGDJPY, CHFJPY)  
+- overlapping trade exposure  
+- in-sample bias  
 
 ---
 
-### Regime B — Late chasing (follow trend)
+## Conclusion
 
-Condition:
-
-- trend_alignment_h == +1  
-- trend_strength_bucket == "extreme"
-
-Interpretation:
-
-Retail traders join trends after large moves and enter too late.
-
-Expected outcome:
-
-- Positive contrarian returns  
-- Peak signal in "extreme"
+> The JPY-specific behavioral hypothesis is **not supported** under strict validation.
 
 ---
 
-## Null regions
+## Forward direction
 
-The hypothesis explicitly assumes no strong signal in:
+The project now moves to:
 
-- non_JPY pairs  
-- weak trends  
-- non-persistent sentiment  
+### Regime v2 — Behavioral modeling
 
-These regions act as internal controls.
+Focus shifts to:
 
----
-
-## Target variable
-
-For horizon h:
-
-contrarian_ret_h = -sign(net_sentiment) × ret_h
-
-Interpretation:
-
-- Positive → fading the crowd is profitable  
-- Negative → the crowd is correct  
+- crowd dynamics (not price regimes)  
+- persistence, acceleration, saturation  
+- cross-pair generalization  
 
 ---
 
-## Time semantics
+## Note
 
-- snapshot_time: corrected UTC timestamp of sentiment observation  
-- entry_time: H1 bar open (UTC)  
-- features are defined at entry_time  
-- forward returns are computed from entry_close  
+This document remains as a record of the research process:
 
-Execution assumptions (e.g. entering at next bar close) are handled downstream and are not part of this dataset.
+- exploratory finding  
+- hypothesis formalization  
+- rigorous invalidation  
 
----
-
-## Fixed parameters (must not change)
-
-HORIZONS: [12, 48]  
-PERSISTENCE: extreme_streak_70 >= 3  
-THRESHOLD: abs_sentiment >= 70  
-TREND_BUCKETS: quantile-based (q = 4)  
-PAIR_GROUP: JPY_cross  
-
-These parameters are considered part of the hypothesis definition and must remain fixed for validation.
-
----
-
-## Evaluation protocol
-
-### Pre-registration
-
-All rules in this document must be fixed before evaluating new or held-out data.
-
-No parameter tuning is allowed after inspecting evaluation results.
-
----
-
-### Metrics
-
-Evaluate each regime using:
-
-- mean contrarian return  
-- median contrarian return  
-- hit rate (fraction of positive outcomes)  
-- standard deviation  
-
----
-
-### Stability checks
-
-Evaluate robustness across:
-
-- rolling time windows  
-- subperiods (e.g. yearly or quarterly)  
-- individual JPY pairs  
-
----
-
-### Out-of-sample validation
-
-Use either:
-
-- walk-forward validation  
-OR  
-- a fully held-out time period  
-
-The evaluation dataset must not have been used during hypothesis formation.
-
----
-
-## Expected structure (summary)
-
-Within JPY crosses and persistent sentiment:
-
-- fight_trend:
-  - signal peaks at strong trend strength  
-
-- follow_trend:
-  - signal peaks at extreme trend strength  
-
-- non-JPY pairs:
-  - no consistent positive signal  
-
----
-
-## Implementation mapping
-
-### market-sentiment-ml
-
-Available fields:
-
-- trend_alignment_{h}b  
-- trend_strength_bucket_{h}b  
-- extreme_streak_70  
-- pair_group  
-
----
-
-### market-phase-ml (suggested inputs)
-
-- trend_alignment  
-- trend_strength_bucket  
-- persistence flag  
-- pair_group  
-
----
-
-### Example derived signal (optional)
-
-signal_regime = (
-    pair_group == "JPY_cross"
-    AND extreme_streak_70 >= 3
-    AND (
-        (trend_alignment == -1 AND trend_strength_bucket IN {"medium", "strong"})
-        OR
-        (trend_alignment == +1 AND trend_strength_bucket == "extreme")
-    )
-)
-
----
-
-## Scope and limitations
-
-This hypothesis:
-
-- does not claim universal profitability  
-- does not account for execution costs or slippage  
-- does not represent a production-ready trading system  
-
-It defines a testable behavioral structure.
-
----
-
-## Notes
-
-This specification represents the transition from exploratory analysis to a structured, testable hypothesis.
-
-Any future extensions (e.g. volatility conditioning, regime overlays) should be introduced as new versions (v2, v3) rather than modifying this specification.
-
----
-
-## Extension candidate (v2 — volatility-aware)
-
-Recent results suggest that the behavioral signal is strongly conditioned on volatility regime.
-
-Proposed extension:
-
-Add volatility conditioning:
-
-- is_high_vol == True (from market-phase-ml)
-
-Revised signal structure:
-
-signal_regime_v2 = (
-    pair_group == "JPY_cross"
-    AND extreme_streak_70 >= 3
-    AND is_high_vol == True
-    AND (
-        (trend_alignment == -1 AND trend_strength_bucket IN {"medium", "strong"})
-        OR
-        (trend_alignment == +1 AND trend_strength_bucket == "extreme")
-    )
-)
-
-Preliminary evidence:
-
-- signal is concentrated in HV regimes
-- signal weakens or reverses in LV regimes
-
-Status:
-
-- exploratory (not yet formally pre-registered)
-- candidate for v2 hypothesis specification
+This progression is intentional and reflects correct scientific workflow.

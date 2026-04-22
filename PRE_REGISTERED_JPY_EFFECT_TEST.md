@@ -198,3 +198,50 @@ Any later change to:
 - metric choice
 
 must be treated as a **new exploratory or validation phase**, not as part of this pre-registered test.
+
+---
+
+## Final result (UPDATED)
+
+After correcting methodological issues and applying strict walk-forward validation:
+
+👉 The pre-registered JPY effect is **not supported**
+
+Findings:
+
+- mean differences between JPY and non-JPY ≈ 0  
+- hit-rate differences ≈ 0  
+- bootstrap intervals include zero  
+- results unstable across subperiods  
+
+---
+
+## Interpretation
+
+The originally observed JPY effect was driven by:
+
+- overlapping signal exposure  
+- temporal clustering  
+- pair-specific concentration  
+- in-sample bias  
+
+---
+
+## Conclusion
+
+> The pre-registered hypothesis is rejected.
+
+This does not invalidate the dataset, but indicates:
+
+- the signal is not explained by pair group (JPY vs non-JPY)  
+- the signal is not governed by price-based regimes  
+
+---
+
+## Next step
+
+Shift to:
+
+> **behavioral regime modeling (Regime v2)**
+
+where conditioning variables are derived from crowd dynamics rather than price structure.

@@ -330,6 +330,18 @@ They are intentionally separated from forward returns to avoid leakage.
 
 ---
 
+Note:
+
+Price-derived regime features (trend, volatility proxies) have been
+empirically tested and found not to produce robust predictive conditioning.
+
+They are retained for analysis and comparison, but are not considered
+primary candidates for signal gating in the current research direction.
+
+Future work focuses on behavioral regime features derived from sentiment.
+
+---
+
 ## 8. Analysis filtering convention
 
 All downstream analysis scripts are expected to apply the following return filter:

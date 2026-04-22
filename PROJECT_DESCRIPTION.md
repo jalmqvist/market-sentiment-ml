@@ -2,84 +2,139 @@
 
 This project investigates whether **retail FX sentiment extremes** contain predictive information about subsequent market behavior.
 
-The initial working hypothesis is **contrarian**:
+The initial working hypothesis was **contrarian and conditional**:
 
-- when retail traders become strongly one-sided in a currency pair, fading the crowd may have predictive value
-- the effect may depend on **time horizon**
-- the effect may depend on **persistence** of extreme sentiment
-- the effect may depend on **pair type** and possibly **market regime**
+- extreme positioning may create exploitable signals  
+- persistence of sentiment may matter  
+- the effect may depend on pair type and market regime  
 
 ## Scope
 
-This is primarily a **data engineering and quantitative research project**, not a claim of a finished trading strategy.
+This is a **data engineering and quantitative research project**, not a finished trading strategy.
 
-The project demonstrates:
+It demonstrates:
 
-- large-scale multi-file data ingestion
-- timestamp alignment across heterogeneous sources
-- research-grade feature engineering
-- pair-level data-quality filtering
-- careful validation of exploratory findings
-- structured preparation for downstream ML workflows
+- large-scale multi-file data ingestion  
+- timestamp alignment across heterogeneous sources  
+- research-grade feature engineering  
+- pair-level data-quality filtering  
+- structured validation (permutation, holdout, walk-forward)  
+- reproducible research workflow  
+
+---
 
 ## Data used
 
-The research pipeline combines:
+The pipeline combines:
 
-- multi-year retail FX sentiment snapshot data
-- hourly FX market data exported from MT4 histories
+- multi-year retail FX sentiment snapshot data  
+- hourly FX market data exported from MT4 histories  
 
-The raw data is not distributed in the repository due to licensing and redistribution uncertainty.
+Raw data is not distributed due to licensing constraints.
+
+---
 
 ## Pipeline summary
 
-The project currently includes:
+The project includes:
 
-- sentiment aggregation across many CSV snapshots
-- pair normalization
-- timezone correction
-- pair-by-pair forward merge to hourly price bars
-- merge tolerance to prevent invalid long-gap matches
-- construction of trading-bar forward returns
-- construction of contrarian return targets
-- coverage diagnostics and filtered research universes
-- threshold, persistence, subgroup, permutation, holdout, and walk-forward analysis scripts
+- sentiment aggregation across many CSV snapshots  
+- pair normalization  
+- timezone correction  
+- forward alignment to hourly price bars  
+- construction of forward returns and contrarian targets  
+- behavioral feature engineering (persistence, streaks, dynamics)  
+- structured validation scripts  
 
-## Current findings
+---
 
-The broad simple contrarian threshold effect does not appear robust across the cleaned universe.
+## Key result (updated)
 
-However, more conditional structure has emerged:
+After correcting for major methodological issues:
 
-- the aggregate effect weakens substantially after removing problematic outlier pairs
-- major pairs look mostly flat in the simple framework
-- thin/exotic pairs are generally weak or negative after cleaning
-- a more interesting signal candidate appears in **JPY crosses** under **persistent extreme sentiment**
+- overlapping signals  
+- in-sample bias  
+- improper walk-forward validation  
 
-This JPY-cross effect has so far survived:
+👉 **No robust predictive edge remains under price-based conditioning**
 
-- pair-level outlier filtering
-- subgroup analysis
-- permutation testing
-- a simple time-based holdout
-- expanding-window walk-forward validation
+Specifically, the following do *not* hold:
 
-## Current research direction
+- volatility regime (HV vs LV)  
+- trend alignment (fight vs follow)  
+- trend strength buckets  
+- macro regime (pre/post 2022)  
 
-The current working research direction is:
+All converge to approximately:
 
-- validate whether the JPY-cross persistence effect continues to hold under stricter testing
-- test whether the effect depends on market regime
+- mean ≈ 0  
+- Sharpe ≈ 0  
+- hit rate ≈ 50%  
 
-  Recent results indicate that the signal is strongly conditioned on:
+---
 
-  - volatility regime (high vs low volatility)
-  - trend alignment and strength
-  - persistence of sentiment
+## Interpretation
 
-  This shifts the research direction toward:
+This is a **negative result**.
 
-  - regime-aware modeling
-  - integration with external regime detection (market-phase-ml)
-  - evaluation of volatility-gated behavioral signals
-- eventually connect the sentiment features to a broader FX ML feature pipeline
+> Retail sentiment does not produce a stable signal when conditioned on price-based regimes.
+
+Earlier findings (e.g. JPY-cross persistence effects) were driven by:
+
+- overlapping trade exposure  
+- clustering in specific time periods  
+- pair concentration bias  
+- incorrect aggregation methods  
+
+---
+
+## Updated research direction
+
+The failure of price-based regimes suggests:
+
+> If a signal exists, it is governed by **crowd behavior**, not market structure.
+
+The project therefore shifts toward:
+
+### Regime v2 — Behavioral regimes
+
+Instead of conditioning on price (volatility, trend), we model:
+
+- crowd persistence (streaks of extreme positioning)  
+- sentiment acceleration (rate of change)  
+- crowd saturation (imbalance intensity)  
+- behavioral stress (crowd trapped vs correct)  
+
+---
+
+## Current status
+
+The repository now represents:
+
+- a **validated research pipeline**  
+- a **documented negative result**  
+- a **foundation for behavioral regime modeling (Regime v2)**  
+
+---
+
+## Next phase
+
+The next step is to:
+
+- define minimal behavioral regimes  
+- test them under strict walk-forward validation  
+- expand analysis beyond JPY crosses to the full FX universe  
+
+---
+
+## Philosophy
+
+This project emphasizes:
+
+- eliminating false positives  
+- validating assumptions rigorously  
+- documenting negative results clearly  
+
+The goal is not to “find a signal”, but to:
+
+> **build a reliable process for discovering (or rejecting) signals**

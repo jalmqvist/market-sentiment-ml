@@ -26,6 +26,12 @@ labels can be joined to the hourly grid using `(pair, entry_time → date)` alig
 
 ---
 
+This schema supports behavioral regime modeling (Regime v2), where
+crowd-state features (persistence, acceleration, saturation) are used
+as conditioning variables instead of traditional price-based regimes.
+
+---
+
 ## Grain
 
 One row per `(pair, entry_time)` where `entry_time` is the H1 bar open
@@ -142,7 +148,6 @@ a forward-filled series.
 
 | Column | Type | Description |
 |---|---|---|
-| `pair_group` | string | `JPY_cross` if pair ends with `-jpy`; otherwise `non_JPY` |
 | `pair_group` | string | `JPY_cross` if pair ends with `-jpy`; otherwise `non_JPY`. Used in behavioral regime definitions. |
 
 ---

@@ -82,6 +82,17 @@ It also produces an **hourly feature contract** (`sentiment_features_h1_v1`) for
 
 ## Key findings
 
+### Important clarification
+
+Earlier versions of this project reported regime-conditioned effects
+(e.g. volatility or trend dependence). These findings were invalidated
+after correcting methodological issues, particularly overlapping signals
+and improper walk-forward evaluation.
+
+The current results reflect the corrected pipeline.
+
+---
+
 ### 1. No robust aggregate effect
 
 After cleaning and validation:
