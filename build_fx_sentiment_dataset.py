@@ -715,52 +715,52 @@ def build_master_dataset(
 
 
     # ============================================
-    # Trend persistence feature (macro proxy)
+    # REGIME V2: ACCELERATION
     # ============================================
 
-    def compute_trend_persistence(df, horizon=12, window=24):
-        trend_dir_col = f"trend_dir_{horizon}b"
+    master_valid["sentiment_change_6h"] = (
+        master_valid.groupby("pair")["net_sentiment"].diff(6)
+    )
 
-        # Sign of 1-bar returns
-        df["ret_sign"] = np.sign(df["ret_1b"])
-        df.loc[df["ret_sign"] == 0, "ret_sign"] = np.nan
+    q_low = master_valid["sentiment_change_6h"].quantile(0.33)
+    q_high = master_valid["sentiment_change_6h"].quantile(0.66)
 
-        # Alignment with trend
-        df["trend_alignment_sign"] = df["ret_sign"] * df[trend_dir_col]
+    def bucket_acceleration(x):
+        if pd.isna(x):
+            return None
+        elif x <= q_low:
+            return "decreasing"
+        elif x >= q_high:
+            return "increasing"
+        else:
+            return "stable"
 
-        # 1 if aligned, 0 otherwise
-        df["aligned"] = (df["trend_alignment_sign"] > 0).astype(int)
+    master_valid["acceleration_bucket"] = (
+        master_valid["sentiment_change_6h"]
+        .apply(bucket_acceleration).fillna("unknown")
+    )
 
-        # Rolling persistence per pair
-        df[f"trend_persistence_{horizon}b"] = (
-            df.groupby("pair")["aligned"]
-            .rolling(window, min_periods=window)
-            .mean()
-            .reset_index(level=0, drop=True)
-        )
+    # ============================================
+    # REGIME V2: SATURATION
+    # ============================================
 
-        return df
+    def bucket_saturation(x):
+        if pd.isna(x):
+            return None
+        elif x < 60:
+            return "normal"
+        elif x < 75:
+            return "elevated"
+        elif x < 85:
+            return "extreme"
+        else:
+            return "panic"
 
-    def bucket_trend_persistence(df, horizon=12):
-        col = f"trend_persistence_{horizon}b"
+    master_valid["saturation_bucket"] = (
+        master_valid["abs_sentiment"]
+        .apply(bucket_saturation)
+    )
 
-        def bucket(x):
-            if pd.isna(x):
-                return None
-            elif x < 0.55:
-                return "low"
-            elif x < 0.7:
-                return "medium"
-            else:
-                return "high"
-
-        df[f"trend_persistence_bucket_{horizon}b"] = df[col].apply(bucket)
-
-        return df
-
-    # Apply feature
-    master_valid = compute_trend_persistence(master_valid, horizon=12, window=24)
-    master_valid = bucket_trend_persistence(master_valid, horizon=12)
 
     master_valid["is_long_crowd"] = master_valid["crowd_side"] == 1
     master_valid["is_short_crowd"] = master_valid["crowd_side"] == -1
@@ -797,6 +797,13 @@ def build_master_dataset(
     master_core = master_core.sort_values(["pair", "snapshot_time"]).reset_index(drop=True)
     master_extended = master_extended.sort_values(["pair", "snapshot_time"]).reset_index(drop=True)
 
+    # --- macro regime (time-based) ---
+    master_valid["year"] = pd.to_datetime(master_valid["entry_time"]).dt.year
+
+    master_valid["macro_regime"] = master_valid["year"].apply(
+        lambda y: "pre_2022" if y <= 2021 else "post_2022"
+    )
+
     # Guarantee identical columns and order across outputs
     master_valid, master_core, master_extended = align_dataset_columns(
         master_valid,
@@ -807,32 +814,10 @@ def build_master_dataset(
     # REGIME V2 FEATURES
     # =========================
 
-    # --- macro regime (time-based) ---
-    master_valid["year"] = pd.to_datetime(master_valid["entry_time"]).dt.year
-
-    master_valid["macro_regime"] = master_valid["year"].apply(
-        lambda y: "pre_2022" if y <= 2021 else "post_2022"
-    )
-
-    # --- volatility regime (derived from phase, if available later) ---
-    # NOTE: phase is NOT present in this script → do NOT use here
-
     # --- trend alignment flags (already exist, just make explicit flags) ---
     master_valid["fight_trend"] = master_valid["trend_alignment_12b"] == -1
     master_valid["follow_trend"] = master_valid["trend_alignment_12b"] == 1
 
-    # --- signal helper flags ---
-    master_valid["is_extreme_sentiment"] = master_valid["abs_sentiment"] >= 70
-    master_valid["is_persistent_extreme"] = master_valid["extreme_streak_70"] >= 3
-
-    master_valid["is_strong_plus"] = (
-        master_valid["trend_strength_bucket_12b"].isin(["strong", "extreme"])
-    )
-
-    master_valid["signal_core"] = (
-            master_valid["is_extreme_sentiment"] &
-            master_valid["is_persistent_extreme"]
-    )
 
 
     # Save dataset variants
