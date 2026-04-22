@@ -803,6 +803,37 @@ def build_master_dataset(
         master_core,
         master_extended,
     )
+    # =========================
+    # REGIME V2 FEATURES
+    # =========================
+
+    # --- macro regime (time-based) ---
+    master_valid["year"] = pd.to_datetime(master_valid["entry_time"]).dt.year
+
+    master_valid["macro_regime"] = master_valid["year"].apply(
+        lambda y: "pre_2022" if y <= 2021 else "post_2022"
+    )
+
+    # --- volatility regime (derived from phase, if available later) ---
+    # NOTE: phase is NOT present in this script → do NOT use here
+
+    # --- trend alignment flags (already exist, just make explicit flags) ---
+    master_valid["fight_trend"] = master_valid["trend_alignment_12b"] == -1
+    master_valid["follow_trend"] = master_valid["trend_alignment_12b"] == 1
+
+    # --- signal helper flags ---
+    master_valid["is_extreme_sentiment"] = master_valid["abs_sentiment"] >= 70
+    master_valid["is_persistent_extreme"] = master_valid["extreme_streak_70"] >= 3
+
+    master_valid["is_strong_plus"] = (
+        master_valid["trend_strength_bucket_12b"].isin(["strong", "extreme"])
+    )
+
+    master_valid["signal_core"] = (
+            master_valid["is_extreme_sentiment"] &
+            master_valid["is_persistent_extreme"]
+    )
+
 
     # Save dataset variants
     full_path = Path("data/output/master_research_dataset.csv")
@@ -870,3 +901,11 @@ if __name__ == "__main__":
     )
 
     quick_summary(master_df, horizons=HORIZONS)
+    '''
+    df = pd.read_csv("data/output/master_research_dataset.csv")
+
+    print(df["signal_core"].value_counts())
+    print(df["crowd_persistence_bucket_70"].value_counts())
+    print(df["is_strong_plus"].value_counts())
+    print(df[df["signal_core"]].head())
+    '''

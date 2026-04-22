@@ -5,59 +5,8 @@ import numpy as np
 
 INPUT_PATH = "data/output/master_research_dataset_with_regime.csv"
 
-
 # --------------------------------------------------
-# Data preparation
-# --------------------------------------------------
-
-def prepare(df):
-    df = df.copy()
-
-    # Keep only rows with valid regime
-    df = df[df["phase"].notna()].copy()
-
-    # Pair group (needed for signal)
-    df["pair_group"] = np.where(df["pair"].str.contains("jpy"), "JPY_cross", "non_JPY")
-
-    # Behavioral filters
-    df = df[df["extreme_streak_70"] > 0].copy()  # persistent sentiment
-    df["fight_trend"] = df["trend_alignment_12b"] == 1
-
-    # Regime flags
-    df["is_hv"] = df["phase"].str.contains("HV")
-    df["is_trend"] = df["phase"].str.contains("Trend")
-
-    # Strength (RELAXED: strong + extreme)
-    df["is_strong_plus"] = df["trend_strength_bucket_12b"].isin(["strong", "extreme"])
-
-    # Drop NaNs in returns
-    df = df.dropna(subset=["contrarian_ret_12b", "contrarian_ret_48b"])
-
-    return df
-
-
-# --------------------------------------------------
-# Signal definition (UPDATED)
-# --------------------------------------------------
-
-def apply_signal(df, strength_levels=("strong", "extreme")):
-    signal = df[
-        (df["pair_group"] == "JPY_cross") &
-        (df["fight_trend"]) &
-        (df["trend_strength_bucket_12b"].isin(strength_levels)) &
-        (df["crowd_persistence_bucket_70"] == "high")
-    ]
-
-    print("\n=== SIGNAL DEBUG ===")
-    print("Strength levels:", strength_levels)
-    print("Total signals:", len(signal))
-    print("====================\n")
-
-    return signal
-
-
-# --------------------------------------------------
-# Stats
+# Helpers
 # --------------------------------------------------
 
 def compute_stats(df, ret_col):
@@ -77,33 +26,123 @@ def compute_stats(df, ret_col):
 
 
 # --------------------------------------------------
-# Walk-forward
+# Prepare dataset
 # --------------------------------------------------
 
-def walk_forward(df, ret_col, strength_levels):
-    results = []
-
+def prepare(df):
     df = df.copy()
+
+    df = df[df["phase"].notna()].copy()
+
+    df["pair_group"] = np.where(df["pair"].str.contains("jpy"), "JPY_cross", "non_JPY")
+    df["fight_trend"] = df["trend_alignment_12b"] == -1
+
+    df = df.dropna(subset=["contrarian_ret_12b", "contrarian_ret_48b"])
+
     df["year"] = df["entry_time"].dt.year
+
+    return df
+
+
+# --------------------------------------------------
+# Signal definition (LOCKED)
+# --------------------------------------------------
+
+def apply_signal(df):
+    return df[
+        (df["pair_group"] == "JPY_cross") &
+        (df["fight_trend"]) &
+        (df["trend_strength_bucket_12b"] == "extreme")
+    ].copy()
+
+
+# --------------------------------------------------
+# Enforce non-overlapping trades
+# --------------------------------------------------
+
+def enforce_spacing(df, min_gap_hours=48):
+    df = df.sort_values("entry_time").copy()
+
+    selected = []
+    last_time = None
+
+    for _, row in df.iterrows():
+        if last_time is None:
+            selected.append(row)
+            last_time = row["entry_time"]
+        else:
+            diff = (row["entry_time"] - last_time).total_seconds() / 3600
+            if diff >= min_gap_hours:
+                selected.append(row)
+                last_time = row["entry_time"]
+
+    if len(selected) == 0:
+        return pd.DataFrame(columns=df.columns)
+
+    return pd.DataFrame(selected)
+
+
+# --------------------------------------------------
+# Walk-forward (expanding window)
+# --------------------------------------------------
+
+def walk_forward(df, ret_col):
+    results = []
 
     years = sorted(df["year"].unique())
 
-    for y in years:
-        test = df[df["year"] == y]
+    for i in range(2, len(years)):
+        train_years = years[:i]
+        test_year = years[i]
+
+        train = df[df["year"].isin(train_years)]
+        test = df[df["year"] == test_year]
 
         if len(test) == 0:
             continue
 
-        test_sig = apply_signal(test, strength_levels)
+        # Apply signal (no tuning here — fixed)
+        test_sig = apply_signal(test)
+
+        # Enforce spacing
+        test_sig = enforce_spacing(test_sig, min_gap_hours=48)
 
         stats = compute_stats(test_sig, ret_col)
-        stats["year"] = y
+        stats["year"] = test_year
 
         results.append(stats)
 
     return pd.DataFrame(results)
 
+def run_for_subset(df, label):
+    print("\n" + "=" * 80)
+    print(f"MACRO REGIME: {label}")
+    print("=" * 80)
 
+    print(f"Dataset size: {len(df):,}")
+
+    signal = apply_signal(df)
+    print(f"Raw signal count: {len(signal):,}")
+
+    signal_spaced = enforce_spacing(signal)
+    print(f"Non-overlapping signals: {len(signal_spaced):,}")
+
+    print("\nSignals per year (after spacing):")
+    tmp = signal_spaced.copy()
+    tmp["year"] = tmp["entry_time"].dt.year
+    print(tmp.groupby("year").size())
+
+    for horizon, col in [(12, "contrarian_ret_12b"), (48, "contrarian_ret_48b")]:
+        print("\n" + "-" * 60)
+        print(f"WALK-FORWARD (horizon={horizon})")
+        print("-" * 60)
+
+        wf = walk_forward(df, col)
+
+        print(wf)
+
+        print("\nSummary:")
+        print(wf[["mean", "hit_rate", "sharpe"]].mean())
 # --------------------------------------------------
 # Main
 # --------------------------------------------------
@@ -114,43 +153,22 @@ def main():
 
     df = prepare(df)
 
-    print("\nSignals by year (extreme_only):")
-    tmp = apply_signal(df, ("extreme",))
-    tmp["year"] = tmp["entry_time"].dt.year
-    print(tmp.groupby("year").size())
-
-    print(f"\nFiltered dataset size (after base filters): {len(df):,}")
+    # ------------------------------------------
+    # FULL DATA (baseline)
+    # ------------------------------------------
+    run_for_subset(df, "ALL DATA")
 
     # ------------------------------------------
-    # Strength configurations to test
+    # PRE-2022
     # ------------------------------------------
-    configs = [
-        ("strong+extreme", ("strong", "extreme")),
-        ("extreme_only", ("extreme",)),
-        ("medium+strong", ("medium", "strong")),
-        ("all", ("weak", "medium", "strong", "extreme")),
-    ]
+    df_pre = df[df["macro_regime"] == "pre_2022"].copy()
+    run_for_subset(df_pre, "PRE 2022")
 
-    for name, strength_levels in configs:
-        print("\n" + "=" * 80)
-        print(f"CONFIG: {name} | strength_levels={strength_levels}")
-        print("=" * 80)
-
-        total_signals = len(apply_signal(df, strength_levels))
-        print(f"Total signal observations: {total_signals:,}")
-
-        for horizon, col in [(12, "contrarian_ret_12b"), (48, "contrarian_ret_48b")]:
-            print(f"\n=== WALK-FORWARD (horizon={horizon}) ===")
-
-            wf = walk_forward(df, col, strength_levels)
-
-            print(wf)
-
-            print("\nSummary (mean over folds):")
-            print(wf[["mean", "hit_rate", "sharpe"]].mean())
-
-            print("\nTrades per year:")
-            print(wf[["year", "n"]])
+    # ------------------------------------------
+    # POST-2022
+    # ------------------------------------------
+    df_post = df[df["macro_regime"] == "post_2022"].copy()
+    run_for_subset(df_post, "POST 2022")
 
 
 if __name__ == "__main__":

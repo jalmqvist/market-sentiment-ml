@@ -279,6 +279,11 @@ def main() -> None:
 
     out_valid = out[out["phase"].notna()]
     print(f"\n[INFO] Rows with valid regime: {len(out_valid):,} ({len(out_valid) / len(out):.2%})")
+    '''
+    df = pd.read_csv("data/output/master_research_dataset_with_regime.csv")
 
+    print("macro_regime exists:", "macro_regime" in df.columns)
+    print(df["macro_regime"].value_counts())
+    '''
 if __name__ == "__main__":
     main()
