@@ -2,25 +2,51 @@
 
 A research pipeline for combining multi-year retail FX sentiment snapshots with hourly FX market data, producing a clean event-level dataset for signal testing and downstream ML workflows.
 
+---
+
 ## Executive summary
 
 This project builds and validates a research pipeline for testing whether **retail FX sentiment** contains predictive information.
 
 It demonstrates an end-to-end quantitative workflow:
 
-- large-scale data ingestion and normalization
-- timestamp alignment across heterogeneous sources
-- feature engineering and target construction
-- data-quality diagnostics and filtering
-- structured signal validation (permutation, holdout, walk-forward)
+- large-scale data ingestion and normalization  
+- timestamp alignment across heterogeneous sources  
+- feature engineering and target construction  
+- data-quality diagnostics and filtering  
+- structured signal validation (permutation, holdout, walk-forward)  
 
-The main result is **not a broad contrarian effect**, but a **conditional behavioral signal**:
+### Main result
 
-- concentrated in **JPY crosses**
-- requiring **persistent extreme sentiment**
-- dependent on both **trend context** and **volatility regime**
+After correcting for methodological biases (notably overlapping signals) and applying strict walk-forward validation:
 
-This suggests that retail underperformance is driven primarily by **timing errors**, not directional bias alone.
+> **No robust predictive edge remains when conditioning on price-based regimes**  
+> (volatility, trend, trend strength, or macro period)
+
+Earlier findings suggesting regime-dependent effects were driven by:
+
+- overlapping signal exposure  
+- in-sample bias  
+- regime clustering in specific time periods  
+
+### Current interpretation
+
+The absence of price-regime effects suggests:
+
+> The signal, if it exists, is not governed by market state, but by **crowd behavior dynamics**
+
+This motivates a shift from:
+
+> price-conditioned signal analysis  
+
+to:
+
+> **crowd-conditioned regime modeling (Regime v2)**
+
+The repository therefore represents both:
+
+- a validated research pipeline  
+- and a documented negative result that redirects the research toward behavioral regime modeling
 
 ---
 
@@ -30,9 +56,9 @@ The core question is whether **retail crowd positioning in FX** contains predict
 
 The working hypothesis is contrarian but conditional:
 
-- extreme positioning may be exploitable
-- persistence matters
-- market context (trend) determines when the effect appears
+- extreme positioning may be exploitable  
+- persistence may matter  
+- context may determine when the effect appears  
 
 The goal of this repository is not to present a trading strategy, but to show how to move from raw data to a **structured, testable hypothesis**.
 
@@ -42,13 +68,13 @@ The goal of this repository is not to present a trading strategy, but to show ho
 
 The pipeline transforms raw sentiment snapshots and FX price data into a clean research dataset:
 
-- aggregates multi-year sentiment snapshots
-- parses timestamps and aligns timezones
-- normalizes pair naming across sources
-- merges sentiment to hourly price bars using forward alignment
-- computes trading-bar forward returns
-- constructs contrarian return targets
-- builds persistence and behavioral features
+- aggregates multi-year sentiment snapshots  
+- parses timestamps and aligns timezones  
+- normalizes pair naming across sources  
+- merges sentiment to hourly price bars using forward alignment  
+- computes trading-bar forward returns  
+- constructs contrarian return targets  
+- builds persistence and behavioral features  
 
 It also produces an **hourly feature contract** (`sentiment_features_h1_v1`) for downstream ML use.
 
@@ -58,93 +84,78 @@ It also produces an **hourly feature contract** (`sentiment_features_h1_v1`) for
 
 ### 1. No robust aggregate effect
 
-After cleaning:
+After cleaning and validation:
 
-- simple threshold-based contrarian signals are weak
-- major pairs are mostly flat
-- thin/exotic pairs are unstable or misleading
+- simple contrarian sentiment thresholds show weak or inconsistent performance  
+- major pairs are largely flat  
+- thin/exotic pairs are unstable  
 
-This indicates that **sentiment alone is not broadly predictive**.
-
----
-
-### 2. Structured signal in JPY crosses
-
-A consistent pattern emerges under specific conditions:
-
-- **pair group:** JPY crosses  
-- **sentiment:** `abs_sentiment ≥ 70`  
-- **persistence:** `extreme_streak_70 ≥ 3`  
-
-Under these conditions:
-
-- contrarian returns are positive  
-- hit rates are consistently above 50%  
-- the effect is largely absent in non-JPY pairs  
+There is no broad, unconditional sentiment edge.
 
 ---
 
-### 3. Behavior depends on trend alignment
+### 2. Initial structured patterns (exploratory only)
 
-Introducing trend context reveals two distinct regimes:
+Exploratory analysis suggested:
 
-- **fight_trend** (retail against trend → early reversal attempts)
-- **follow_trend** (retail with trend → late chasing)
+- concentration in JPY crosses  
+- dependence on persistent extreme sentiment  
+- apparent conditioning on volatility and trend  
 
-Both can produce positive contrarian returns, but under different conditions.
-
----
-
-### 4. Trend strength introduces nonlinearity
-
-Conditioning on trend strength reveals a structured pattern:
-
-- For **fight_trend**:
-  - mean return increases with trend strength
-  - hit rate peaks at **strong** trends
-  - extreme trends deliver larger but noisier returns
-
-- For **follow_trend**:
-  - signal is strongest in **extreme** trends
-
-  This implies a **risk–return trade-off** rather than a single optimal regime.
+However, these findings did not survive strict validation.
 
 ---
 
-### 5. Volatility regime dependency (NEW)
+### 3. Regime effects collapse under proper validation
 
-Recent cross-repo analysis (integration with market-phase-ml) shows that the signal is strongly dependent on volatility regime:
+After enforcing:
 
-- The signal is **positive and strongest in high-volatility (HV) regimes**
-- The signal is **weak or negative in low-volatility (LV) regimes**
+- non-overlapping signals  
+- true walk-forward evaluation  
+- regime holdout testing  
 
-Empirical observation (JPY crosses, persistent extreme sentiment):
+the following effects **disappear**:
 
-- HV regimes → positive mean returns (~ +0.001)
-- LV regimes → near-zero or negative returns
+- volatility regime (HV vs LV)  
+- trend alignment (fight vs follow)  
+- trend strength buckets  
+- macro regime (pre/post 2022)  
 
-Interpretation:
+All converge to approximately:
 
-Retail traders’ behavioral errors are amplified under **high-volatility conditions**, where:
-
-- uncertainty is higher
-- trend structure is less stable
-- emotional and reactive behavior increases
-
-This reframes the signal from:
-
-> trend-conditioned  
-
-to:
-
-> **volatility-gated + behavior-conditioned**
-
-This also explains why:
-
-- the signal appears inconsistent across time
-- performance improves post-2022 (higher volatility regime)
+- mean ≈ 0  
+- Sharpe ≈ 0  
+- hit rate ≈ 50%  
 
 ---
+
+### 4. Interpretation
+
+The failure of price-based regimes suggests:
+
+> The sentiment signal is not a function of market state (price), but of **crowd state (behavior)**
+
+This implies that:
+
+- volatility and trend are insufficient conditioning variables  
+- previously observed effects were artifacts of sampling and clustering  
+
+---
+
+### 5. New research direction
+
+The focus shifts toward **behavioral regime modeling**, including:
+
+- persistence of crowd positioning  
+- acceleration of sentiment changes  
+- crowd saturation and imbalance  
+- loss-driven behavior (trapped positioning)  
+
+These dimensions are not captured by traditional price regimes and form the basis for **Regime v2**.
+
+---
+
+## Figures
 
 ### Figure 1: Signal vs Risk (JPY crosses)
 
@@ -152,11 +163,9 @@ This also explains why:
 
 The relationship between signal strength and risk is non-linear.
 
-- Weak signals exhibit low variance but limited return
-- Extreme signals show higher variance but improved mean return
-- The signal is strongest when crowd positioning is extreme and persistent
-
-This supports the hypothesis that **rare, high-intensity sentiment states carry the strongest informational edge**.
+- Weak signals exhibit low variance but limited return  
+- Extreme signals show higher variance but improved mean return  
+- The signal appears strongest during rare, high-intensity crowd states  
 
 ---
 
@@ -164,12 +173,11 @@ This supports the hypothesis that **rare, high-intensity sentiment states carry 
 
 ![Trend strength](docs/images/trend_strength_jpy.png)
 
-Contrarian performance depends strongly on trend strength:
+Contrarian performance varies across trend strength levels.
 
-- In strong trends, following the trend tends to outperform
-- In weaker trends, contrarian positioning is more viable
+However, these differences do not persist under strict walk-forward validation and are not statistically robust.
 
-This highlights that **sentiment signals are conditional on market structure**, not universally predictive.
+They are interpreted as **sampling artifacts rather than stable regime effects**.
 
 ---
 
@@ -177,14 +185,13 @@ This highlights that **sentiment signals are conditional on market structure**, 
 
 ![HV vs LV](docs/images/hv_vs_lv_signal_jpy.png)
 
-*The violin shape shows the full return distribution, while the overlaid markers indicate mean values with 95% confidence intervals, highlighting both dispersion and statistical reliability.*
+*The violin shape shows the full return distribution, while the overlaid markers indicate mean values with 95% confidence intervals.*
 
-The contrarian sentiment signal is significantly stronger in high-volatility environments:
+Differences in return distributions appear across volatility regimes.
 
-- High-volatility regimes exhibit higher mean returns and broader dispersion
-- Low-volatility regimes show weak or negligible signal
+However, these effects **do not survive proper walk-forward validation** and are not statistically robust.
 
-This suggests that **retail positioning becomes most exploitable when market uncertainty is elevated**.
+They are therefore interpreted as **artifacts of regime clustering and sampling**, not true gating mechanisms.
 
 ---
 
@@ -194,28 +201,11 @@ This suggests that **retail positioning becomes most exploitable when market unc
 
 *Marker size reflects the number of observations per year. Error bars indicate 95% confidence intervals.*
 
-The signal exhibits strong time-dependence:
+The signal exhibits strong time variation.
 
-- Weak or unstable performance during 2019–2021
-- Stronger and more consistent performance post-2022, particularly in high-volatility regimes
+However, this variation does not translate into a stable predictive effect under walk-forward validation.
 
-This aligns with major macro shifts (post-COVID tightening cycle) and suggests:
-
-> The sentiment signal is not static—it is **regime-dependent and time-varying**.
-
----
-
-### Practical interpretation
-
-Retail traders fail in two systematic ways:
-
-- **early reversal** → fighting strong trends too soon  
-- **late chasing** → joining extreme trends too late  
-
-A simple regime-based interpretation:
-
-- use **strong trends** for more stable signals  
-- use **extreme trends** for higher-risk opportunities  
+Year-to-year differences are interpreted as **non-stationarity rather than exploitable regime structure**.
 
 ---
 
@@ -227,150 +217,64 @@ The signal has been tested using:
 - subgroup analysis  
 - permutation testing  
 - time-based holdout  
-- walk-forward validation  
+- strict walk-forward validation (non-overlapping signals)  
 
-### Walk-forward results
+### Result
 
-- **12-bar horizon:**
-  - consistent positive returns across most folds  
-  - stable hit rates (~0.55–0.60)  
-  - moderate but persistent signal  
+After correcting for overlapping signals and enforcing proper walk-forward evaluation:
 
-- **48-bar horizon:**
-  - higher variance  
-  - regime-dependent performance  
-  - occasional breakdowns  
+- no statistically robust predictive edge remains  
+- no regime conditioning (volatility, trend, macro) improves performance  
 
+### Interpretation
 
-Interpretation:
+This constitutes a **negative result**:
 
-- the signal is **short-horizon and structural**
-- performance is **strongly dependent on volatility regime**
-- high-volatility environments drive most of the signal
-- longer horizons introduce macro noise and reduce stability
+> price-based regime conditioning does not explain sentiment behavior
+
+The remaining hypothesis is that any potential edge must be:
+
+> **conditional on crowd behavior, not market structure**
 
 ---
 
 ## Current interpretation
 
-The evidence supports a conditional behavioral model:
+The evidence suggests:
 
 - retail traders are not uniformly wrong  
-- errors emerge under specific structural conditions  
+- apparent failures depend on behavioral dynamics rather than price regimes  
 
-The signal is driven by a combination of:
+The signal, if present, is likely driven by:
 
-- **volatility regime (primary gating factor)**
-- **trend interaction (fight vs follow)**
-- **persistence of extreme positioning**
-- **pair-specific behavior (JPY crosses)**
+- persistence of positioning  
+- crowd imbalance buildup  
+- behavioral feedback loops  
 
 This reframes sentiment from:
 
-> a generic contrarian signal  
+> a regime-conditioned contrarian signal  
 
 to:
 
-> a **regime-dependent behavioral indicator**
+> a **behaviorally-conditioned phenomenon requiring new regime definitions**
 
 ---
 
-## Key results
+## Next step: Regime v2 (behavioral regimes)
 
-Current exploratory findings suggest that the sentiment effect is **not broad across all FX pairs**, but instead emerges under specific behavioral and market conditions.
+Given the failure of price-based regimes, the next phase introduces a new regime layer based on crowd behavior:
 
-### Main observations
+Planned features:
 
-- After pair-level quality filtering, the broad aggregate contrarian threshold effect became weak.
-- Major pairs appeared mostly flat in the simple threshold framework.
-- Thin/exotic pairs were generally weak or unstable after cleaning.
-- A subset of **liquid crosses**, especially **JPY crosses**, showed more structured behavior.
+- crowd persistence (duration of extreme positioning)  
+- sentiment acceleration (rate of change)  
+- crowd saturation (position imbalance)  
+- loss regimes (crowd trapped vs profitable)  
 
-### Structured signal candidate (updated)
+Goal:
 
-The strongest signal emerges under a combination of behavioral and regime conditions:
-
-- **universe:** JPY crosses  
-- **conditions:**
-  - `abs_sentiment >= 70`
-  - `extreme_streak_70 >= 3`
-  - high-volatility regime (`is_high_vol == True`)
-  - retail crowd interacting with trend (fight or late follow)
-
-Key refinement:
-
-- The signal is **not universally present**
-- It is **activated under high-volatility conditions**
-
-Interpretation:
-
-Retail traders exhibit systematic failure modes when:
-
-- volatility is elevated  
-- positioning is extreme and persistent  
-- market structure becomes unstable  
-
-This reframes the signal as:
-
-> **a volatility-gated behavioral effect**
-
-### Empirical pattern
-
-Under these conditions:
-
-- contrarian returns are **consistently positive**
-- hit rates are meaningfully above 50%
-- the effect is materially stronger than in non-JPY crosses under the same conditions
-
-### Behavioral interpretation
-
-The results suggest that retail traders are not simply “wrong,” but fail in **systematic ways**, including:
-
-- **late trend participation** (chasing moves after they are mature)
-- **premature reversal attempts** (“the market must turn now”)
-- **persistence in losing views** (holding or adding to positions despite adverse moves)
-
-The strongest signal aligns with the combination:
-
-> **persistent extreme sentiment + fighting the trend**
-
-This is consistent with well-known behavioral biases such as:
-
-- mean-reversion bias
-- anchoring
-- loss aversion and averaging down
-
-### Validation status
-
-This structured effect has so far survived:
-
-- pair-level outlier filtering
-- subgroup analysis within crosses
-- permutation testing
-- time-based holdout validation
-- expanding-window walk-forward testing
-
-### Pre-registered final-period check
-
-A stricter locked test was run on the most recent untouched period using the fixed rule:
-
-- `abs_sentiment >= 70`
-- `extreme_streak_70 >= 3`
-- JPY crosses
-- horizons: `12b` and `48b`
-
-Initial results were inconclusive due to limited sample size and a low-volatility environment.
-
-However, subsequent cross-repo analysis incorporating **volatility regimes** (via market-phase-ml) clarified the outcome:
-
-- The signal is **strong and consistent in high-volatility regimes**
-- The signal is **weak or negative in low-volatility regimes**
-
-This resolves the earlier ambiguity and confirms that the signal is:
-
-> **regime-dependent rather than unstable**
-
-The pre-registered test is therefore considered **conditionally validated**, subject to volatility regime.
+> identify whether sentiment becomes predictive when conditioned on **crowd state rather than price state**
 
 ---
 
