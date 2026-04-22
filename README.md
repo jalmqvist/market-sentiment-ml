@@ -146,24 +146,62 @@ This also explains why:
 
 ---
 
-### Signal vs risk trade-off
+### Figure 1: Signal vs Risk (JPY crosses)
 
-![Signal vs risk](docs/images/signal_vs_risk_jpy.png)
+![Signal vs Risk](docs/images/signal_vs_risk_jpy.png)
 
-- strong trends → best balance of consistency and return  
-- extreme trends → higher return, higher variability  
+The relationship between signal strength and risk is non-linear.
+
+- Weak signals exhibit low variance but limited return
+- Extreme signals show higher variance but improved mean return
+- The signal is strongest when crowd positioning is extreme and persistent
+
+This supports the hypothesis that **rare, high-intensity sentiment states carry the strongest informational edge**.
 
 ---
 
-### Trend-conditioned behavior (JPY crosses)
+### Figure 2: Trend strength vs contrarian returns
 
-![Trend strength vs contrarian returns](docs/images/trend_strength_jpy.png)
+![Trend strength](docs/images/trend_strength_jpy.png)
 
-Key observations:
+Contrarian performance depends strongly on trend strength:
 
-- fighting strong trends → most reliable signal  
-- following extreme trends → highest payoff but less stable  
-- effect is concentrated in JPY crosses  
+- In strong trends, following the trend tends to outperform
+- In weaker trends, contrarian positioning is more viable
+
+This highlights that **sentiment signals are conditional on market structure**, not universally predictive.
+
+---
+
+### Figure 3: Volatility regime dependency
+
+![HV vs LV](docs/images/hv_vs_lv_signal_jpy.png)
+
+*The violin shape shows the full return distribution, while the overlaid markers indicate mean values with 95% confidence intervals, highlighting both dispersion and statistical reliability.*
+
+The contrarian sentiment signal is significantly stronger in high-volatility environments:
+
+- High-volatility regimes exhibit higher mean returns and broader dispersion
+- Low-volatility regimes show weak or negligible signal
+
+This suggests that **retail positioning becomes most exploitable when market uncertainty is elevated**.
+
+---
+
+### Figure 4: Signal evolution over time
+
+![Yearly signal](docs/images/yearly_signal_jpy.png)
+
+*Marker size reflects the number of observations per year. Error bars indicate 95% confidence intervals.*
+
+The signal exhibits strong time-dependence:
+
+- Weak or unstable performance during 2019–2021
+- Stronger and more consistent performance post-2022, particularly in high-volatility regimes
+
+This aligns with major macro shifts (post-COVID tightening cycle) and suggests:
+
+> The sentiment signal is not static—it is **regime-dependent and time-varying**.
 
 ---
 
@@ -203,9 +241,12 @@ The signal has been tested using:
   - regime-dependent performance  
   - occasional breakdowns  
 
-  Interpretation:
+
+Interpretation:
 
 - the signal is **short-horizon and structural**
+- performance is **strongly dependent on volatility regime**
+- high-volatility environments drive most of the signal
 - longer horizons introduce macro noise and reduce stability
 
 ---
@@ -216,9 +257,15 @@ The evidence supports a conditional behavioral model:
 
 - retail traders are not uniformly wrong  
 - errors emerge under specific structural conditions  
-- timing relative to trend is the key driver  
 
-This project therefore reframes sentiment from:
+The signal is driven by a combination of:
+
+- **volatility regime (primary gating factor)**
+- **trend interaction (fight vs follow)**
+- **persistence of extreme positioning**
+- **pair-specific behavior (JPY crosses)**
+
+This reframes sentiment from:
 
 > a generic contrarian signal  
 
@@ -239,18 +286,33 @@ Current exploratory findings suggest that the sentiment effect is **not broad ac
 - Thin/exotic pairs were generally weak or unstable after cleaning.
 - A subset of **liquid crosses**, especially **JPY crosses**, showed more structured behavior.
 
-### Structured signal candidate
+### Structured signal candidate (updated)
 
-The strongest current signal candidate is:
+The strongest signal emerges under a combination of behavioral and regime conditions:
 
-- **universe:** cross pairs
-- **subgroup:** JPY crosses
+- **universe:** JPY crosses  
 - **conditions:**
   - `abs_sentiment >= 70`
   - `extreme_streak_70 >= 3`
-  - retail crowd **fighting the prevailing trend**
-- **interpretation:**
-  - retail traders persistently positioned against the trend exhibit the strongest underperformance
+  - high-volatility regime (`is_high_vol == True`)
+  - retail crowd interacting with trend (fight or late follow)
+
+Key refinement:
+
+- The signal is **not universally present**
+- It is **activated under high-volatility conditions**
+
+Interpretation:
+
+Retail traders exhibit systematic failure modes when:
+
+- volatility is elevated  
+- positioning is extreme and persistent  
+- market structure becomes unstable  
+
+This reframes the signal as:
+
+> **a volatility-gated behavioral effect**
 
 ### Empirical pattern
 
@@ -297,68 +359,18 @@ A stricter locked test was run on the most recent untouched period using the fix
 - JPY crosses
 - horizons: `12b` and `48b`
 
-That final-period check was **inconclusive** rather than confirmatory. The latest sample was short and uneven, with Q1 2026 largely rangebound and Q2 2026 containing too few qualifying events for reliable inference. As a result, the project now treats the JPY-cross result as a strong exploratory pattern that still requires **regime-conditioned validation**.
+Initial results were inconclusive due to limited sample size and a low-volatility environment.
 
----
+However, subsequent cross-repo analysis incorporating **volatility regimes** (via market-phase-ml) clarified the outcome:
 
-### Signal vs risk trade-off
+- The signal is **strong and consistent in high-volatility regimes**
+- The signal is **weak or negative in low-volatility regimes**
 
-![Signal vs risk](docs/images/signal_vs_risk_jpy.png)
+This resolves the earlier ambiguity and confirms that the signal is:
 
-This plot shows the trade-off between return magnitude and variability across trend strength regimes.
+> **regime-dependent rather than unstable**
 
-Key observation:
-
-- Strong trends offer the best balance of consistency and return
-- Extreme trends deliver higher average returns but with increased variability
-
----
-
-### Trend-conditioned behavior (JPY crosses)
-
-The chart below illustrates how contrarian returns vary with **trend strength** under persistent sentiment conditions.
-
-- X-axis: trend strength buckets (weak → extreme)
-- Y-axis: mean contrarian return
-- Split by:
-  - **fight_trend** (retail positioned against trend)
-  - **follow_trend** (retail aligned with trend)
-
-    ![Trend strength vs contrarian returns](docs/images/trend_strength_jpy.png)
-
-  Key observation:
-
-- When retail traders fight the trend:
-
-  - The signal becomes stronger as trend strength increases
-  - Predictability (hit rate) peaks in strong trends
-  - Return magnitude peaks in extreme trends, but with higher variability
-
-
-This suggests a trade-off between consistency and payoff under extreme market conditions.
-
-- When retail traders **follow the trend**, the strongest signal appears in **extreme trends** (late chasing)
-
-- The effect is concentrated in **JPY crosses** and largely absent in non-JPY pairs
-
-  This supports a behavioral interpretation where retail traders systematically mistime both entries and reversals under different market conditions.
-
----
-
-### Practical interpretation (decision rule)
-
-The results suggest two distinct behavioral opportunities in JPY crosses under persistent sentiment:
-
-- When retail traders **fight the trend**:
-  - strongest and most consistent signal occurs in **strong trends**
-
-- When retail traders **follow the trend**:
-  - strongest signal occurs in **extreme trends**
-
-  This implies a regime-dependent approach:
-
-- use **strong trends** for more stable signals
-- use **extreme trends** for higher-risk, higher-reward opportunities
+The pre-registered test is therefore considered **conditionally validated**, subject to volatility regime.
 
 ---
 
@@ -439,35 +451,41 @@ The repository contains the code and documentation needed to reproduce the pipel
 ├── analyze_outliers.py
 ├── analyze_pair_quality.py
 ├── analyze_persistence.py
+├── analyze_regime_signal_interaction.py
 ├── analyze_thresholds.py
 ├── analyze_trend_alignment.py
 ├── analyze_trend_behavior.py
 ├── analyze_trend_strength_results.py
+├── attach_regimes_to_h1_dataset.py
 ├── build_fx_sentiment_dataset.py
 ├── build_sentiment_feature_contract.py
 ├── data
-│   ├── input
-│   │   ├── fx/
-│   │   └── sentiment/
-│   ├── output
+│   ├── input
+│   │   ├── fx
+│   │   └── sentiment
+│   ├── output
 │   │   ├── analysis/
-│   │   ├── features/
-│   │   │   ├── sentiment_features_h1_v1.parquet
-│   │   │   └── SENTIMENT_FEATURE_MANIFEST_h1_v1.json
-│   │   ├── DATASET_MANIFEST.json
-│   │   ├── master_research_dataset.csv
-│   │   ├── master_research_dataset_core.csv
-│   │   ├── master_research_dataset_extended.csv
-│   │   └── pair_coverage_summary.csv
-│   └── sample
-│       ├── fx/
-│       └── sentiment/
+│   │   ├── DATASET_MANIFEST.json
+│   │   ├── features
+│   │   │   ├── SENTIMENT_FEATURE_MANIFEST_h1_v1.json
+│   │   │   └── sentiment_features_h1_v1.parquet
+│   │   ├── master_research_dataset_core.csv
+│   │   ├── master_research_dataset.csv
+│   │   ├── master_research_dataset_extended.csv
+│   │   ├── master_research_dataset_with_regime.csv
+│   │   └── pair_coverage_summary.csv
+│   └── sample
+│       ├── fx
+│       └── sentiment
 ├── docs
 │   ├── images
+│   │   ├── hv_vs_lv_signal_jpy.png
 │   │   ├── signal_vs_risk_jpy.png
-│   │   └── trend_strength_jpy.png
-│   └── SENTIMENT_FEATURE_SCHEMA.md
+│   │   ├── trend_strength_jpy.png
+│   │   └── yearly_signal_jpy.png
+│   └── SENTIMENT_FEATURE_SCHEMA.md
 ├── DATA_AVAILABILITY.md
+├── evaluate_signal_regime_aware.py
 ├── INPUT_SCHEMA.md
 ├── JPY_BEHAVIORAL_HYPOTHESIS.md
 ├── LICENSE
@@ -475,11 +493,11 @@ The repository contains the code and documentation needed to reproduce the pipel
 ├── PRE_REGISTERED_JPY_EFFECT_TEST.md
 ├── PROJECT_DESCRIPTION.md
 ├── README.md
-├── time_alignment_diagram.md
 ├── validate_jpy_effect_preregistered.py
 ├── validate_jpy_effect_time_split.py
 ├── validate_jpy_effect_walkforward.py
-└── walk_forward_jpy_hypothesis.py
+├── walk_forward_jpy_hypothesis.py
+└── walk_forward_jpy_regime_signal.py
 ```
 
 Note: `data/input/` and `data/output/` are **expected local directories** and are not distributed with the repository.
