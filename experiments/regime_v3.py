@@ -627,6 +627,11 @@ def log_regime_wf(regime_wf: pd.DataFrame) -> None:
         )
 
 
+# ---------------------------------------------------------------------------
+# Per-regime metrics helper (model-based: uses predictions vs actuals)
+# ---------------------------------------------------------------------------
+
+def _regime_metrics(y_pred: np.ndarray, y_test: np.ndarray) -> dict:
     """Compute IC, Sharpe and hit rate for a single regime subset.
 
     Args:
