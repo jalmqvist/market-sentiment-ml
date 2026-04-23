@@ -30,8 +30,6 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from experiments.regime_v3 import (
-    CONTRARIAN_REGIMES,
-    TREND_REGIMES,
     WEIGHT_THRESHOLD,
     apply_regime_weighted_signal,
     compute_regime_sharpe_map,
@@ -56,8 +54,10 @@ def _make_df(
 
     Args:
         n: Number of rows.
-        regimes: Regime labels to cycle through.  Defaults to
-            ``CONTRARIAN_REGIMES + TREND_REGIMES``.
+        regimes: Regime labels to cycle through.  Defaults to a hardcoded
+            set of 3-axis labels that do not depend on ``CONTRARIAN_REGIMES``
+            or ``TREND_REGIMES`` (which are intentionally empty until the
+            researcher populates them after discovery).
         seed: Random seed for reproducibility.
 
     Returns:
@@ -65,7 +65,14 @@ def _make_df(
     """
     rng = np.random.default_rng(seed)
     if regimes is None:
-        regimes = list(dict.fromkeys(CONTRARIAN_REGIMES + TREND_REGIMES))
+        # Use explicit 3-axis labels so tests are independent of the module
+        # constants (which are empty pending discovery results).
+        regimes = [
+            "long_extreme_high",
+            "long_high_high",
+            "medium_high_high",
+            "medium_high_low",
+        ]
 
     regime_col = [regimes[i % len(regimes)] for i in range(n)]
     net_sentiment = rng.uniform(-80, 80, size=n)
@@ -105,8 +112,17 @@ class TestComputeRegimeSharpeMap:
         train = df[df["year"] < 2022]
         test = df[df["year"] >= 2022]
 
-        map_train = compute_regime_sharpe_map(train, min_n=10)
-        map_test = compute_regime_sharpe_map(test, min_n=10)
+        # Provide explicit regime lists so the test is independent of the
+        # module-level constants (which are empty pending discovery results).
+        contrarian = ["long_extreme_high", "long_high_high"]
+        trend = ["medium_high_high", "medium_high_low"]
+
+        map_train = compute_regime_sharpe_map(
+            train, contrarian, trend, min_n=10
+        )
+        map_test = compute_regime_sharpe_map(
+            test, contrarian, trend, min_n=10
+        )
 
         # Both maps must be non-empty.
         assert len(map_train) > 0, "Training map must be non-empty"
@@ -283,7 +299,7 @@ class TestApplyRegimeWeightedSignal:
     def test_does_not_modify_input(self):
         df = _make_df(n=100)
         original_cols = set(df.columns)
-        weight_map = {"long_extreme": 0.5}
+        weight_map = {"long_extreme_high": 0.5}
         apply_regime_weighted_signal(df, weight_map)
         assert set(df.columns) == original_cols, "Input DataFrame was modified"
 

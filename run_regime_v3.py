@@ -164,6 +164,7 @@ def main(argv=None) -> None:
         behavioural_regime_walk_forward,
         compute_coverage_summary,
         compute_regime_sharpe_map,
+        compute_regime_stability_summary,
         convert_sharpe_to_weight,
         crowding_regime_baseline,
         crowding_regime_walk_forward,
@@ -182,6 +183,7 @@ def main(argv=None) -> None:
         log_regime_baseline,
         log_regime_direction_performance,
         log_regime_direction_wf,
+        log_regime_stability_summary,
         log_regime_weight_diagnostics,
         log_regime_weighted_performance,
         log_regime_weighted_wf,
@@ -250,10 +252,22 @@ def main(argv=None) -> None:
 
     # ------------------------------------------------------------------
     # Step 4c: CROWDING REGIME WALK-FORWARD — out-of-sample crowding
-    #          regime validation (simplified 2-axis)
+    #          regime validation (3-axis: streak × sentiment × vol)
     # ------------------------------------------------------------------
     crowding_wf = crowding_regime_walk_forward(df)
     log_crowding_regime_wf(crowding_wf)
+
+    # ------------------------------------------------------------------
+    # Step 4c-ii: REGIME STABILITY SUMMARY — per-regime sign consistency
+    #             and Sharpe stability across walk-forward years
+    # ------------------------------------------------------------------
+    regime_stability = compute_regime_stability_summary(crowding_wf)
+    log_regime_stability_summary(regime_stability)
+    if not regime_stability.empty:
+        logging.getLogger(__name__).info(
+            "REGIME STABILITY SUMMARY (top rows):\n%s",
+            regime_stability.head(10).to_string(index=False),
+        )
 
     # ------------------------------------------------------------------
     # Step 4d: SECONDARY VOL FILTER — secondary conditioning on top
@@ -271,7 +285,6 @@ def main(argv=None) -> None:
         "=== REGIME FILTER (TOP_REGIMES=%s) ===", TOP_REGIMES
     )
     df = apply_regime_filter(df)
-
     # ------------------------------------------------------------------
     # Step 4f: FULL DATASET PERFORMANCE — baseline metrics (unfiltered)
     # ------------------------------------------------------------------

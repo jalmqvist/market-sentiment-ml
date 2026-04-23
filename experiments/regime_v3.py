@@ -25,8 +25,13 @@ Pipeline order
      based on extreme-sentiment run length).
    * ``behavioural_regime`` = ``abs_sent_bucket + "_" + side_streak_bucket +
      "_" + extreme_streak_bucket``
-   * ``crowding_regime`` = ``side_streak_bucket + "_" + abs_sent_bucket``
-     (simplified 2-axis regime used by the trading filter).
+   * ``crowding_regime`` = ``side_streak_bucket + "_" + abs_sent_bucket +
+     "_" + vol_bucket``
+     (3-axis regime combining crowd persistence, sentiment intensity, and
+     volatility; replaces the previous 2-axis definition to improve regime
+     separation and stability).
+   * ``crowding_regime_2axis`` = ``side_streak_bucket + "_" + abs_sent_bucket``
+     (old 2-axis definition retained for comparison logging only).
 
 3. **REGIME BASELINE (NO MODEL)** – ``regime_baseline()`` groups the full
    dataset by ``regime`` and computes mean return, std, Sharpe, and hit-rate
@@ -112,6 +117,9 @@ Output DataFrames
   "hit_rate"]``; aggregate metrics on the weighted-signal active subset.
 * ``regime_weighted_wf`` – schema ``["year", "n", "mean", "sharpe",
   "hit_rate"]``; per-year OOS metrics for the weighted-signal strategy.
+* ``regime_stability_summary`` – schema ``["regime", "n_total", "mean_sharpe",
+  "std_sharpe", "positive_year_ratio"]``; per-regime stability diagnostics
+  across walk-forward years (sign consistency, mean and std of Sharpe).
 
 All features are strictly causal at ``entry_time``:
 
@@ -202,32 +210,22 @@ MIN_CROWDING_REGIME_OBS: int = 100
 
 #: Hardcoded list of high-quality crowding regimes selected from regime_v3
 #: discovery results.  Each entry must match the ``crowding_regime`` label
-#: format: ``side_streak_bucket + "_" + abs_sent_bucket``
-#: (e.g. ``"long_extreme"``, ``"medium_high"``).
-#: Update this list to change which regimes are active in the trading filter.
-TOP_REGIMES: list[str] = [
-    "long_extreme",
-    "medium_high",
-]
+#: format: ``side_streak_bucket + "_" + abs_sent_bucket + "_" + vol_bucket``
+#: (e.g. ``"long_extreme_high"``, ``"medium_high_high"``).
+#: Update this list after running the crowding regime discovery step to
+#: populate it with high-conviction 3-axis regime labels.
+TOP_REGIMES: list[str] = []
 
 #: Crowding regimes where a **contrarian** signal direction is applied.
-#: In these regimes the crowd is persistently extreme, suggesting exhaustion;
-#: fading the crowd (``signal = -base_signal``) is expected to be profitable.
-#: Must be a subset of valid ``crowding_regime`` labels
-#: (``side_streak_bucket + "_" + abs_sent_bucket``).
-CONTRARIAN_REGIMES: list[str] = [
-    "long_extreme",
-    "long_high",
-]
+#: Must match the 3-axis ``crowding_regime`` label format
+#: (``side_streak_bucket + "_" + abs_sent_bucket + "_" + vol_bucket``).
+#: Update after inspecting crowding_regime_summary and regime_stability_summary.
+CONTRARIAN_REGIMES: list[str] = []
 
 #: Crowding regimes where a **trend-following** signal direction is applied.
-#: In these regimes the crowd is moderately persistent, suggesting momentum;
-#: following the crowd (``signal = +base_signal``) is expected to be profitable.
-#: Must be a subset of valid ``crowding_regime`` labels.
-TREND_REGIMES: list[str] = [
-    "medium_high",
-    "medium_mid",
-]
+#: Must match the 3-axis ``crowding_regime`` label format.
+#: Update after inspecting crowding_regime_summary and regime_stability_summary.
+TREND_REGIMES: list[str] = []
 
 #: Default weight threshold for regime-based signal weighting.
 #: Regimes whose absolute weight falls below this value are treated as
@@ -557,6 +555,22 @@ def build_behavioural_regimes(df: pd.DataFrame) -> pd.DataFrame:
       Rows where any constituent bucket is ``NaN`` receive ``NaN`` in
       ``behavioural_regime`` and are excluded from downstream regime analysis.
 
+    * ``crowding_regime`` – upgraded 3-axis regime label::
+
+          side_streak_bucket + "_" + abs_sent_bucket + "_" + vol_bucket
+
+      Combines crowd-side persistence, sentiment intensity, and volatility to
+      isolate behavioural patterns (e.g. persistent extreme crowding under high
+      volatility).  Rows where any constituent bucket is ``NaN`` receive
+      ``NaN``.  Requires ``vol_bucket`` from ``build_features``; if absent
+      falls back to the 2-axis definition with a warning.
+
+    * ``crowding_regime_2axis`` – old 2-axis regime label::
+
+          side_streak_bucket + "_" + abs_sent_bucket
+
+      Retained for comparison logging.  Not used by the trading filter.
+
     Args:
         df: Dataset (after ``build_features``).  Should contain
             ``abs_sentiment``, ``side_streak``, and ``extreme_streak_70``.
@@ -646,22 +660,84 @@ def build_behavioural_regimes(df: pd.DataFrame) -> pd.DataFrame:
         n_regimes,
     )
 
-    # --- crowding_regime = side_streak_bucket + "_" + abs_sent_bucket ---
-    # Simplified 2-axis regime: excludes extreme_streak_bucket to reduce
-    # dimensionality and improve sample sizes per regime.
-    crowding_valid_mask = (
+    # --- crowding_regime_2axis = side_streak_bucket + "_" + abs_sent_bucket ---
+    # Old 2-axis definition retained for comparison logging.  Not used by the
+    # trading filter; superseded by the 3-axis crowding_regime below.
+    crowding_2axis_valid = (
         out["abs_sent_bucket"].notna()
         & out["side_streak_bucket"].notna()
     )
-    crowding_combined = (
+    crowding_2axis_combined = (
         out["side_streak_bucket"].astype(str)
         + "_"
         + out["abs_sent_bucket"].astype(str)
     )
-    out["crowding_regime"] = crowding_combined.where(crowding_valid_mask)
-    n_crowding_regimes = out["crowding_regime"].nunique()
+    out["crowding_regime_2axis"] = crowding_2axis_combined.where(crowding_2axis_valid)
+    n_2axis_regimes = out["crowding_regime_2axis"].nunique()
     logger.info(
-        "build_behavioural_regimes: %d unique crowding regimes (2-axis simplified)",
+        "build_behavioural_regimes: %d unique crowding regimes (2-axis, old definition)",
+        n_2axis_regimes,
+    )
+
+    # --- crowding_regime = side_streak_bucket + "_" + abs_sent_bucket + "_" + vol_bucket ---
+    # Upgraded 3-axis regime: adds volatility bucket to increase granularity and
+    # isolate distinct behavioural patterns (e.g. persistent extreme crowding
+    # under high volatility) while keeping MIN_CROWDING_REGIME_OBS as a guard.
+    if "vol_bucket" not in out.columns:
+        logger.warning(
+            "build_behavioural_regimes: vol_bucket not found; "
+            "crowding_regime falls back to 2-axis definition (run build_features first)"
+        )
+        out["crowding_regime"] = out["crowding_regime_2axis"]
+        n_crowding_regimes = n_2axis_regimes
+    else:
+        crowding_valid_mask = (
+            out["abs_sent_bucket"].notna()
+            & out["side_streak_bucket"].notna()
+            & out["vol_bucket"].notna()
+        )
+        crowding_combined = (
+            out["side_streak_bucket"].astype(str)
+            + "_"
+            + out["abs_sent_bucket"].astype(str)
+            + "_"
+            + out["vol_bucket"].astype(str)
+        )
+        out["crowding_regime"] = crowding_combined.where(crowding_valid_mask)
+        n_crowding_regimes = out["crowding_regime"].nunique()
+
+    # --- Regime comparison: old 2-axis vs new 3-axis ---
+    logger.info(
+        "build_behavioural_regimes: regime comparison — "
+        "2-axis (old): %d unique regimes | 3-axis (new): %d unique regimes",
+        n_2axis_regimes,
+        n_crowding_regimes,
+    )
+    # Sample distribution for the new 3-axis crowding_regime.
+    if out["crowding_regime"].notna().any():
+        new_counts = out["crowding_regime"].value_counts(dropna=True)
+        logger.info(
+            "crowding_regime (3-axis) sample distribution — "
+            "n_regimes=%d | min=%d | median=%d | max=%d",
+            int(new_counts.count()),
+            int(new_counts.min()),
+            int(new_counts.median()),
+            int(new_counts.max()),
+        )
+    # Sample distribution for the old 2-axis crowding_regime_2axis.
+    if out["crowding_regime_2axis"].notna().any():
+        old_counts = out["crowding_regime_2axis"].value_counts(dropna=True)
+        logger.info(
+            "crowding_regime_2axis (2-axis) sample distribution — "
+            "n_regimes=%d | min=%d | median=%d | max=%d",
+            int(old_counts.count()),
+            int(old_counts.min()),
+            int(old_counts.median()),
+            int(old_counts.max()),
+        )
+
+    logger.info(
+        "build_behavioural_regimes: %d unique crowding regimes (3-axis, new definition)",
         n_crowding_regimes,
     )
 
@@ -1032,15 +1108,17 @@ def crowding_regime_baseline(
 ) -> pd.DataFrame:
     """Compute crowding regime statistics on the full dataset without any model.
 
-    Groups observations by the simplified 2-axis crowding regime
-    (``side_streak_bucket + "_" + abs_sent_bucket``) and computes mean
-    return, std, Sharpe, and hit-rate for each regime.  Regimes with fewer
-    than ``min_n`` observations are skipped and logged at WARNING level.
+    Groups observations by the 3-axis crowding regime
+    (``side_streak_bucket + "_" + abs_sent_bucket + "_" + vol_bucket``) and
+    computes mean return, std, Sharpe, and hit-rate for each regime.  Regimes
+    with fewer than ``min_n`` observations are skipped and logged at WARNING
+    level.
 
     This is the primary crowding discovery step: no model is trained or used.
-    Compared to ``behavioural_regime_baseline``, this uses only two axes
-    (removing ``extreme_streak_bucket``) to reduce sparsity and improve
-    statistical stability.
+    The 3-axis definition (adding ``vol_bucket`` to the previous 2-axis key)
+    increases regime granularity so that distinct behavioural patterns
+    (e.g. persistent extreme crowding under high volatility) are not mixed
+    within the same bucket.
 
     Args:
         df: Full dataset (after ``build_behavioural_regimes``).
@@ -1455,7 +1533,7 @@ def log_crowding_regime_wf(regime_wf: pd.DataFrame) -> None:
         return
     for row in regime_wf.itertuples(index=False):
         logger.info(
-            "WALK-FORWARD REGIME PERFORMANCE | year=%d | regime=%-20s | n=%5d"
+            "WALK-FORWARD REGIME PERFORMANCE | year=%d | regime=%-30s | n=%5d"
             " | sharpe=%+.4f | hit_rate=%.4f",
             row.year,
             row.regime,
@@ -1464,6 +1542,128 @@ def log_crowding_regime_wf(regime_wf: pd.DataFrame) -> None:
             row.hit_rate if not np.isnan(row.hit_rate) else float("nan"),
         )
 
+
+# ---------------------------------------------------------------------------
+# REGIME STABILITY SUMMARY — per-regime sign consistency across walk-forward years
+# ---------------------------------------------------------------------------
+
+def compute_regime_stability_summary(
+    regime_wf: pd.DataFrame,
+    *,
+    regime_col: str = "regime",
+    sharpe_col: str = "sharpe",
+    year_col: str = "year",
+    n_col: str = "n",
+) -> pd.DataFrame:
+    """Compute per-regime stability metrics from walk-forward results.
+
+    For each regime in *regime_wf*, aggregates across all test years to produce
+    the following stability diagnostics:
+
+    * ``n_total``             – total observations across all test years.
+    * ``mean_sharpe``         – mean Sharpe ratio across test years.
+    * ``std_sharpe``          – standard deviation of Sharpe across test years
+      (``NaN`` if fewer than 2 test-year observations are available).
+    * ``positive_year_ratio`` – fraction of test years with Sharpe > 0
+      (sign consistency indicator).
+
+    Regimes that appear in only one test year will have ``std_sharpe = NaN``;
+    those with consistent positive (or negative) Sharpe across all years will
+    have ``positive_year_ratio = 1.0`` (or ``0.0``).
+
+    Args:
+        regime_wf: Walk-forward DataFrame with at minimum columns
+            ``["year", "regime", "n", "sharpe"]`` (output of
+            ``crowding_regime_walk_forward`` or any regime walk-forward
+            function).
+        regime_col: Column containing regime labels (default ``"regime"``).
+        sharpe_col: Column containing per-year Sharpe ratios (default
+            ``"sharpe"``).
+        year_col: Column containing calendar year (default ``"year"``).
+        n_col: Column containing per-year observation count (default ``"n"``).
+
+    Returns:
+        DataFrame ``regime_stability_summary`` with schema
+        ``["regime", "n_total", "mean_sharpe", "std_sharpe",
+        "positive_year_ratio"]``, sorted by ``mean_sharpe`` descending.
+        Returns an empty DataFrame with those columns when *regime_wf* is
+        empty or required columns are missing.
+    """
+    _COLS = ["regime", "n_total", "mean_sharpe", "std_sharpe", "positive_year_ratio"]
+
+    required = [regime_col, sharpe_col, year_col, n_col]
+    missing = [c for c in required if c not in regime_wf.columns]
+    if regime_wf.empty or missing:
+        if missing:
+            logger.warning(
+                "compute_regime_stability_summary: missing columns %s; "
+                "returning empty",
+                missing,
+            )
+        return pd.DataFrame(columns=_COLS)
+
+    rows: list[dict] = []
+    for regime_label, grp in regime_wf.groupby(regime_col):
+        sharpes = grp[sharpe_col].dropna().values
+        n_years = len(sharpes)
+        if n_years == 0:
+            continue
+        n_total = int(grp[n_col].sum())
+        mean_sharpe = float(np.mean(sharpes))
+        std_sharpe = float(np.std(sharpes, ddof=1)) if n_years > 1 else np.nan
+        positive_year_ratio = float(np.mean(sharpes > 0))
+        rows.append(
+            {
+                "regime": str(regime_label),
+                "n_total": n_total,
+                "mean_sharpe": mean_sharpe,
+                "std_sharpe": std_sharpe,
+                "positive_year_ratio": positive_year_ratio,
+            }
+        )
+
+    if not rows:
+        return pd.DataFrame(columns=_COLS)
+
+    return (
+        pd.DataFrame(rows)[_COLS]
+        .sort_values("mean_sharpe", ascending=False)
+        .reset_index(drop=True)
+    )
+
+
+def log_regime_stability_summary(stability_df: pd.DataFrame) -> None:
+    """Log regime_stability_summary under the REGIME STABILITY SUMMARY header.
+
+    For each regime, logs:
+
+    * ``% of years Sharpe > 0`` (sign consistency across walk-forward years)
+    * ``mean Sharpe`` (average out-of-sample Sharpe across test years)
+    * ``std Sharpe`` (variability of Sharpe across test years)
+    * ``total observations`` (sum of per-year observation counts)
+
+    Args:
+        stability_df: DataFrame returned by ``compute_regime_stability_summary``.
+    """
+    logger.info("=== REGIME STABILITY SUMMARY ===")
+    if stability_df.empty:
+        logger.warning("REGIME STABILITY SUMMARY: no results to display")
+        return
+    for row in stability_df.itertuples(index=False):
+        std_str = (
+            f"{row.std_sharpe:+.4f}"
+            if not np.isnan(row.std_sharpe)
+            else "nan"
+        )
+        logger.info(
+            "REGIME STABILITY | regime=%-30s | n_total=%6d"
+            " | mean_sharpe=%+.4f | std_sharpe=%s | pct_pos_years=%.0f%%",
+            row.regime,
+            row.n_total,
+            row.mean_sharpe if not np.isnan(row.mean_sharpe) else float("nan"),
+            std_str,
+            row.positive_year_ratio * 100,
+        )
 
 def log_secondary_vol_filter(vol_filter_df: pd.DataFrame) -> None:
     """Log secondary_vol_filter results under the SECONDARY VOL FILTER section.
@@ -3369,10 +3569,17 @@ def main(argv=None) -> None:
 
     # ------------------------------------------------------------------
     # Step 4c: CROWDING REGIME WALK-FORWARD — out-of-sample crowding
-    #          regime validation (simplified 2-axis)
+    #          regime validation (3-axis: streak × sentiment × vol)
     # ------------------------------------------------------------------
     crowding_wf = crowding_regime_walk_forward(df)
     log_crowding_regime_wf(crowding_wf)
+
+    # ------------------------------------------------------------------
+    # Step 4c-ii: REGIME STABILITY SUMMARY — per-regime sign consistency
+    #             and Sharpe stability across walk-forward years
+    # ------------------------------------------------------------------
+    regime_stability = compute_regime_stability_summary(crowding_wf)
+    log_regime_stability_summary(regime_stability)
 
     # ------------------------------------------------------------------
     # Step 4d: SECONDARY VOL FILTER — secondary conditioning on top
