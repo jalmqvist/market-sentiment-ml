@@ -5,7 +5,7 @@ Sanity checks for the regime-based signal weighting pipeline.
 
 These tests validate:
 1. ``compute_regime_sharpe_map`` uses only training data (no leakage).
-2. ``convert_sharpe_to_weight`` produces weights in [-1, 1] (clip mode)
+2. ``convert_sharpe_to_weight`` produces weights in (-1, 1) (tanh mode)
    or proportional to Sharpe (normalize mode).
 3. ``apply_regime_weighted_signal`` sets signal = 0 for unknown regimes.
 4. ``apply_regime_weighted_signal`` sets signal = 0 when |weight| < threshold.
@@ -153,17 +153,25 @@ class TestComputeRegimeSharpeMap:
 # ---------------------------------------------------------------------------
 
 class TestConvertSharpeToWeight:
-    def test_clip_mode_bounds(self):
+    def test_tanh_mode_bounds(self):
+        """Tanh mode (normalize=False) must produce weights strictly in (-1, 1)."""
         sharpe_map = {"A": 5.0, "B": -3.0, "C": 0.3}
         weight_map = convert_sharpe_to_weight(sharpe_map, normalize=False)
         for w in weight_map.values():
-            assert -1.0 <= w <= 1.0, f"weight {w} out of [-1, 1] in clip mode"
+            assert -1.0 < w < 1.0, f"weight {w} out of open (-1, 1) in tanh mode"
 
-    def test_clip_mode_clamps_large_values(self):
-        sharpe_map = {"A": 100.0, "B": -200.0}
-        weight_map = convert_sharpe_to_weight(sharpe_map, normalize=False)
-        assert weight_map["A"] == pytest.approx(1.0)
-        assert weight_map["B"] == pytest.approx(-1.0)
+    def test_tanh_mode_large_values_approach_extremes(self):
+        """A single dominant large Sharpe produces a weight near +1/-1."""
+        # With only one regime, std=0 so divisor falls back to 1e-6;
+        # tanh(very_large / 1e-6) → ±1.
+        weight_map_pos = convert_sharpe_to_weight({"A": 1e6}, normalize=False)
+        weight_map_neg = convert_sharpe_to_weight({"A": -1e6}, normalize=False)
+        assert weight_map_pos["A"] > 0.99, (
+            f"Expected weight near +1, got {weight_map_pos['A']}"
+        )
+        assert weight_map_neg["A"] < -0.99, (
+            f"Expected weight near -1, got {weight_map_neg['A']}"
+        )
 
     def test_normalize_mode_max_is_one(self):
         sharpe_map = {"A": 2.0, "B": 1.0, "C": -0.5}
@@ -191,6 +199,20 @@ class TestConvertSharpeToWeight:
         assert weight_map["pos"] > 0
         assert weight_map["neg"] < 0
 
+    def test_tanh_mode_small_sharpes_produce_meaningful_weights(self):
+        """Regime Sharpes ~±0.05 must produce non-negligible weights in tanh mode."""
+        sharpe_map = {"A": 0.06, "B": -0.04, "C": 0.02}
+        weight_map = convert_sharpe_to_weight(sharpe_map, normalize=False)
+        abs_weights = [abs(w) for w in weight_map.values()]
+        # All weights should be non-zero and the max should be substantial.
+        assert all(w > 1e-4 for w in abs_weights), (
+            f"Expected non-negligible weights for small Sharpes, got {abs_weights}"
+        )
+        assert max(abs_weights) > 0.5, (
+            f"Expected max abs weight > 0.5 for cross-sectionally large Sharpe, "
+            f"got {max(abs_weights)}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # apply_regime_weighted_signal
@@ -210,9 +232,9 @@ class TestApplyRegimeWeightedSignal:
     def test_below_threshold_signal_is_zero(self):
         """Rows with |weight| < threshold must have weighted_signal = 0."""
         df = _make_df(n=300)
-        # All regimes get a weight below the threshold.
+        # All regimes get a weight below the explicit threshold.
         regimes = df["crowding_regime"].unique()
-        weight_map = {r: 0.01 for r in regimes}  # below default threshold 0.05
+        weight_map = {r: 0.01 for r in regimes}  # below explicit threshold 0.05
         out = apply_regime_weighted_signal(
             df, weight_map, weight_threshold=0.05
         )

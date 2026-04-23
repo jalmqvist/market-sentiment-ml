@@ -132,7 +132,7 @@ def main(argv=None) -> None:
             "Minimum absolute regime weight required for a signal to be active "
             "in the FILTER + DIRECTION + WEIGHTING step.  Regimes with "
             "|weight| < threshold are set to signal = 0.  Defaults to the "
-            "module-level WEIGHT_THRESHOLD constant (0.05)."
+            "module-level WEIGHT_THRESHOLD constant (0.0)."
         ),
     )
     p.add_argument(
@@ -140,8 +140,8 @@ def main(argv=None) -> None:
         action="store_true",
         default=False,
         help=(
-            "Normalize regime weights by max_abs_sharpe instead of clipping to "
-            "[-1, 1].  When set, weight = sharpe / max_abs_sharpe."
+            "Normalize regime weights by max_abs_sharpe instead of the default "
+            "tanh(sharpe/std_sharpe) scaling.  When set, weight = sharpe / max_abs_sharpe."
         ),
     )
     args = p.parse_args(argv)
@@ -187,6 +187,7 @@ def main(argv=None) -> None:
         log_regime_weighted_wf,
         log_regime_wf,
         log_secondary_vol_filter,
+        make_regime_weights_df,
         print_regime_summary,
         print_wf_summary,
         regime_baseline,
@@ -330,7 +331,15 @@ def main(argv=None) -> None:
     weight_map_full = convert_sharpe_to_weight(
         sharpe_map_full, normalize=normalize_weights
     )
-    log_regime_weight_diagnostics(weight_map_full, sharpe_map_full)
+    log_regime_weight_diagnostics(
+        weight_map_full, sharpe_map_full, weight_threshold=weight_threshold
+    )
+    regime_weights_df = make_regime_weights_df(sharpe_map_full, weight_map_full)
+    if not regime_weights_df.empty:
+        _logging.getLogger(__name__).info(
+            "REGIME WEIGHTS MAP (top rows):\n%s",
+            regime_weights_df.head(10).to_string(index=False),
+        )
     weighted_perf = regime_weighted_performance(
         df, weight_map_full, weight_threshold=weight_threshold
     )
