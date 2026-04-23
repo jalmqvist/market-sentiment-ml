@@ -105,38 +105,60 @@ def main(argv=None) -> None:
         build_features,
         build_regimes,
         load_data,
+        log_regime_baseline,
+        log_regime_wf,
         print_regime_summary,
         print_wf_summary,
+        regime_baseline,
+        regime_walk_forward,
         select_features,
         walk_forward_ridge,
     )
 
     df = load_data(args.data)
 
-    # Compute causal volatility feature (vol_24b).
+    # Step 1: Compute causal volatility feature (vol_24b) and interaction features.
     df = build_features(df)
 
-    # Classify each observation into a vol × trend regime.
+    # Step 2: Discretise features into regimes BEFORE any modeling.
     df = build_regimes(df)
 
-    # Determine which feature columns are available in this dataset.
+    if TARGET_COL not in df.columns:
+        print(f"ERROR: Target column '{TARGET_COL}' not found. Exiting.")
+        sys.exit(1)
+
+    # ------------------------------------------------------------------
+    # Step 3: REGIME BASELINE (NO MODEL) — full-dataset regime discovery
+    # ------------------------------------------------------------------
+    regime_summary = regime_baseline(df)
+    log_regime_baseline(regime_summary)
+
+    # ------------------------------------------------------------------
+    # Step 4: REGIME WALK-FORWARD — out-of-sample regime validation
+    # ------------------------------------------------------------------
+    regime_wf = regime_walk_forward(df)
+    log_regime_wf(regime_wf)
+
+    # ------------------------------------------------------------------
+    # Step 5: MODEL WITHIN REGIME (secondary) — LightGBM walk-forward
+    #         trained globally, evaluated per regime
+    # ------------------------------------------------------------------
     feature_cols = select_features(df)
 
     if not feature_cols:
         print("ERROR: No valid feature columns found in dataset. Exiting.")
         sys.exit(1)
 
-    if TARGET_COL not in df.columns:
-        print(f"ERROR: Target column '{TARGET_COL}' not found. Exiting.")
-        sys.exit(1)
+    import logging as _logging  # noqa: PLC0415
+    _logging.getLogger(__name__).info("=== MODEL WITHIN REGIME ===")
 
-    # Expanding-window Ridge walk-forward with per-regime evaluation.
-    wf_results, regime_results = walk_forward_ridge(
+    # Expanding-window LightGBM walk-forward with per-regime evaluation.
+    wf_results, regime_model_results = walk_forward_ridge(
         df, feature_cols, regime_col="regime"
     )
 
     print_wf_summary(wf_results)
-    print_regime_summary(regime_results)
+    print_regime_summary(regime_model_results)
 
 
 if __name__ == "__main__":
