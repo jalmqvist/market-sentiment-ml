@@ -8,8 +8,8 @@ only structure and safety checks have been added.
 
 Usage::
 
-    python -m experiments.regime_v2
-    python -m experiments.regime_v2 --input data/output/master_research_dataset_with_regime.csv \\
+    python -m experiments.regime_v2 --data data/output/master_research_dataset_with_regime.csv
+    python experiments/regime_v2.py --data data/output/master_research_dataset_with_regime.csv \\
                                     --log-level DEBUG
 """
 
@@ -18,6 +18,13 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from pathlib import Path
+
+# Safe repo-root sys.path shim for direct execution (python experiments/regime_v2.py)
+if __package__ is None or __package__ == "":
+    _repo_root = Path(__file__).resolve().parent.parent
+    if str(_repo_root) not in sys.path:
+        sys.path.insert(0, str(_repo_root))
 
 import numpy as np
 import pandas as pd
@@ -55,15 +62,16 @@ def _require_regime_columns(df: pd.DataFrame, context: str = "") -> None:
 # Data loading
 # ---------------------------------------------------------------------------
 
-def load_data(path=None) -> pd.DataFrame:
+def load_data(path: str | Path) -> pd.DataFrame:
     """Load and prepare the research dataset for Regime V2 evaluation.
 
-    Defaults to ``config.DATA_PATH_REGIME`` (the regime-enriched dataset).
-    Raises ``ValueError`` clearly if required regime columns are absent.
-    """
-    if path is None:
-        path = cfg.DATA_PATH_REGIME
+    Args:
+        path: Path to the regime-enriched research dataset CSV.  Required; no
+              default.  Must contain regime columns: phase, is_trending, is_high_vol.
 
+    Raises:
+        ValueError: If required regime columns are absent.
+    """
     df = read_csv(
         path,
         required_columns=["pair", "time"],
@@ -83,6 +91,11 @@ def load_data(path=None) -> pd.DataFrame:
         "JPY_cross",
         "other",
     )
+
+    # Dataset summary
+    date_min = df["timestamp"].min()
+    date_max = df["timestamp"].max()
+    print(f"Dataset summary: {len(df):,} rows | {df['pair'].nunique()} unique pairs | {date_min} to {date_max}")
 
     logger.info("Dataset loaded: %d rows, %d pairs", len(df), df["pair"].nunique())
     return df
@@ -207,8 +220,8 @@ def main(argv=None) -> None:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument(
-        "--input",
-        default=str(cfg.DATA_PATH_REGIME),
+        "--data",
+        required=True,
         help="Path to regime-enriched research dataset CSV (must contain phase, is_trending, is_high_vol).",
     )
     p.add_argument(
@@ -219,7 +232,7 @@ def main(argv=None) -> None:
     args = p.parse_args(argv)
     setup_logging(args.log_level)
 
-    df = load_data(args.input)
+    df = load_data(args.data)
     debug_checks(df)
 
     signal_raw = apply_regime_v2_signal(df)

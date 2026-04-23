@@ -8,8 +8,8 @@ preserved.
 
 Usage::
 
-    python -m experiments.sweep
-    python -m experiments.sweep --input data/output/master_research_dataset.csv \\
+    python -m experiments.sweep --data data/output/master_research_dataset.csv
+    python experiments/sweep.py --data data/output/master_research_dataset.csv \\
                                 --log-level DEBUG
 """
 
@@ -17,6 +17,14 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
+from pathlib import Path
+
+# Safe repo-root sys.path shim for direct execution (python experiments/sweep.py)
+if __package__ is None or __package__ == "":
+    _repo_root = Path(__file__).resolve().parent.parent
+    if str(_repo_root) not in sys.path:
+        sys.path.insert(0, str(_repo_root))
 
 import numpy as np
 import pandas as pd
@@ -36,11 +44,15 @@ logger = logging.getLogger(__name__)
 # Data loading
 # ---------------------------------------------------------------------------
 
-def load_data(path=None) -> pd.DataFrame:
-    """Load and prepare the research dataset for the sweep."""
-    if path is None:
-        path = cfg.DATA_PATH
+def load_data(path: str | Path) -> pd.DataFrame:
+    """Load and prepare the research dataset for the sweep.
 
+    Args:
+        path: Path to the canonical research dataset CSV.  Required; no default.
+
+    Raises:
+        ValueError: If required columns are missing.
+    """
     df = read_csv(path, required_columns=["pair", "time"])
 
     df = parse_timestamps(df, "time", context="sweep.load_data")
@@ -53,6 +65,11 @@ def load_data(path=None) -> pd.DataFrame:
         "JPY_cross",
         "other",
     )
+
+    # Dataset summary
+    date_min = df["timestamp"].min()
+    date_max = df["timestamp"].max()
+    print(f"Dataset summary: {len(df):,} rows | {df['pair'].nunique()} unique pairs | {date_min} to {date_max}")
 
     logger.info("Dataset loaded: %d rows, %d pairs", len(df), df["pair"].nunique())
     return df
@@ -174,9 +191,9 @@ def main(argv=None) -> None:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument(
-        "--input",
-        default=str(cfg.DATA_PATH),
-        help="Path to master research dataset CSV.",
+        "--data",
+        required=True,
+        help="Path to master research dataset CSV (canonical dataset).",
     )
     p.add_argument(
         "--log-level",
@@ -186,7 +203,7 @@ def main(argv=None) -> None:
     args = p.parse_args(argv)
     setup_logging(args.log_level)
 
-    df = load_data(args.input)
+    df = load_data(args.data)
     results = run_sweep(df)
 
     print("\n=== EXPERIMENT RESULTS ===")

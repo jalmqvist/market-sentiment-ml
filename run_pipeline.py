@@ -121,7 +121,7 @@ def main() -> int:
         cmd = [
             sys.executable,
             "attach_regimes_to_h1_dataset.py",
-            "--h1",
+            "--data",
             str(canonical_path),
             "--out",
             str(regime_path),
