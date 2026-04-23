@@ -137,6 +137,11 @@ MIN_TRAIN_OBS: int = 10_000
 #: Sharpe estimates driven by noise in very small subsets.
 MIN_REGIME_OBS: int = 50
 
+#: Minimum observations per crowding regime (simplified 2-axis definition).
+#: Higher threshold than MIN_REGIME_OBS to ensure statistical stability with
+#: fewer, broader regime buckets.
+MIN_CROWDING_REGIME_OBS: int = 100
+
 #: Whitelisted causal feature columns.  Only these may be used as model inputs.
 #: Any column matching ``ret_*`` or ``contrarian_ret_*`` is explicitly prohibited.
 SAFE_FEATURES: list[str] = [
@@ -540,6 +545,26 @@ def build_behavioural_regimes(df: pd.DataFrame) -> pd.DataFrame:
         n_valid,
         n_regimes,
     )
+
+    # --- crowding_regime = side_streak_bucket + "_" + abs_sent_bucket ---
+    # Simplified 2-axis regime: excludes extreme_streak_bucket to reduce
+    # dimensionality and improve sample sizes per regime.
+    crowding_valid_mask = (
+        out["abs_sent_bucket"].notna()
+        & out["side_streak_bucket"].notna()
+    )
+    crowding_combined = (
+        out["side_streak_bucket"].astype(str)
+        + "_"
+        + out["abs_sent_bucket"].astype(str)
+    )
+    out["crowding_regime"] = crowding_combined.where(crowding_valid_mask)
+    n_crowding_regimes = out["crowding_regime"].nunique()
+    logger.info(
+        "build_behavioural_regimes: %d unique crowding regimes (2-axis simplified)",
+        n_crowding_regimes,
+    )
+
     return out
 
 
@@ -894,8 +919,285 @@ def behavioural_regime_walk_forward(
     return pd.DataFrame(rows)[_COLS].reset_index(drop=True)
 
 
+# ---------------------------------------------------------------------------
+# CROWDING REGIME SUMMARY (NO MODEL) — simplified 2-axis regime discovery
+# ---------------------------------------------------------------------------
 
-def log_regime_baseline(regime_summary: pd.DataFrame) -> None:
+def crowding_regime_baseline(
+    df: pd.DataFrame,
+    *,
+    target_col: str = TARGET_COL,
+    regime_col: str = "crowding_regime",
+    min_n: int = MIN_CROWDING_REGIME_OBS,
+) -> pd.DataFrame:
+    """Compute crowding regime statistics on the full dataset without any model.
+
+    Groups observations by the simplified 2-axis crowding regime
+    (``side_streak_bucket + "_" + abs_sent_bucket``) and computes mean
+    return, std, Sharpe, and hit-rate for each regime.  Regimes with fewer
+    than ``min_n`` observations are skipped and logged at WARNING level.
+
+    This is the primary crowding discovery step: no model is trained or used.
+    Compared to ``behavioural_regime_baseline``, this uses only two axes
+    (removing ``extreme_streak_bucket``) to reduce sparsity and improve
+    statistical stability.
+
+    Args:
+        df: Full dataset (after ``build_behavioural_regimes``).
+        target_col: Forward-return column to summarise (default ``ret_48b``).
+        regime_col: Column containing crowding regime labels (default
+            ``"crowding_regime"``).
+        min_n: Minimum observations required per regime.
+
+    Returns:
+        DataFrame ``crowding_regime_summary`` with schema
+        ``["regime", "n", "mean", "std", "sharpe", "hit_rate"]``,
+        sorted by Sharpe descending.
+    """
+    _COLS = ["regime", "n", "mean", "std", "sharpe", "hit_rate"]
+
+    if regime_col not in df.columns:
+        logger.warning("crowding_regime_baseline: '%s' column not found", regime_col)
+        return pd.DataFrame(columns=_COLS)
+
+    valid = df.dropna(subset=[regime_col, target_col])
+    rows: list[dict] = []
+
+    for regime_label, grp in valid.groupby(regime_col):
+        returns = grp[target_col].values
+        if len(returns) < min_n:
+            logger.warning(
+                "CROWDING REGIME SUMMARY: regime=%s skipped (n=%d < %d)",
+                regime_label,
+                len(returns),
+                min_n,
+            )
+            continue
+        m = _direct_regime_metrics(returns)
+        rows.append({"regime": str(regime_label), **m})
+
+    if not rows:
+        logger.warning("CROWDING REGIME SUMMARY: no valid regimes found")
+        return pd.DataFrame(columns=_COLS)
+
+    result = (
+        pd.DataFrame(rows)[_COLS]
+        .sort_values("sharpe", ascending=False)
+        .reset_index(drop=True)
+    )
+    return result
+
+
+# ---------------------------------------------------------------------------
+# CROWDING REGIME WALK-FORWARD — per-year crowding regime validation
+# ---------------------------------------------------------------------------
+
+def crowding_regime_walk_forward(
+    df: pd.DataFrame,
+    *,
+    target_col: str = TARGET_COL,
+    regime_col: str = "crowding_regime",
+    year_col: str = "year",
+    min_n: int = MIN_CROWDING_REGIME_OBS,
+) -> pd.DataFrame:
+    """Validate crowding regime structure out-of-sample using an expanding window.
+
+    For each test year (starting from the third unique year), computes
+    regime metrics on the **test set only** using raw returns — no model
+    predictions are involved.  Logs ``year | regime | n | sharpe | hit_rate``
+    for each valid (year, regime) combination.
+
+    Regimes with fewer than ``min_n`` test-set observations are skipped and
+    logged at WARNING level.
+
+    Args:
+        df: Full dataset (after ``build_behavioural_regimes``).
+        target_col: Forward-return column (default ``ret_48b``).
+        regime_col: Column containing crowding regime labels (default
+            ``"crowding_regime"``).
+        year_col: Column containing calendar year (default ``"year"``).
+        min_n: Minimum test-set observations required per regime.
+
+    Returns:
+        DataFrame ``crowding_regime_wf`` with schema
+        ``["year", "regime", "n", "mean", "sharpe", "hit_rate"]``.
+    """
+    _COLS = ["year", "regime", "n", "mean", "sharpe", "hit_rate"]
+
+    if regime_col not in df.columns:
+        logger.warning(
+            "crowding_regime_walk_forward: '%s' column not found", regime_col
+        )
+        return pd.DataFrame(columns=_COLS)
+
+    years = sorted(df[year_col].unique())
+    if len(years) < 3:
+        logger.warning(
+            "crowding_regime_walk_forward: need at least 3 unique years, got %d",
+            len(years),
+        )
+        return pd.DataFrame(columns=_COLS)
+
+    rows: list[dict] = []
+
+    for i in range(2, len(years)):
+        test_year = years[i]
+        test = df[df[year_col] == test_year].dropna(subset=[regime_col, target_col])
+
+        if test.empty:
+            logger.debug(
+                "WALK-FORWARD REGIME PERFORMANCE: year=%d — empty test set, skipping",
+                test_year,
+            )
+            continue
+
+        for regime_label, grp in test.groupby(regime_col):
+            returns = grp[target_col].values
+            if len(returns) < min_n:
+                logger.warning(
+                    "WALK-FORWARD REGIME PERFORMANCE: year=%d | regime=%s skipped (n=%d < %d)",
+                    test_year,
+                    regime_label,
+                    len(returns),
+                    min_n,
+                )
+                continue
+            m = _direct_regime_metrics(returns)
+            rows.append(
+                {
+                    "year": int(test_year),
+                    "regime": str(regime_label),
+                    "n": m["n"],
+                    "mean": m["mean"],
+                    "sharpe": m["sharpe"],
+                    "hit_rate": m["hit_rate"],
+                }
+            )
+            logger.info(
+                "WALK-FORWARD REGIME PERFORMANCE | year=%d | regime=%-20s | n=%5d"
+                " | sharpe=%+.4f | hit_rate=%.4f",
+                test_year,
+                regime_label,
+                m["n"],
+                m["sharpe"] if not np.isnan(m["sharpe"]) else float("nan"),
+                m["hit_rate"] if not np.isnan(m["hit_rate"]) else float("nan"),
+            )
+
+    if not rows:
+        logger.warning(
+            "WALK-FORWARD REGIME PERFORMANCE: no valid regime/year combinations found"
+        )
+        return pd.DataFrame(columns=_COLS)
+
+    return pd.DataFrame(rows)[_COLS].reset_index(drop=True)
+
+
+# ---------------------------------------------------------------------------
+# SECONDARY VOL FILTER — secondary conditioning on top crowding regimes
+# ---------------------------------------------------------------------------
+
+def secondary_vol_filter(
+    df: pd.DataFrame,
+    crowding_summary: pd.DataFrame,
+    *,
+    target_col: str = TARGET_COL,
+    regime_col: str = "crowding_regime",
+    vol_col: str = "vol_24b",
+    top_n: int = 5,
+    min_n: int = MIN_CROWDING_REGIME_OBS,
+) -> pd.DataFrame:
+    """Apply secondary vol conditioning to the top crowding regimes.
+
+    For each of the top *top_n* crowding regimes (by Sharpe), splits
+    observations into ``"high_vol"`` and ``"low_vol"`` subsets using a
+    global median split on ``vol_24b``.  Performance metrics are computed
+    for each ``(regime, vol_group)`` combination.
+
+    Vol is used **only** as a secondary split within already-identified top
+    regimes; it is **not** included in the regime key itself.  This avoids
+    the combinatorial explosion of a vol × regime cross product.
+
+    Subsets with fewer than ``min_n`` observations are skipped and logged
+    at WARNING level.
+
+    Args:
+        df: Full dataset (after ``build_behavioural_regimes`` and
+            ``build_features``).
+        crowding_summary: DataFrame returned by ``crowding_regime_baseline``,
+            sorted by Sharpe descending.
+        target_col: Forward-return column (default ``ret_48b``).
+        regime_col: Column containing crowding regime labels (default
+            ``"crowding_regime"``).
+        vol_col: Volatility column used for median split (default ``vol_24b``).
+        top_n: Number of top regimes to apply secondary conditioning to.
+        min_n: Minimum observations per vol subset to include in results.
+
+    Returns:
+        DataFrame with schema
+        ``["regime", "vol_group", "n", "mean", "std", "sharpe", "hit_rate"]``.
+    """
+    _COLS = ["regime", "vol_group", "n", "mean", "std", "sharpe", "hit_rate"]
+
+    if crowding_summary.empty:
+        logger.warning("secondary_vol_filter: crowding_summary is empty")
+        return pd.DataFrame(columns=_COLS)
+    if regime_col not in df.columns:
+        logger.warning(
+            "secondary_vol_filter: '%s' column not found in dataset", regime_col
+        )
+        return pd.DataFrame(columns=_COLS)
+    if vol_col not in df.columns:
+        logger.warning(
+            "secondary_vol_filter: '%s' column not found; skipping vol filter",
+            vol_col,
+        )
+        return pd.DataFrame(columns=_COLS)
+
+    top_regimes = crowding_summary.head(top_n)["regime"].tolist()
+    valid = df.dropna(subset=[regime_col, target_col, vol_col])
+    vol_median = float(valid[vol_col].median())
+    logger.info(
+        "secondary_vol_filter: vol_24b median=%.6f; applying to top %d regimes",
+        vol_median,
+        len(top_regimes),
+    )
+
+    rows: list[dict] = []
+
+    for regime_label in top_regimes:
+        regime_df = valid[valid[regime_col] == regime_label]
+        for vol_group, vol_mask in [
+            ("low_vol", regime_df[vol_col] <= vol_median),
+            ("high_vol", regime_df[vol_col] > vol_median),
+        ]:
+            subset = regime_df[vol_mask]
+            returns = subset[target_col].values
+            if len(returns) < min_n:
+                logger.warning(
+                    "SECONDARY VOL FILTER: regime=%s | vol_group=%s skipped (n=%d < %d)",
+                    regime_label,
+                    vol_group,
+                    len(returns),
+                    min_n,
+                )
+                continue
+            m = _direct_regime_metrics(returns)
+            rows.append(
+                {
+                    "regime": str(regime_label),
+                    "vol_group": vol_group,
+                    **m,
+                }
+            )
+
+    if not rows:
+        logger.warning("SECONDARY VOL FILTER (TOP REGIMES): no valid results")
+        return pd.DataFrame(columns=_COLS)
+
+    return pd.DataFrame(rows)[_COLS].reset_index(drop=True)
+
+
+
     """Log regime_summary under a clearly labelled section header.
 
     Args:
@@ -1016,9 +1318,78 @@ def log_behavioural_regime_wf(regime_wf: pd.DataFrame) -> None:
         )
 
 
-# ---------------------------------------------------------------------------
-# Per-regime metrics helper (model-based: uses predictions vs actuals)
-# ---------------------------------------------------------------------------
+def log_crowding_regime_summary(regime_summary: pd.DataFrame) -> None:
+    """Log crowding_regime_summary under the CROWDING REGIME SUMMARY section.
+
+    Logs all regimes sorted by Sharpe descending.
+
+    Args:
+        regime_summary: DataFrame returned by ``crowding_regime_baseline``.
+    """
+    logger.info("=== CROWDING REGIME SUMMARY ===")
+    if regime_summary.empty:
+        logger.warning("CROWDING REGIME SUMMARY: no results to display")
+        return
+    for row in regime_summary.itertuples(index=False):
+        logger.info(
+            "CROWDING REGIME SUMMARY | regime=%-20s | n=%5d | mean=%+.6f"
+            " | std=%.6f | sharpe=%+.4f | hit_rate=%.4f",
+            row.regime,
+            row.n,
+            row.mean,
+            row.std,
+            row.sharpe if not np.isnan(row.sharpe) else float("nan"),
+            row.hit_rate if not np.isnan(row.hit_rate) else float("nan"),
+        )
+
+
+def log_crowding_regime_wf(regime_wf: pd.DataFrame) -> None:
+    """Log crowding_regime_wf under the WALK-FORWARD REGIME PERFORMANCE section.
+
+    Args:
+        regime_wf: DataFrame returned by ``crowding_regime_walk_forward``.
+    """
+    logger.info("=== WALK-FORWARD REGIME PERFORMANCE ===")
+    if regime_wf.empty:
+        logger.warning("WALK-FORWARD REGIME PERFORMANCE: no results to display")
+        return
+    for row in regime_wf.itertuples(index=False):
+        logger.info(
+            "WALK-FORWARD REGIME PERFORMANCE | year=%d | regime=%-20s | n=%5d"
+            " | sharpe=%+.4f | hit_rate=%.4f",
+            row.year,
+            row.regime,
+            row.n,
+            row.sharpe if not np.isnan(row.sharpe) else float("nan"),
+            row.hit_rate if not np.isnan(row.hit_rate) else float("nan"),
+        )
+
+
+def log_secondary_vol_filter(vol_filter_df: pd.DataFrame) -> None:
+    """Log secondary_vol_filter results under the SECONDARY VOL FILTER section.
+
+    Args:
+        vol_filter_df: DataFrame returned by ``secondary_vol_filter``.
+    """
+    logger.info("=== SECONDARY VOL FILTER (TOP REGIMES) ===")
+    if vol_filter_df.empty:
+        logger.warning("SECONDARY VOL FILTER (TOP REGIMES): no results to display")
+        return
+    for row in vol_filter_df.itertuples(index=False):
+        logger.info(
+            "SECONDARY VOL FILTER | regime=%-20s | vol_group=%-8s | n=%5d"
+            " | mean=%+.6f | std=%.6f | sharpe=%+.4f | hit_rate=%.4f",
+            row.regime,
+            row.vol_group,
+            row.n,
+            row.mean,
+            row.std,
+            row.sharpe if not np.isnan(row.sharpe) else float("nan"),
+            row.hit_rate if not np.isnan(row.hit_rate) else float("nan"),
+        )
+
+
+
 
 def _regime_metrics(y_pred: np.ndarray, y_test: np.ndarray) -> dict:
     """Compute IC, Sharpe and hit rate for a single regime subset.
@@ -1466,6 +1837,12 @@ def main(argv=None) -> None:
     log_behavioural_regime_summary(behavioural_summary)
 
     # ------------------------------------------------------------------
+    # Step 3c: CROWDING REGIME SUMMARY — simplified 2-axis regime discovery
+    # ------------------------------------------------------------------
+    crowding_summary = crowding_regime_baseline(df)
+    log_crowding_regime_summary(crowding_summary)
+
+    # ------------------------------------------------------------------
     # Step 4: REGIME WALK-FORWARD — out-of-sample regime validation
     # ------------------------------------------------------------------
     regime_wf = regime_walk_forward(df)
@@ -1477,6 +1854,20 @@ def main(argv=None) -> None:
     # ------------------------------------------------------------------
     behavioural_wf = behavioural_regime_walk_forward(df)
     log_behavioural_regime_wf(behavioural_wf)
+
+    # ------------------------------------------------------------------
+    # Step 4c: CROWDING REGIME WALK-FORWARD — out-of-sample crowding
+    #          regime validation (simplified 2-axis)
+    # ------------------------------------------------------------------
+    crowding_wf = crowding_regime_walk_forward(df)
+    log_crowding_regime_wf(crowding_wf)
+
+    # ------------------------------------------------------------------
+    # Step 4d: SECONDARY VOL FILTER — secondary conditioning on top
+    #          crowding regimes (no combinatorial regime expansion)
+    # ------------------------------------------------------------------
+    vol_filter_results = secondary_vol_filter(df, crowding_summary)
+    log_secondary_vol_filter(vol_filter_results)
 
     # ------------------------------------------------------------------
     # Step 5: MODEL WITHIN REGIME (secondary) — LightGBM walk-forward
