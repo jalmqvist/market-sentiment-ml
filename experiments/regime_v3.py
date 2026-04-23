@@ -72,7 +72,20 @@ Pipeline order
     signal-active subset.  ``regime_direction_walk_forward()`` validates
     those metrics per year (no refitting).
 
-13. **MODEL WITHIN REGIME (secondary)** – ``walk_forward_ridge()`` trains a
+13. **FILTER + DIRECTION + WEIGHTING** – ``regime_weighted_walk_forward()``
+    extends step 12 with continuous regime weights derived from per-regime
+    Sharpe on training data:
+
+    * ``compute_regime_sharpe_map()`` – per-regime Sharpe from train only.
+    * ``convert_sharpe_to_weight()`` – Sharpe → weight in ``[-1, 1]`` via
+      clipping (default) or normalization.
+    * ``apply_regime_weighted_signal()`` – ``signal = weight * base_signal``;
+      regimes not in the map or with ``|weight| < threshold`` → ``signal = 0``.
+    * ``regime_weighted_performance()`` – aggregate metrics on weighted signals.
+    * ``regime_weighted_walk_forward()`` – per-year OOS metrics, computing the
+      weight map from training data only per fold (leakage-free).
+
+14. **MODEL WITHIN REGIME (secondary)** – ``walk_forward_ridge()`` trains a
     LightGBM model globally and evaluates predictions broken down by regime.
 
 Output DataFrames
@@ -95,6 +108,10 @@ Output DataFrames
   "hit_rate"]``; aggregate metrics on the direction-signal active subset.
 * ``regime_direction_wf`` – schema ``["year", "n", "mean", "sharpe",
   "hit_rate"]``; per-year OOS metrics for the direction-signal strategy.
+* ``regime_weighted_performance`` – schema ``["n", "mean", "std", "sharpe",
+  "hit_rate"]``; aggregate metrics on the weighted-signal active subset.
+* ``regime_weighted_wf`` – schema ``["year", "n", "mean", "sharpe",
+  "hit_rate"]``; per-year OOS metrics for the weighted-signal strategy.
 
 All features are strictly causal at ``entry_time``:
 
@@ -211,6 +228,17 @@ TREND_REGIMES: list[str] = [
     "medium_high",
     "medium_mid",
 ]
+
+#: Default weight threshold for regime-based signal weighting.
+#: Regimes whose absolute weight falls below this value are treated as
+#: inactive (``signal = 0``).  Override via CLI ``--weight-threshold``.
+WEIGHT_THRESHOLD: float = 0.05
+
+#: Default weighting mode for ``convert_sharpe_to_weight``.
+#: When ``False`` (default): ``weight = clip(sharpe, -1.0, 1.0)``.
+#: When ``True``:            ``weight = sharpe / max_abs_sharpe``.
+#: Override via CLI ``--normalize-weights``.
+NORMALIZE_WEIGHTS: bool = False
 
 #: Whitelisted causal feature columns.  Only these may be used as model inputs.
 #: Any column matching ``ret_*`` or ``contrarian_ret_*`` is explicitly prohibited.
@@ -2224,6 +2252,578 @@ def log_regime_direction_wf(wf_df: pd.DataFrame) -> None:
             row.mean,
             row.sharpe if not np.isnan(row.sharpe) else float("nan"),
             row.hit_rate if not np.isnan(row.hit_rate) else float("nan"),
+        )
+
+
+# ---------------------------------------------------------------------------
+# FILTER + DIRECTION + WEIGHTING — continuous regime weights from train Sharpe
+# ---------------------------------------------------------------------------
+
+def compute_regime_sharpe_map(
+    train_df: pd.DataFrame,
+    contrarian_regimes: list[str] | None = None,
+    trend_regimes: list[str] | None = None,
+    *,
+    target_col: str = TARGET_COL,
+    regime_col: str = "crowding_regime",
+    sentiment_col: str = "net_sentiment",
+    min_n: int = MIN_CROWDING_REGIME_OBS,
+) -> dict[str, float]:
+    """Compute per-regime Sharpe from training data only (no leakage).
+
+    Applies the regime-direction signal to *train_df* and computes the Sharpe
+    ratio of ``direction_signal * target_col`` for each unique regime.  Only
+    regimes with at least *min_n* active rows contribute to the map.
+
+    This function must be called on **training data only** to avoid leakage
+    of test-period information into the weight map.
+
+    Args:
+        train_df: Training-period dataset (after ``build_behavioural_regimes``).
+        contrarian_regimes: Regime labels for contrarian direction.
+            Defaults to ``CONTRARIAN_REGIMES``.
+        trend_regimes: Regime labels for trend-following direction.
+            Defaults to ``TREND_REGIMES``.
+        target_col: Forward-return column (default ``ret_48b``).
+        regime_col: Column containing crowding regime labels (default
+            ``"crowding_regime"``).
+        sentiment_col: Column containing signed sentiment values (default
+            ``"net_sentiment"``).
+        min_n: Minimum active rows per regime required to include in map.
+
+    Returns:
+        Dict mapping regime label → Sharpe ratio computed on training data only.
+        Regimes with fewer than *min_n* active rows or undefined Sharpe are
+        excluded.
+    """
+    if contrarian_regimes is None:
+        contrarian_regimes = CONTRARIAN_REGIMES
+    if trend_regimes is None:
+        trend_regimes = TREND_REGIMES
+
+    if regime_col not in train_df.columns:
+        logger.warning(
+            "compute_regime_sharpe_map: '%s' not found in train data; "
+            "returning empty map",
+            regime_col,
+        )
+        return {}
+
+    # Apply direction signal to training data to get per-row PnL signal.
+    train_dir = apply_regime_direction_signal(
+        train_df,
+        contrarian_regimes,
+        trend_regimes,
+        regime_col=regime_col,
+        sentiment_col=sentiment_col,
+    )
+    valid = train_dir.dropna(subset=[target_col])
+
+    sharpe_map: dict[str, float] = {}
+
+    for regime_label, grp in valid.groupby(regime_col):
+        active = grp[grp["is_active"]]
+        if len(active) < min_n:
+            logger.debug(
+                "compute_regime_sharpe_map: regime=%s skipped "
+                "(n_active=%d < %d)",
+                regime_label,
+                len(active),
+                min_n,
+            )
+            continue
+        m = _direction_metrics(
+            active["signal"].values,
+            active[target_col].values,
+        )
+        if not np.isnan(m["sharpe"]):
+            sharpe_map[str(regime_label)] = m["sharpe"]
+
+    logger.info(
+        "compute_regime_sharpe_map: %d regimes in map (min_n=%d): %s",
+        len(sharpe_map),
+        min_n,
+        {k: round(v, 4) for k, v in sharpe_map.items()},
+    )
+    return sharpe_map
+
+
+def convert_sharpe_to_weight(
+    sharpe_map: dict[str, float],
+    *,
+    normalize: bool = NORMALIZE_WEIGHTS,
+) -> dict[str, float]:
+    """Convert a regime Sharpe map to regime weights.
+
+    Two modes are supported:
+
+    * **Clip mode** (``normalize=False``, default):
+      ``weight = clip(sharpe, -1.0, 1.0)``
+    * **Normalize mode** (``normalize=True``):
+      ``weight = sharpe / max_abs_sharpe`` where
+      ``max_abs_sharpe = max(abs(sharpe))`` across all regimes.
+
+    Args:
+        sharpe_map: Dict mapping regime label → Sharpe ratio (from training
+            data only; output of ``compute_regime_sharpe_map``).
+        normalize: If ``True``, normalize weights by ``max_abs_sharpe``.
+            Defaults to ``NORMALIZE_WEIGHTS`` (``False``).
+
+    Returns:
+        Dict mapping regime label → weight in the range ``[-1, 1]``.
+        Returns an empty dict if *sharpe_map* is empty.
+    """
+    if not sharpe_map:
+        return {}
+
+    values = np.array(list(sharpe_map.values()), dtype=float)
+
+    if normalize:
+        max_abs = float(np.max(np.abs(values)))
+        if max_abs < 1e-10:
+            logger.warning(
+                "convert_sharpe_to_weight: max_abs_sharpe near zero; "
+                "returning zero weights"
+            )
+            return {k: 0.0 for k in sharpe_map}
+        weights = values / max_abs
+    else:
+        weights = np.clip(values, -1.0, 1.0)
+
+    weight_map = {k: float(w) for k, w in zip(sharpe_map.keys(), weights)}
+
+    abs_weights = np.abs(list(weight_map.values()))
+    logger.debug(
+        "convert_sharpe_to_weight: mode=%s | n=%d | "
+        "min=%.4f | mean=%.4f | max=%.4f",
+        "normalize" if normalize else "clip",
+        len(weight_map),
+        float(np.min(abs_weights)) if len(abs_weights) else float("nan"),
+        float(np.mean(abs_weights)) if len(abs_weights) else float("nan"),
+        float(np.max(abs_weights)) if len(abs_weights) else float("nan"),
+    )
+    return weight_map
+
+
+def apply_regime_weighted_signal(
+    df: pd.DataFrame,
+    weight_map: dict[str, float],
+    contrarian_regimes: list[str] | None = None,
+    trend_regimes: list[str] | None = None,
+    *,
+    regime_col: str = "crowding_regime",
+    sentiment_col: str = "net_sentiment",
+    weight_threshold: float = WEIGHT_THRESHOLD,
+) -> pd.DataFrame:
+    """Apply regime-based continuous weights to the directional signal.
+
+    For each row:
+
+    * Look up ``weight_map[regime]`` to get the regime weight.
+    * ``weighted_signal = weight * direction_signal`` where
+      ``direction_signal`` is the output of ``apply_regime_direction_signal``.
+    * If the regime is not in *weight_map*: ``weighted_signal = 0``.
+    * If ``abs(weight) < weight_threshold``: ``weighted_signal = 0``.
+
+    Adds columns:
+
+    * ``base_signal`` – direction-adjusted sentiment (recomputed for
+      independence; may already be present if direction signal was applied).
+    * ``regime_direction`` – direction label (``"contrarian"`` / ``"trend"``
+      / ``"none"``).
+    * ``signal`` – binary direction signal (before weighting).
+    * ``regime_weight`` – weight from *weight_map* (``NaN`` for unknown
+      regimes).
+    * ``weighted_signal`` – final scaled signal.
+    * ``is_active_weighted`` – boolean; ``True`` when
+      ``weighted_signal != 0``.
+
+    Args:
+        df: Dataset (after ``build_behavioural_regimes``).
+        weight_map: Dict mapping regime label → weight (from
+            ``convert_sharpe_to_weight``).
+        contrarian_regimes: Regime labels for contrarian direction.
+            Defaults to ``CONTRARIAN_REGIMES``.
+        trend_regimes: Regime labels for trend-following direction.
+            Defaults to ``TREND_REGIMES``.
+        regime_col: Column containing crowding regime labels (default
+            ``"crowding_regime"``).
+        sentiment_col: Column containing signed sentiment values (default
+            ``"net_sentiment"``).
+        weight_threshold: Regimes with ``abs(weight) < weight_threshold``
+            have their signal zeroed out.  Defaults to ``WEIGHT_THRESHOLD``
+            (``0.05``).
+
+    Returns:
+        Copy of *df* with ``regime_weight``, ``weighted_signal``, and
+        ``is_active_weighted`` columns appended.
+    """
+    if contrarian_regimes is None:
+        contrarian_regimes = CONTRARIAN_REGIMES
+    if trend_regimes is None:
+        trend_regimes = TREND_REGIMES
+
+    # Apply direction signal to get base_signal / signal columns.
+    out = apply_regime_direction_signal(
+        df,
+        contrarian_regimes,
+        trend_regimes,
+        regime_col=regime_col,
+        sentiment_col=sentiment_col,
+    )
+
+    if regime_col not in out.columns:
+        out["regime_weight"] = np.nan
+        out["weighted_signal"] = 0.0
+        out["is_active_weighted"] = False
+        return out
+
+    # Map regime → weight.
+    out["regime_weight"] = out[regime_col].map(weight_map)
+
+    # Compute weighted signal: weight * direction_signal.
+    # Unknown regime or weight below threshold → signal = 0.
+    has_weight = out["regime_weight"].notna()
+    above_threshold = out["regime_weight"].abs() >= weight_threshold
+    out["weighted_signal"] = 0.0
+    active_mask = has_weight & above_threshold
+    out.loc[active_mask, "weighted_signal"] = (
+        out.loc[active_mask, "regime_weight"] * out.loc[active_mask, "signal"]
+    )
+    out["is_active_weighted"] = out["weighted_signal"] != 0.0
+
+    n_active = int(out["is_active_weighted"].sum())
+    n_total = len(out)
+    n_unknown = int((~has_weight).sum())
+    n_below_thresh = int((has_weight & ~above_threshold).sum())
+    coverage = n_active / n_total if n_total > 0 else 0.0
+
+    logger.info(
+        "apply_regime_weighted_signal: active=%d | coverage=%.1f%%"
+        " | unknown_regime=%d | below_threshold=%d (threshold=%.3f)",
+        n_active,
+        coverage * 100,
+        n_unknown,
+        n_below_thresh,
+        weight_threshold,
+    )
+    return out
+
+
+def regime_weighted_performance(
+    df: pd.DataFrame,
+    weight_map: dict[str, float],
+    contrarian_regimes: list[str] | None = None,
+    trend_regimes: list[str] | None = None,
+    *,
+    target_col: str = TARGET_COL,
+    regime_col: str = "crowding_regime",
+    sentiment_col: str = "net_sentiment",
+    weight_threshold: float = WEIGHT_THRESHOLD,
+) -> pd.DataFrame:
+    """Compute aggregate performance for the regime-weighted signal strategy.
+
+    Applies the weighted signal and computes ``mean(weighted_signal * ret_48b)``,
+    std, Sharpe, and hit-rate across all rows where ``is_active_weighted``
+    is ``True``.
+
+    Args:
+        df: Dataset (after ``build_behavioural_regimes``).
+        weight_map: Dict mapping regime label → weight (from
+            ``convert_sharpe_to_weight``).
+        contrarian_regimes: Regime labels for contrarian direction.
+            Defaults to ``CONTRARIAN_REGIMES``.
+        trend_regimes: Regime labels for trend-following direction.
+            Defaults to ``TREND_REGIMES``.
+        target_col: Forward-return column (default ``ret_48b``).
+        regime_col: Column containing crowding regime labels.
+        sentiment_col: Column containing signed sentiment values.
+        weight_threshold: Regimes with ``abs(weight) < weight_threshold``
+            are excluded from active signals.
+
+    Returns:
+        Single-row DataFrame with schema
+        ``["n", "mean", "std", "sharpe", "hit_rate"]``.
+        This is the ``regime_weighted_performance`` output artifact.
+    """
+    _COLS = ["n", "mean", "std", "sharpe", "hit_rate"]
+
+    df_weighted = apply_regime_weighted_signal(
+        df,
+        weight_map,
+        contrarian_regimes,
+        trend_regimes,
+        regime_col=regime_col,
+        sentiment_col=sentiment_col,
+        weight_threshold=weight_threshold,
+    )
+
+    valid = df_weighted.dropna(subset=[target_col])
+    active = valid[valid["is_active_weighted"]]
+
+    if active.empty:
+        logger.warning(
+            "regime_weighted_performance: no active weighted signals after filtering"
+        )
+        return pd.DataFrame(columns=_COLS)
+
+    m = _direction_metrics(
+        active["weighted_signal"].values,
+        active[target_col].values,
+    )
+    return pd.DataFrame([m])[_COLS]
+
+
+def regime_weighted_walk_forward(
+    df: pd.DataFrame,
+    contrarian_regimes: list[str] | None = None,
+    trend_regimes: list[str] | None = None,
+    *,
+    target_col: str = TARGET_COL,
+    regime_col: str = "crowding_regime",
+    sentiment_col: str = "net_sentiment",
+    year_col: str = "year",
+    min_n: int = MIN_CROWDING_REGIME_OBS,
+    weight_threshold: float = WEIGHT_THRESHOLD,
+    normalize_weights: bool = NORMALIZE_WEIGHTS,
+) -> pd.DataFrame:
+    """Walk-forward validation of the regime-weighted signal (no model).
+
+    For each test year (starting from the third unique year):
+
+    1. Compute ``regime_sharpe_map`` on the **training slice** (all years
+       prior to the test year).  No test data is used to derive weights.
+    2. Convert to weights via ``convert_sharpe_to_weight``.
+    3. Apply weighted signal to the **test slice**.
+    4. Compute per-year performance metrics.
+
+    Guardrails:
+    * Regime Sharpe map is computed on training data only (leakage-free).
+    * Years where the active weighted test set has fewer than ``min_n`` rows
+      are skipped and logged at WARNING level.
+
+    Args:
+        df: Full dataset (after ``build_behavioural_regimes``).
+        contrarian_regimes: Regime labels for contrarian direction.
+            Defaults to ``CONTRARIAN_REGIMES``.
+        trend_regimes: Regime labels for trend-following direction.
+            Defaults to ``TREND_REGIMES``.
+        target_col: Forward-return column (default ``ret_48b``).
+        regime_col: Column containing crowding regime labels.
+        sentiment_col: Column containing signed sentiment values.
+        year_col: Column containing calendar year.
+        min_n: Minimum active rows required per test year.
+        weight_threshold: Regimes with ``abs(weight) < weight_threshold``
+            are excluded from active signals.
+        normalize_weights: If ``True``, normalize weights by
+            ``max_abs_sharpe``.  Defaults to ``NORMALIZE_WEIGHTS``.
+
+    Returns:
+        DataFrame with schema
+        ``["year", "n", "mean", "sharpe", "hit_rate"]``.
+        This is the ``regime_weighted_wf`` output artifact.
+    """
+    _COLS = ["year", "n", "mean", "sharpe", "hit_rate"]
+
+    if contrarian_regimes is None:
+        contrarian_regimes = CONTRARIAN_REGIMES
+    if trend_regimes is None:
+        trend_regimes = TREND_REGIMES
+
+    if regime_col not in df.columns:
+        logger.warning(
+            "regime_weighted_walk_forward: '%s' column not found", regime_col
+        )
+        return pd.DataFrame(columns=_COLS)
+
+    years = sorted(df[year_col].unique())
+    if len(years) < 3:
+        logger.warning(
+            "regime_weighted_walk_forward: need at least 3 unique years, got %d",
+            len(years),
+        )
+        return pd.DataFrame(columns=_COLS)
+
+    rows: list[dict] = []
+
+    for i in range(2, len(years)):
+        test_year = years[i]
+        train_years = years[:i]
+
+        train_all = df[df[year_col].isin(train_years)].dropna(subset=[target_col])
+        test_all = df[df[year_col] == test_year].dropna(subset=[target_col])
+
+        if test_all.empty:
+            logger.debug(
+                "REGIME WEIGHTED WALK-FORWARD: year=%d — empty test set, skipping",
+                test_year,
+            )
+            continue
+
+        # Compute regime Sharpe map on training data only (leakage-free).
+        sharpe_map = compute_regime_sharpe_map(
+            train_all,
+            contrarian_regimes,
+            trend_regimes,
+            target_col=target_col,
+            regime_col=regime_col,
+            sentiment_col=sentiment_col,
+        )
+        weight_map = convert_sharpe_to_weight(sharpe_map, normalize=normalize_weights)
+
+        # Apply weighted signal to test slice only.
+        test_weighted = apply_regime_weighted_signal(
+            test_all,
+            weight_map,
+            contrarian_regimes,
+            trend_regimes,
+            regime_col=regime_col,
+            sentiment_col=sentiment_col,
+            weight_threshold=weight_threshold,
+        )
+        active = test_weighted[test_weighted["is_active_weighted"]]
+
+        if len(active) < min_n:
+            logger.warning(
+                "REGIME WEIGHTED WALK-FORWARD: year=%d skipped"
+                " (n_active=%d < %d after weighted filter)",
+                test_year,
+                len(active),
+                min_n,
+            )
+            continue
+
+        m = _direction_metrics(
+            active["weighted_signal"].values,
+            active[target_col].values,
+        )
+        rows.append(
+            {
+                "year": int(test_year),
+                "n": m["n"],
+                "mean": m["mean"],
+                "sharpe": m["sharpe"],
+                "hit_rate": m["hit_rate"],
+            }
+        )
+        logger.info(
+            "REGIME WEIGHTED WALK-FORWARD | year=%d | n=%5d"
+            " | mean=%+.6f | sharpe=%+.4f | hit_rate=%.4f",
+            test_year,
+            m["n"],
+            m["mean"],
+            m["sharpe"] if not np.isnan(m["sharpe"]) else float("nan"),
+            m["hit_rate"] if not np.isnan(m["hit_rate"]) else float("nan"),
+        )
+
+    if not rows:
+        logger.warning(
+            "REGIME WEIGHTED WALK-FORWARD: no valid years after weighted filter"
+        )
+        return pd.DataFrame(columns=_COLS)
+
+    return pd.DataFrame(rows)[_COLS].reset_index(drop=True)
+
+
+def log_regime_weighted_performance(perf_df: pd.DataFrame) -> None:
+    """Log regime-weighted performance under the FILTER + DIRECTION + WEIGHTING header.
+
+    Args:
+        perf_df: DataFrame returned by ``regime_weighted_performance``.
+    """
+    logger.info("=== FILTER + DIRECTION + WEIGHTING (FINAL) ===")
+    if perf_df.empty:
+        logger.warning(
+            "FILTER + DIRECTION + WEIGHTING (FINAL): no results to display"
+        )
+        return
+    row = perf_df.iloc[0]
+    logger.info(
+        "FILTER + DIRECTION + WEIGHTING | n=%5d | mean=%+.6f | std=%.6f"
+        " | sharpe=%+.4f | hit_rate=%.4f",
+        int(row["n"]),
+        row["mean"],
+        row["std"],
+        row["sharpe"] if not np.isnan(row["sharpe"]) else float("nan"),
+        row["hit_rate"] if not np.isnan(row["hit_rate"]) else float("nan"),
+    )
+
+
+def log_regime_weighted_wf(wf_df: pd.DataFrame) -> None:
+    """Log regime-weighted walk-forward results.
+
+    Args:
+        wf_df: DataFrame returned by ``regime_weighted_walk_forward``.
+    """
+    logger.info("=== WALK-FORWARD FILTER + DIRECTION + WEIGHTING ===")
+    if wf_df.empty:
+        logger.warning(
+            "WALK-FORWARD FILTER + DIRECTION + WEIGHTING: no results to display"
+        )
+        return
+    for row in wf_df.itertuples(index=False):
+        logger.info(
+            "WALK-FORWARD FILTER + DIRECTION + WEIGHTING | year=%d | n=%5d"
+            " | mean=%+.6f | sharpe=%+.4f | hit_rate=%.4f",
+            row.year,
+            row.n,
+            row.mean,
+            row.sharpe if not np.isnan(row.sharpe) else float("nan"),
+            row.hit_rate if not np.isnan(row.hit_rate) else float("nan"),
+        )
+
+
+def log_regime_weight_diagnostics(
+    weight_map: dict[str, float],
+    sharpe_map: dict[str, float] | None = None,
+    *,
+    top_n: int = 5,
+) -> None:
+    """Log weight diagnostics: top regimes, distribution stats, and coverage.
+
+    Logs:
+    * Top *top_n* regimes by absolute weight with their weights and Sharpe.
+    * Summary statistics of the weight distribution.
+
+    Args:
+        weight_map: Dict mapping regime label → weight (from
+            ``convert_sharpe_to_weight``).
+        sharpe_map: Optional dict mapping regime label → Sharpe ratio (from
+            ``compute_regime_sharpe_map``).  When provided, Sharpe values are
+            included in the top-regime log lines.
+        top_n: Number of top regimes by absolute weight to log (default 5).
+    """
+    if not weight_map:
+        logger.warning("log_regime_weight_diagnostics: weight_map is empty")
+        return
+
+    weights = np.array(list(weight_map.values()), dtype=float)
+    abs_weights = np.abs(weights)
+
+    logger.info(
+        "REGIME WEIGHT DIAGNOSTICS | n_regimes=%d"
+        " | min_abs=%.4f | mean_abs=%.4f | max_abs=%.4f | std_abs=%.4f",
+        len(weight_map),
+        float(np.min(abs_weights)),
+        float(np.mean(abs_weights)),
+        float(np.max(abs_weights)),
+        float(np.std(abs_weights)),
+    )
+
+    sorted_regimes = sorted(
+        weight_map.items(), key=lambda kv: abs(kv[1]), reverse=True
+    )
+    n_top = min(top_n, len(sorted_regimes))
+    logger.info("--- TOP %d REGIMES BY ABSOLUTE WEIGHT ---", n_top)
+    for regime_label, w in sorted_regimes[:n_top]:
+        sharpe_str = ""
+        if sharpe_map is not None and regime_label in sharpe_map:
+            sharpe_str = f" | sharpe={sharpe_map[regime_label]:+.4f}"
+        logger.info(
+            "WEIGHT | regime=%-20s | weight=%+.4f%s",
+            regime_label,
+            w,
+            sharpe_str,
         )
 
 

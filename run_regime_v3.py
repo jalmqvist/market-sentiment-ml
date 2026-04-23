@@ -27,7 +27,11 @@ Pipeline steps
 13. **Filter + Direction** — apply ``CONTRARIAN_REGIMES`` / ``TREND_REGIMES``
     mapping to assign a directional signal per row; compute aggregate and
     per-year OOS metrics on the active subset (``signal != 0``).
-14. Model within regime — LightGBM walk-forward evaluated per regime.
+14. **Filter + Direction + Weighting** — extend step 13 with continuous regime
+    weights derived from per-regime Sharpe on training data only (leakage-free
+    in the walk-forward).  Configurable via ``--weight-threshold`` and
+    ``--normalize-weights``.
+15. Model within regime — LightGBM walk-forward evaluated per regime.
 
 Usage::
 
@@ -41,6 +45,10 @@ Usage::
     # Verbose mode
     python run_regime_v3.py --data data/output/master_research_dataset.csv \\
                             --log-level DEBUG --log-file logs/regime_v3_debug.log
+
+    # Custom weight threshold and normalization
+    python run_regime_v3.py --data data/output/master_research_dataset.csv \\
+                            --weight-threshold 0.10 --normalize-weights
 """
 
 from __future__ import annotations
@@ -115,6 +123,27 @@ def main(argv=None) -> None:
             "written to both stdout and this file."
         ),
     )
+    p.add_argument(
+        "--weight-threshold",
+        type=float,
+        default=None,
+        metavar="THRESHOLD",
+        help=(
+            "Minimum absolute regime weight required for a signal to be active "
+            "in the FILTER + DIRECTION + WEIGHTING step.  Regimes with "
+            "|weight| < threshold are set to signal = 0.  Defaults to the "
+            "module-level WEIGHT_THRESHOLD constant (0.05)."
+        ),
+    )
+    p.add_argument(
+        "--normalize-weights",
+        action="store_true",
+        default=False,
+        help=(
+            "Normalize regime weights by max_abs_sharpe instead of clipping to "
+            "[-1, 1].  When set, weight = sharpe / max_abs_sharpe."
+        ),
+    )
     args = p.parse_args(argv)
 
     _setup_logging(args.log_level, args.log_file)
@@ -124,14 +153,18 @@ def main(argv=None) -> None:
     from experiments.regime_v3 import (  # noqa: PLC0415
         TARGET_COL,
         TOP_REGIMES,
+        WEIGHT_THRESHOLD,
         apply_regime_filter,
         apply_regime_direction_signal,
+        apply_regime_weighted_signal,
         build_behavioural_regimes,
         build_features,
         build_regimes,
         behavioural_regime_baseline,
         behavioural_regime_walk_forward,
         compute_coverage_summary,
+        compute_regime_sharpe_map,
+        convert_sharpe_to_weight,
         crowding_regime_baseline,
         crowding_regime_walk_forward,
         filtered_regime_baseline,
@@ -149,6 +182,9 @@ def main(argv=None) -> None:
         log_regime_baseline,
         log_regime_direction_performance,
         log_regime_direction_wf,
+        log_regime_weight_diagnostics,
+        log_regime_weighted_performance,
+        log_regime_weighted_wf,
         log_regime_wf,
         log_secondary_vol_filter,
         print_regime_summary,
@@ -157,6 +193,8 @@ def main(argv=None) -> None:
         regime_direction_performance,
         regime_direction_walk_forward,
         regime_walk_forward,
+        regime_weighted_performance,
+        regime_weighted_walk_forward,
         secondary_vol_filter,
         select_features,
         walk_forward_ridge,
@@ -273,6 +311,42 @@ def main(argv=None) -> None:
     # ------------------------------------------------------------------
     dir_wf = regime_direction_walk_forward(df)
     log_regime_direction_wf(dir_wf)
+
+    # ------------------------------------------------------------------
+    # Step 4l: FILTER + DIRECTION + WEIGHTING — continuous regime weights
+    #          derived from training-only regime Sharpe.
+    #          Resolve weight_threshold from CLI arg or module default.
+    # ------------------------------------------------------------------
+    weight_threshold = (
+        args.weight_threshold
+        if args.weight_threshold is not None
+        else WEIGHT_THRESHOLD
+    )
+    normalize_weights = args.normalize_weights
+
+    # Full-dataset weighted performance (uses all data for Sharpe map;
+    # the leakage-free version is evaluated in the walk-forward below).
+    sharpe_map_full = compute_regime_sharpe_map(df)
+    weight_map_full = convert_sharpe_to_weight(
+        sharpe_map_full, normalize=normalize_weights
+    )
+    log_regime_weight_diagnostics(weight_map_full, sharpe_map_full)
+    weighted_perf = regime_weighted_performance(
+        df, weight_map_full, weight_threshold=weight_threshold
+    )
+    log_regime_weighted_performance(weighted_perf)
+
+    # ------------------------------------------------------------------
+    # Step 4m: WALK-FORWARD FILTER + DIRECTION + WEIGHTING — per-year
+    #          OOS metrics; regime Sharpe map computed from training slice
+    #          only per fold (leakage-free).
+    # ------------------------------------------------------------------
+    weighted_wf = regime_weighted_walk_forward(
+        df,
+        weight_threshold=weight_threshold,
+        normalize_weights=normalize_weights,
+    )
+    log_regime_weighted_wf(weighted_wf)
 
     # ------------------------------------------------------------------
     # Step 5: MODEL WITHIN REGIME (secondary) — LightGBM walk-forward
