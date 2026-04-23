@@ -416,6 +416,70 @@ The canonical safe feature list is defined in `experiments/regime_v3.SAFE_FEATUR
 
 ---
 
+## 9. Regime-based signal weighting output artifacts
+
+The following output artifacts are produced by the regime-weighted signal
+pipeline in `experiments/regime_v3.py` and `run_regime_v3.py`.  They extend
+the existing `regime_direction_performance` and `regime_direction_wf`
+artifacts with continuous regime weights derived from training-only Sharpe.
+
+### `regime_weighted_performance`
+
+Aggregate performance of the **filter + direction + weighting** strategy over
+the full dataset.  The Sharpe map is computed from all available data (not
+leakage-free for the full-dataset view; use `regime_weighted_wf` for
+leakage-free evaluation).
+
+| Column     | Type  | Description                                                      |
+|------------|-------|------------------------------------------------------------------|
+| `n`        | int   | Number of active (non-zero) weighted-signal rows                 |
+| `mean`     | float | Mean PnL: `mean(weighted_signal * ret_48b)` over active rows     |
+| `std`      | float | Standard deviation of PnL over active rows                       |
+| `sharpe`   | float | `mean / std` ratio (raw, not annualized)                         |
+| `hit_rate` | float | Fraction of active rows with positive PnL                        |
+
+### `regime_weighted_wf`
+
+Per-year walk-forward performance of the **filter + direction + weighting**
+strategy.  For each test year the regime Sharpe map is computed on **training
+data only** (expanding window), making this artifact fully leakage-free.
+
+| Column     | Type  | Description                                                      |
+|------------|-------|------------------------------------------------------------------|
+| `year`     | int   | Calendar test year                                               |
+| `n`        | int   | Number of active weighted-signal rows in the test year           |
+| `mean`     | float | Mean PnL in the test year                                        |
+| `sharpe`   | float | Sharpe ratio in the test year                                    |
+| `hit_rate` | float | Hit rate in the test year                                        |
+
+### Comparison table (strategy ladder)
+
+The four strategies are logged in order of increasing sophistication:
+
+| Strategy                          | Logged section header                          |
+|-----------------------------------|------------------------------------------------|
+| Baseline (global contrarian)      | `FULL DATASET PERFORMANCE`                     |
+| Filter only                       | `FILTERED PERFORMANCE`                         |
+| Filter + direction                | `FILTER + DIRECTION (FINAL)`                   |
+| Filter + direction + weighting    | `FILTER + DIRECTION + WEIGHTING (FINAL)`       |
+
+Walk-forward (OOS) versions are logged under:
+
+| Walk-forward strategy             | Logged section header                                   |
+|-----------------------------------|---------------------------------------------------------|
+| Filter only                       | `WALK-FORWARD FILTERED PERFORMANCE`                     |
+| Filter + direction                | `WALK-FORWARD FILTER + DIRECTION`                       |
+| Filter + direction + weighting    | `WALK-FORWARD FILTER + DIRECTION + WEIGHTING`           |
+
+### Configuration
+
+| Parameter           | Default | CLI flag              | Description                                              |
+|---------------------|---------|-----------------------|----------------------------------------------------------|
+| `WEIGHT_THRESHOLD`  | `0.05`  | `--weight-threshold`  | Minimum `\|weight\|` for a signal to be active           |
+| `NORMALIZE_WEIGHTS` | `False` | `--normalize-weights` | Normalize weights by `max_abs_sharpe` instead of clipping|
+
+---
+
 ## 8. Analysis filtering convention
 
 All downstream analysis scripts are expected to apply the following return filter:
