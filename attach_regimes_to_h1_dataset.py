@@ -43,19 +43,18 @@ from pathlib import Path
 
 import pandas as pd
 
+import config as cfg
+
 
 # -----------------------------
-# Defaults
+# Defaults (sourced from config)
 # -----------------------------
 
-H1_INPUT_DEFAULT = Path("data/output/master_research_dataset.csv")
-SCRIPT_PATH = Path(__file__).resolve()
-REPO_ROOT = SCRIPT_PATH.parent  # assuming script is at repo root
+H1_INPUT_DEFAULT = cfg.DATA_PATH
+REGIME_INPUT_DEFAULT = cfg.REGIME_PARQUET_DEFAULT
+OUTPUT_DEFAULT = cfg.DATA_PATH_REGIME
 
-REGIME_INPUT_DEFAULT = (REPO_ROOT / "../market-phase-ml/data/output/regimes/phase_labels_d1.parquet").resolve()
-OUTPUT_DEFAULT = Path("data/output/master_research_dataset_with_regime.csv")
-
-VALID_PHASES = {"HV_Trend", "HV_Ranging", "LV_Trend", "LV_Ranging", "Unknown"}
+VALID_PHASES = cfg.VALID_PHASES
 
 
 # -----------------------------
