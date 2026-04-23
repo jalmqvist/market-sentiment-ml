@@ -13,16 +13,35 @@ Pipeline order
    * ``trend_sign`` (sign of ``trend_strength_48b``)
    * ``regime`` = ``vol_bucket + "_" + trend_sign``
 
-2. **REGIME BASELINE (NO MODEL)** – ``regime_baseline()`` groups the full
+2. **BEHAVIOURAL REGIME DISCRETIZATION** – ``build_behavioural_regimes()``
+   adds sentiment-persistence bucket columns and constructs:
+
+   * ``abs_sent_bucket`` – intensity of crowd sentiment (low / mid / high /
+     extreme based on fixed thresholds).
+   * ``side_streak_bucket`` – persistence of crowd positioning (short / medium
+     / long based on run-length).
+   * ``extreme_streak_bucket`` – exhaustion signal (none / mild / extreme
+     based on extreme-sentiment run length).
+   * ``behavioural_regime`` = ``abs_sent_bucket + "_" + side_streak_bucket +
+     "_" + extreme_streak_bucket``
+
+3. **REGIME BASELINE (NO MODEL)** – ``regime_baseline()`` groups the full
    dataset by ``regime`` and computes mean return, std, Sharpe, and hit-rate
    for each regime.  No model is trained or used.
 
-3. **REGIME WALK-FORWARD** – ``regime_walk_forward()`` repeats the same
+4. **BEHAVIOURAL REGIME SUMMARY** – ``behavioural_regime_baseline()`` does
+   the same using ``behavioural_regime``, revealing whether alpha is
+   concentrated in crowding/exhaustion regimes.
+
+5. **REGIME WALK-FORWARD** – ``regime_walk_forward()`` repeats the same
    computation on each test-year slice (expanding window, same discipline as
    the main walk-forward).  Validates whether regime structure is stable
    out-of-sample.
 
-4. **MODEL WITHIN REGIME (secondary)** – ``walk_forward_ridge()`` trains a
+6. **WALK-FORWARD REGIME PERFORMANCE** – ``behavioural_regime_walk_forward()``
+   does the same for ``behavioural_regime``.
+
+7. **MODEL WITHIN REGIME (secondary)** – ``walk_forward_ridge()`` trains a
    LightGBM model globally and evaluates predictions broken down by regime.
 
 Output DataFrames
@@ -31,6 +50,10 @@ Output DataFrames
   "hit_rate"]``; sorted by Sharpe descending.
 * ``regime_wf`` – schema ``["year", "regime", "n", "mean", "sharpe",
   "hit_rate"]``; per test-year regime performance.
+* ``behavioural_regime_summary`` – same schema as ``regime_summary``; uses
+  the behavioural regime label.
+* ``behavioural_regime_wf`` – same schema as ``regime_wf``; uses the
+  behavioural regime label.
 
 All features are strictly causal at ``entry_time``:
 
@@ -389,8 +412,137 @@ def build_regimes(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# Return-based (model-free) regime metrics helper
+# Behavioural regime discretization
 # ---------------------------------------------------------------------------
+
+def build_behavioural_regimes(df: pd.DataFrame) -> pd.DataFrame:
+    """Add behavioural regime bucket columns and a combined regime label.
+
+    Discretises sentiment-derived features into fixed-threshold buckets that
+    capture crowding intensity, persistence, and exhaustion — the primary
+    behavioural signals identified in feature-importance analysis.
+
+    Adds the following columns:
+
+    * ``abs_sent_bucket`` – sentiment intensity bucket based on ``abs_sentiment``:
+
+      - ``"low"``     (<50)
+      - ``"mid"``     (50–70)
+      - ``"high"``    (70–85)
+      - ``"extreme"`` (≥85)
+
+    * ``side_streak_bucket`` – crowd-side persistence bucket based on the
+      absolute value of ``side_streak``:
+
+      - ``"short"``   (1–2 bars)
+      - ``"medium"``  (3–5 bars)
+      - ``"long"``    (6+ bars)
+
+    * ``extreme_streak_bucket`` – exhaustion signal bucket based on
+      ``extreme_streak_70``:
+
+      - ``"none"``    (0)
+      - ``"mild"``    (1–2)
+      - ``"extreme"`` (3+)
+
+    * ``behavioural_regime`` – composite label constructed as::
+
+          abs_sent_bucket + "_" + side_streak_bucket + "_" + extreme_streak_bucket
+
+      Rows where any constituent bucket is ``NaN`` receive ``NaN`` in
+      ``behavioural_regime`` and are excluded from downstream regime analysis.
+
+    Args:
+        df: Dataset (after ``build_features``).  Should contain
+            ``abs_sentiment``, ``side_streak``, and ``extreme_streak_70``.
+
+    Returns:
+        Copy of *df* with the four new columns appended.
+    """
+    out = df.copy()
+
+    # --- abs_sent_bucket ---
+    if "abs_sentiment" in out.columns:
+        out["abs_sent_bucket"] = pd.cut(
+            out["abs_sentiment"],
+            bins=[-np.inf, 50, 70, 85, np.inf],
+            labels=["low", "mid", "high", "extreme"],
+            right=False,  # [low, 50), [50, 70), [70, 85), [85, ∞)
+        ).astype(str)
+        # pd.cut returns "nan" for NaN inputs; replace with proper NaN.
+        out.loc[out["abs_sentiment"].isna(), "abs_sent_bucket"] = np.nan
+        dist = out["abs_sent_bucket"].value_counts(dropna=True).sort_index()
+        logger.info("abs_sent_bucket distribution: %s", dist.to_dict())
+    else:
+        out["abs_sent_bucket"] = np.nan
+        logger.warning(
+            "build_behavioural_regimes: abs_sentiment not found; abs_sent_bucket will be NaN"
+        )
+
+    # --- side_streak_bucket ---
+    if "side_streak" in out.columns:
+        streak_abs = out["side_streak"].abs()
+        out["side_streak_bucket"] = pd.cut(
+            streak_abs,
+            bins=[0, 2, 5, np.inf],
+            labels=["short", "medium", "long"],
+            right=True,         # [0, 2] → short, (2, 5] → medium, (5, ∞) → long
+            include_lowest=True,  # makes first bin [0, 2] (closed on left)
+        ).astype(str)
+        out.loc[out["side_streak"].isna(), "side_streak_bucket"] = np.nan
+        dist = out["side_streak_bucket"].value_counts(dropna=True).sort_index()
+        logger.info("side_streak_bucket distribution: %s", dist.to_dict())
+    else:
+        out["side_streak_bucket"] = np.nan
+        logger.warning(
+            "build_behavioural_regimes: side_streak not found; side_streak_bucket will be NaN"
+        )
+
+    # --- extreme_streak_bucket ---
+    if "extreme_streak_70" in out.columns:
+        ext = out["extreme_streak_70"]
+        out["extreme_streak_bucket"] = pd.cut(
+            ext,
+            bins=[-np.inf, 0, 2, np.inf],
+            labels=["none", "mild", "extreme"],
+            right=True,   # (-∞, 0] → none, (0, 2] → mild, (2, ∞) → extreme
+        ).astype(str)
+        dist = out["extreme_streak_bucket"].value_counts(dropna=True).sort_index()
+        logger.info("extreme_streak_bucket distribution: %s", dist.to_dict())
+    else:
+        out["extreme_streak_bucket"] = np.nan
+        logger.warning(
+            "build_behavioural_regimes: extreme_streak_70 not found; "
+            "extreme_streak_bucket will be NaN"
+        )
+
+    # --- behavioural_regime = abs_sent_bucket + "_" + side_streak_bucket
+    #                          + "_" + extreme_streak_bucket ---
+    valid_mask = (
+        out["abs_sent_bucket"].notna()
+        & out["side_streak_bucket"].notna()
+        & out["extreme_streak_bucket"].notna()
+    )
+    combined = (
+        out["abs_sent_bucket"].astype(str)
+        + "_"
+        + out["side_streak_bucket"].astype(str)
+        + "_"
+        + out["extreme_streak_bucket"].astype(str)
+    )
+    # Mask invalid rows (where any bucket is NaN) with NaN; .where() preserves
+    # string dtype and sets non-matching rows to NaN.
+    out["behavioural_regime"] = combined.where(valid_mask)
+    n_valid = int(valid_mask.sum())
+    n_regimes = out["behavioural_regime"].nunique()
+    logger.info(
+        "build_behavioural_regimes: %d rows assigned to %d unique behavioural regimes",
+        n_valid,
+        n_regimes,
+    )
+    return out
+
+
 
 def _direct_regime_metrics(returns: np.ndarray) -> dict:
     """Compute return-based metrics for a single regime subset (no model).
@@ -578,8 +730,170 @@ def regime_walk_forward(
 
 
 # ---------------------------------------------------------------------------
-# Structured logging display for new regime outputs
+# BEHAVIOURAL REGIME SUMMARY (NO MODEL) — full-dataset behavioural discovery
 # ---------------------------------------------------------------------------
+
+def behavioural_regime_baseline(
+    df: pd.DataFrame,
+    *,
+    target_col: str = TARGET_COL,
+    regime_col: str = "behavioural_regime",
+    min_n: int = MIN_REGIME_OBS,
+) -> pd.DataFrame:
+    """Compute regime statistics using behavioural regime labels (no model).
+
+    Groups observations by ``behavioural_regime`` (or *regime_col*) and
+    computes mean return, std, Sharpe, and hit-rate for each regime.  Regimes
+    with fewer than ``min_n`` observations are skipped and logged at DEBUG
+    level.
+
+    This is the primary behavioural discovery step: no model is trained or
+    used.  Identifies whether sentiment alpha is concentrated in specific
+    crowding/exhaustion regimes.
+
+    Args:
+        df: Full dataset (after ``build_behavioural_regimes``).
+        target_col: Forward-return column to summarise (default ``ret_48b``).
+        regime_col: Column containing behavioural regime labels (default
+            ``"behavioural_regime"``).
+        min_n: Minimum observations required per regime; regimes below this
+            threshold are skipped.
+
+    Returns:
+        DataFrame with schema ``["regime", "n", "mean", "std", "sharpe",
+        "hit_rate"]``, sorted by Sharpe descending.  This is the
+        ``behavioural_regime_summary`` output artifact.
+    """
+    _COLS = ["regime", "n", "mean", "std", "sharpe", "hit_rate"]
+
+    if regime_col not in df.columns:
+        logger.warning("behavioural_regime_baseline: '%s' column not found", regime_col)
+        return pd.DataFrame(columns=_COLS)
+
+    valid = df.dropna(subset=[regime_col, target_col])
+    rows: list[dict] = []
+
+    for regime_label, grp in valid.groupby(regime_col):
+        returns = grp[target_col].values
+        if len(returns) < min_n:
+            logger.debug(
+                "BEHAVIOURAL REGIME SUMMARY: regime=%s skipped (n=%d < %d)",
+                regime_label,
+                len(returns),
+                min_n,
+            )
+            continue
+        m = _direct_regime_metrics(returns)
+        rows.append({"regime": str(regime_label), **m})
+
+    if not rows:
+        logger.warning("BEHAVIOURAL REGIME SUMMARY: no valid regimes found")
+        return pd.DataFrame(columns=_COLS)
+
+    result = (
+        pd.DataFrame(rows)[_COLS]
+        .sort_values("sharpe", ascending=False)
+        .reset_index(drop=True)
+    )
+    return result
+
+
+# ---------------------------------------------------------------------------
+# WALK-FORWARD REGIME PERFORMANCE — per-year behavioural regime discovery
+# ---------------------------------------------------------------------------
+
+def behavioural_regime_walk_forward(
+    df: pd.DataFrame,
+    *,
+    target_col: str = TARGET_COL,
+    regime_col: str = "behavioural_regime",
+    year_col: str = "year",
+    min_n: int = MIN_REGIME_OBS,
+) -> pd.DataFrame:
+    """Validate behavioural regime structure out-of-sample (expanding window).
+
+    For each test year (starting from the third unique year), computes
+    regime metrics on the **test set only** using raw returns — no model
+    predictions are involved.  Validates whether the behavioural regime
+    structure identified in ``behavioural_regime_baseline`` is stable
+    out-of-sample.
+
+    Regimes with fewer than ``min_n`` test-set observations are skipped and
+    logged at DEBUG level.
+
+    Args:
+        df: Full dataset (after ``build_behavioural_regimes``).
+        target_col: Forward-return column (default ``ret_48b``).
+        regime_col: Column containing behavioural regime labels (default
+            ``"behavioural_regime"``).
+        year_col: Column containing calendar year (default ``"year"``).
+        min_n: Minimum test-set observations required per regime.
+
+    Returns:
+        DataFrame with schema ``["year", "regime", "n", "mean", "sharpe",
+        "hit_rate"]``.  This is the ``behavioural_regime_wf`` output artifact.
+    """
+    _COLS = ["year", "regime", "n", "mean", "sharpe", "hit_rate"]
+
+    if regime_col not in df.columns:
+        logger.warning(
+            "behavioural_regime_walk_forward: '%s' column not found", regime_col
+        )
+        return pd.DataFrame(columns=_COLS)
+
+    years = sorted(df[year_col].unique())
+    if len(years) < 3:
+        logger.warning(
+            "behavioural_regime_walk_forward: need at least 3 unique years, got %d",
+            len(years),
+        )
+        return pd.DataFrame(columns=_COLS)
+
+    rows: list[dict] = []
+
+    for i in range(2, len(years)):
+        test_year = years[i]
+        test = df[df[year_col] == test_year].dropna(subset=[regime_col, target_col])
+
+        if test.empty:
+            logger.debug(
+                "WALK-FORWARD REGIME PERFORMANCE: year=%d — empty test set, skipping",
+                test_year,
+            )
+            continue
+
+        for regime_label, grp in test.groupby(regime_col):
+            returns = grp[target_col].values
+            if len(returns) < min_n:
+                logger.debug(
+                    "WALK-FORWARD REGIME PERFORMANCE: year=%d | regime=%s skipped (n=%d < %d)",
+                    test_year,
+                    regime_label,
+                    len(returns),
+                    min_n,
+                )
+                continue
+            m = _direct_regime_metrics(returns)
+            rows.append(
+                {
+                    "year": int(test_year),
+                    "regime": str(regime_label),
+                    "n": m["n"],
+                    "mean": m["mean"],
+                    "sharpe": m["sharpe"],
+                    "hit_rate": m["hit_rate"],
+                }
+            )
+
+    if not rows:
+        logger.warning(
+            "WALK-FORWARD REGIME PERFORMANCE: no valid regime/year combinations found"
+        )
+        return pd.DataFrame(columns=_COLS)
+
+    return pd.DataFrame(rows)[_COLS].reset_index(drop=True)
+
+
 
 def log_regime_baseline(regime_summary: pd.DataFrame) -> None:
     """Log regime_summary under a clearly labelled section header.
@@ -617,6 +931,81 @@ def log_regime_wf(regime_wf: pd.DataFrame) -> None:
     for row in regime_wf.itertuples(index=False):
         logger.info(
             "REGIME WALK-FORWARD | year=%d | regime=%-12s | n=%5d"
+            " | mean=%+.6f | sharpe=%+.4f | hit_rate=%.4f",
+            row.year,
+            row.regime,
+            row.n,
+            row.mean,
+            row.sharpe if not np.isnan(row.sharpe) else float("nan"),
+            row.hit_rate if not np.isnan(row.hit_rate) else float("nan"),
+        )
+
+
+def log_behavioural_regime_summary(regime_summary: pd.DataFrame, *, top_n: int = 5) -> None:
+    """Log behavioural_regime_summary under the BEHAVIOURAL REGIME SUMMARY header.
+
+    Logs all regimes sorted by Sharpe descending, then explicitly highlights
+    the top *top_n* and bottom *top_n* regimes.
+
+    Args:
+        regime_summary: DataFrame returned by ``behavioural_regime_baseline``.
+        top_n: Number of top/bottom regimes to highlight (default 5).
+    """
+    logger.info("=== BEHAVIOURAL REGIME SUMMARY ===")
+    if regime_summary.empty:
+        logger.warning("BEHAVIOURAL REGIME SUMMARY: no results to display")
+        return
+
+    for row in regime_summary.itertuples(index=False):
+        logger.info(
+            "BEHAVIOURAL REGIME SUMMARY | regime=%-30s | n=%5d | mean=%+.6f"
+            " | std=%.6f | sharpe=%+.4f | hit_rate=%.4f",
+            row.regime,
+            row.n,
+            row.mean,
+            row.std,
+            row.sharpe if not np.isnan(row.sharpe) else float("nan"),
+            row.hit_rate if not np.isnan(row.hit_rate) else float("nan"),
+        )
+
+    # Highlight top and bottom regimes.
+    n_rows = len(regime_summary)
+    n_top = min(top_n, n_rows)
+    logger.info("--- TOP %d BEHAVIOURAL REGIMES (by Sharpe) ---", n_top)
+    for row in regime_summary.head(n_top).itertuples(index=False):
+        logger.info(
+            "TOP | regime=%-30s | n=%5d | sharpe=%+.4f | hit_rate=%.4f",
+            row.regime,
+            row.n,
+            row.sharpe if not np.isnan(row.sharpe) else float("nan"),
+            row.hit_rate if not np.isnan(row.hit_rate) else float("nan"),
+        )
+
+    n_bottom = min(top_n, n_rows)
+    logger.info("--- BOTTOM %d BEHAVIOURAL REGIMES (by Sharpe) ---", n_bottom)
+    for row in regime_summary.tail(n_bottom).itertuples(index=False):
+        logger.info(
+            "BOTTOM | regime=%-30s | n=%5d | sharpe=%+.4f | hit_rate=%.4f",
+            row.regime,
+            row.n,
+            row.sharpe if not np.isnan(row.sharpe) else float("nan"),
+            row.hit_rate if not np.isnan(row.hit_rate) else float("nan"),
+        )
+
+
+def log_behavioural_regime_wf(regime_wf: pd.DataFrame) -> None:
+    """Log behavioural_regime_wf under the WALK-FORWARD REGIME PERFORMANCE header.
+
+    Args:
+        regime_wf: DataFrame returned by ``behavioural_regime_walk_forward``.
+    """
+    logger.info("=== WALK-FORWARD REGIME PERFORMANCE ===")
+    if regime_wf.empty:
+        logger.warning("WALK-FORWARD REGIME PERFORMANCE: no results to display")
+        return
+    for row in regime_wf.itertuples(index=False):
+        logger.info(
+            "WALK-FORWARD REGIME PERFORMANCE | year=%d | regime=%-30s | n=%5d"
             " | mean=%+.6f | sharpe=%+.4f | hit_rate=%.4f",
             row.year,
             row.regime,
@@ -1053,8 +1442,11 @@ def main(argv=None) -> None:
     # Step 1: Compute causal volatility feature (vol_24b) and interaction features.
     df = build_features(df)
 
-    # Step 2: Discretise features into regimes BEFORE any modeling.
+    # Step 2: Discretise features into vol/trend regimes BEFORE any modeling.
     df = build_regimes(df)
+
+    # Step 2b: Discretise sentiment features into behavioural regimes.
+    df = build_behavioural_regimes(df)
 
     if TARGET_COL not in df.columns:
         print(f"ERROR: Target column '{TARGET_COL}' not found. Exiting.")
@@ -1067,10 +1459,24 @@ def main(argv=None) -> None:
     log_regime_baseline(regime_summary)
 
     # ------------------------------------------------------------------
+    # Step 3b: BEHAVIOURAL REGIME SUMMARY — full-dataset behavioural
+    #          discovery (no model)
+    # ------------------------------------------------------------------
+    behavioural_summary = behavioural_regime_baseline(df)
+    log_behavioural_regime_summary(behavioural_summary)
+
+    # ------------------------------------------------------------------
     # Step 4: REGIME WALK-FORWARD — out-of-sample regime validation
     # ------------------------------------------------------------------
     regime_wf = regime_walk_forward(df)
     log_regime_wf(regime_wf)
+
+    # ------------------------------------------------------------------
+    # Step 4b: WALK-FORWARD REGIME PERFORMANCE — out-of-sample
+    #          behavioural regime validation
+    # ------------------------------------------------------------------
+    behavioural_wf = behavioural_regime_walk_forward(df)
+    log_behavioural_regime_wf(behavioural_wf)
 
     # ------------------------------------------------------------------
     # Step 5: MODEL WITHIN REGIME (secondary) — LightGBM walk-forward
