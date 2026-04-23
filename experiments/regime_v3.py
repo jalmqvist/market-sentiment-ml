@@ -25,6 +25,16 @@ All features are strictly causal at ``entry_time``:
 Features columns present in the dataset are used; missing columns emit a
 warning and are silently dropped.
 
+The experiment also evaluates **conditional performance by regime**.  Each
+observation is assigned to one of up to nine regimes formed by crossing a
+three-way volatility bucket (``vol_regime``: low / mid / high, based on
+tertiles of ``vol_24b``) with the sign of ``trend_strength_48b``
+(``trend_sign``: −1 / 0 / +1).  The combined label is stored in the
+``regime`` column as, e.g., ``"low_-1.0"`` or ``"high_1.0"``.
+
+Per-regime metrics (IC, Sharpe, hit rate, sample size) are computed for
+each walk-forward test fold and pooled across all folds.
+
 Usage::
 
     python -m experiments.regime_v3 --data data/output/master_research_dataset.csv
@@ -189,6 +199,108 @@ def select_features(df: pd.DataFrame) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Regime classification
+# ---------------------------------------------------------------------------
+
+def build_regimes(df: pd.DataFrame) -> pd.DataFrame:
+    """Add regime classification columns to *df*.
+
+    Creates three columns:
+
+    * ``vol_regime`` – tertile bucket of ``vol_24b`` (``"low"`` / ``"mid"``
+      / ``"high"``).  Quantile thresholds are computed on the full dataset;
+      ``NaN`` rows are left as ``NaN``.
+    * ``trend_sign`` – ``np.sign(trend_strength_48b)``: ``-1.0``, ``0.0``,
+      or ``1.0``.
+    * ``regime`` – combined label, e.g. ``"low_-1.0"`` or ``"high_1.0"``.
+
+    Args:
+        df: Dataset (after ``build_features``).  Must contain ``vol_24b``
+            and ``trend_strength_48b`` for full regime assignment; missing
+            columns are handled gracefully with a warning.
+
+    Returns:
+        Copy of *df* with the three regime columns added.
+    """
+    out = df.copy()
+
+    if "vol_24b" not in out.columns:
+        logger.warning("build_regimes: vol_24b not found; vol_regime will be NaN")
+        out["vol_regime"] = np.nan
+    else:
+        valid_mask = out["vol_24b"].notna()
+        out.loc[valid_mask, "vol_regime"] = pd.qcut(
+            out.loc[valid_mask, "vol_24b"],
+            q=3,
+            labels=["low", "mid", "high"],
+        )
+        n_assigned = int(valid_mask.sum())
+        logger.debug("build_regimes: vol_regime assigned for %d rows", n_assigned)
+
+    if "trend_strength_48b" not in out.columns:
+        logger.warning(
+            "build_regimes: trend_strength_48b not found; trend_sign will be 0"
+        )
+        out["trend_sign"] = 0.0
+    else:
+        out["trend_sign"] = np.sign(out["trend_strength_48b"])
+
+    out["regime"] = out["vol_regime"].astype(str) + "_" + out["trend_sign"].astype(str)
+    # Rows where vol_24b was NaN produce 'nan_...' labels; mark these as NaN.
+    out.loc[out["vol_24b"].isna(), "regime"] = np.nan
+    n_regimes = out["regime"].nunique()
+    logger.info("build_regimes: %d unique regime labels", n_regimes)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Per-regime metrics helper
+# ---------------------------------------------------------------------------
+
+def _regime_metrics(y_pred: np.ndarray, y_test: np.ndarray) -> dict:
+    """Compute IC, Sharpe and hit rate for a single regime subset.
+
+    Args:
+        y_pred: Model predictions for the subset.
+        y_test: Realised returns for the subset.
+
+    Returns:
+        Dict with keys ``n``, ``ic``, ``signal_sharpe``, ``signal_hit_rate``.
+    """
+    n = len(y_pred)
+    if n < 2:
+        return {
+            "n": n,
+            "ic": np.nan,
+            "signal_sharpe": np.nan,
+            "signal_hit_rate": np.nan,
+        }
+
+    ic, _ = stats.spearmanr(y_pred, y_test)
+
+    signal_dir = np.sign(y_pred)
+    active = signal_dir != 0
+    signal_returns = signal_dir[active] * y_test[active]
+    n_active = int(active.sum())
+
+    if n_active > 1:
+        sr_mean = float(np.mean(signal_returns))
+        sr_std = float(np.std(signal_returns))
+        sharpe = sr_mean / sr_std if sr_std > 1e-10 else np.nan
+        hit_rate = float(np.mean(signal_returns > 0))
+    else:
+        sharpe = np.nan
+        hit_rate = np.nan
+
+    return {
+        "n": n,
+        "ic": float(ic) if not np.isnan(ic) else np.nan,
+        "signal_sharpe": sharpe,
+        "signal_hit_rate": hit_rate,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Walk-forward Ridge regression
 # ---------------------------------------------------------------------------
 
@@ -200,7 +312,8 @@ def walk_forward_ridge(
     year_col: str = "year",
     alphas: tuple[float, ...] = RIDGE_ALPHAS,
     min_train_obs: int = MIN_TRAIN_OBS,
-) -> pd.DataFrame:
+    regime_col: str | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Expanding-window walk-forward with Ridge regression.
 
     Follows the same discipline as
@@ -211,6 +324,9 @@ def walk_forward_ridge(
     Feature scaling (``StandardScaler``) is fit on training data only and
     applied to test data – no leakage.
 
+    When *regime_col* is provided the test-set predictions are also broken
+    down by regime and metrics are computed for each regime group.
+
     Args:
         df: Dataset with feature columns, *target_col*, and *year_col*.
         feature_cols: Columns to use as predictors.
@@ -218,11 +334,17 @@ def walk_forward_ridge(
         year_col: Column containing the calendar year.
         alphas: Regularisation strengths for ``RidgeCV``.
         min_train_obs: Minimum training observations required per fold.
+        regime_col: Optional column name containing regime labels.  When
+            provided, per-regime metrics are computed for each fold.
 
     Returns:
-        DataFrame with one row per test fold:
-        year, n_train, n_test, alpha, ic, signal_sharpe, signal_hit_rate, r2.
-        Empty DataFrame if no valid folds.
+        A 2-tuple ``(wf_df, regime_df)``:
+
+        * *wf_df* – one row per test fold:
+          year, n_train, n_test, alpha, ic, signal_sharpe, signal_hit_rate, r2.
+        * *regime_df* – one row per (fold, regime) combination:
+          year, regime, n, ic, signal_sharpe, signal_hit_rate.
+          Empty if *regime_col* is ``None`` or no valid folds.
     """
     require_columns(
         df, [year_col, target_col] + feature_cols, context="walk_forward_ridge"
@@ -233,9 +355,10 @@ def walk_forward_ridge(
         logger.warning(
             "walk_forward_ridge: need at least 3 unique years, got %d", len(years)
         )
-        return pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame()
 
-    results = []
+    results: list[dict] = []
+    regime_results: list[dict] = []
 
     for i in range(2, len(years)):
         test_year = years[i]
@@ -324,11 +447,34 @@ def walk_forward_ridge(
             r2 if not np.isnan(r2) else float("nan"),
         )
 
+        # Per-regime metrics for this fold.
+        if regime_col is not None and regime_col in test.columns:
+            regime_labels = test[regime_col].values
+            for regime_label in np.unique(regime_labels[pd.notna(regime_labels)]):
+                mask = regime_labels == regime_label
+                m = _regime_metrics(y_pred[mask], y_test[mask])
+                regime_results.append(
+                    {
+                        "year": int(test_year),
+                        "regime": str(regime_label),
+                        **m,
+                    }
+                )
+                logger.debug(
+                    "year=%d | regime=%s | n=%d | IC=%.4f | Sharpe=%.4f | hit_rate=%.4f",
+                    test_year,
+                    regime_label,
+                    m["n"],
+                    m["ic"] if not np.isnan(m["ic"]) else float("nan"),
+                    m["signal_sharpe"] if not np.isnan(m["signal_sharpe"]) else float("nan"),
+                    m["signal_hit_rate"] if not np.isnan(m["signal_hit_rate"]) else float("nan"),
+                )
+
     if not results:
         logger.warning("walk_forward_ridge: no valid folds produced")
-        return pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame()
 
-    return pd.DataFrame(results)
+    return pd.DataFrame(results), pd.DataFrame(regime_results)
 
 
 # ---------------------------------------------------------------------------
@@ -424,6 +570,57 @@ def print_wf_summary(wf_df: pd.DataFrame) -> None:
     logger.info("wf_summary (library): %s", summary)
 
 
+def print_regime_summary(regime_df: pd.DataFrame) -> None:
+    """Print per-fold regime metrics and pooled per-regime aggregates.
+
+    Outputs two tables:
+
+    1. Per-fold breakdown: ``year | regime | n | IC | Sharpe | hit rate``
+    2. Pooled (across all folds) per-regime summary.
+
+    Args:
+        regime_df: DataFrame returned as the second element of
+            ``walk_forward_ridge`` when *regime_col* is provided.
+    """
+    if regime_df.empty:
+        print("No regime-level results.")
+        return
+
+    print("\n=== PER-FOLD REGIME METRICS ===")
+    display_cols = ["year", "regime", "n", "ic", "signal_sharpe", "signal_hit_rate"]
+    display_cols = [c for c in display_cols if c in regime_df.columns]
+    print(
+        regime_df.sort_values(["year", "regime"])[display_cols].to_string(index=False)
+    )
+
+    # Pooled metrics per regime across all folds (weighted by sample size).
+    def _wmean(grp: pd.DataFrame, col: str) -> float:
+        weights = grp["n"].values.astype(float)
+        vals = grp[col].values.astype(float)
+        valid = ~np.isnan(vals) & (weights > 0)
+        if valid.sum() == 0:
+            return np.nan
+        return float(np.average(vals[valid], weights=weights[valid]))
+
+    pooled_rows = []
+    for regime_label, grp in regime_df.groupby("regime"):
+        pooled_rows.append(
+            {
+                "regime": regime_label,
+                "n": int(grp["n"].sum()),
+                "ic": _wmean(grp, "ic"),
+                "signal_sharpe": _wmean(grp, "signal_sharpe"),
+                "signal_hit_rate": _wmean(grp, "signal_hit_rate"),
+                "folds": len(grp),
+            }
+        )
+    pooled = pd.DataFrame(pooled_rows).sort_values("regime").reset_index(drop=True)
+
+    print("\n=== POOLED REGIME METRICS (across all folds) ===")
+    print(pooled.to_string(index=False))
+    logger.info("Pooled regime metrics computed for %d regimes", len(pooled))
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -454,6 +651,9 @@ def main(argv=None) -> None:
     # Compute causal volatility feature (vol_24b).
     df = build_features(df)
 
+    # Classify each observation into a vol × trend regime.
+    df = build_regimes(df)
+
     # Determine which feature columns are available in this dataset.
     feature_cols = select_features(df)
 
@@ -465,10 +665,13 @@ def main(argv=None) -> None:
         print(f"ERROR: Target column '{TARGET_COL}' not found. Exiting.")
         sys.exit(1)
 
-    # Expanding-window Ridge walk-forward.
-    wf_results = walk_forward_ridge(df, feature_cols)
+    # Expanding-window Ridge walk-forward with per-regime evaluation.
+    wf_results, regime_results = walk_forward_ridge(
+        df, feature_cols, regime_col="regime"
+    )
 
     print_wf_summary(wf_results)
+    print_regime_summary(regime_results)
 
 
 if __name__ == "__main__":
