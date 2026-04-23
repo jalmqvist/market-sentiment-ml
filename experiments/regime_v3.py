@@ -1605,12 +1605,12 @@ def compute_regime_stability_summary(
     rows: list[dict] = []
     for regime_label, grp in regime_wf.groupby(regime_col):
         sharpes = grp[sharpe_col].dropna().values
-        n_years = len(sharpes)
-        if n_years == 0:
+        n_valid_sharpes = len(sharpes)
+        if n_valid_sharpes == 0:
             continue
         n_total = int(grp[n_col].sum())
         mean_sharpe = float(np.mean(sharpes))
-        std_sharpe = float(np.std(sharpes, ddof=1)) if n_years > 1 else np.nan
+        std_sharpe = float(np.std(sharpes, ddof=1)) if n_valid_sharpes > 1 else np.nan
         positive_year_ratio = float(np.mean(sharpes > 0))
         rows.append(
             {
@@ -1652,7 +1652,7 @@ def log_regime_stability_summary(stability_df: pd.DataFrame) -> None:
     for row in stability_df.itertuples(index=False):
         std_str = (
             f"{row.std_sharpe:+.4f}"
-            if not np.isnan(row.std_sharpe)
+            if not pd.isna(row.std_sharpe)
             else "nan"
         )
         logger.info(
@@ -1660,7 +1660,7 @@ def log_regime_stability_summary(stability_df: pd.DataFrame) -> None:
             " | mean_sharpe=%+.4f | std_sharpe=%s | pct_pos_years=%.0f%%",
             row.regime,
             row.n_total,
-            row.mean_sharpe if not np.isnan(row.mean_sharpe) else float("nan"),
+            row.mean_sharpe,
             std_str,
             row.positive_year_ratio * 100,
         )
