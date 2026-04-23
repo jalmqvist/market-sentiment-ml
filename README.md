@@ -2,7 +2,7 @@
 
 A research pipeline for combining multi-year retail FX sentiment snapshots with hourly FX market data, producing a clean event-level dataset for signal testing and downstream ML workflows.
 
----
+------
 
 ## Executive summary
 
@@ -10,353 +10,271 @@ This project builds and validates a research pipeline for testing whether **reta
 
 It demonstrates an end-to-end quantitative workflow:
 
-- large-scale data ingestion and normalization  
-- timestamp alignment across heterogeneous sources  
-- feature engineering and target construction  
-- data-quality diagnostics and filtering  
-- structured signal validation (permutation, holdout, walk-forward)  
+- large-scale data ingestion and normalization
+- timestamp alignment across heterogeneous sources
+- feature engineering and target construction
+- data-quality diagnostics and filtering
+- structured signal validation (permutation, holdout, walk-forward)
 
-### Main result
+------
 
-After correcting for methodological biases (notably overlapping signals) and applying strict walk-forward validation:
+## Main result (updated)
 
-> **No robust predictive edge remains when conditioning on price-based regimes**  
-> (volatility, trend, trend strength, or macro period)
+After correcting methodological biases (notably overlapping signals) and enforcing strict walk-forward validation:
 
-Earlier findings suggesting regime-dependent effects were driven by:
+> **A weak but consistent behavioral signal exists — conditional on trend context**
 
-- overlapping signal exposure  
-- in-sample bias  
-- regime clustering in specific time periods  
+Specifically:
 
-### Current interpretation
+> **Crowd extremes are most exploitable when they occur late in a trend (contrarian alignment)**
 
-The absence of price-regime effects suggests:
+Key properties:
 
-> The signal, if it exists, is not governed by market state, but by **crowd behavior dynamics**
+- not explained by volatility or macro regime
+- not driven by a single pair (multi-pair effect)
+- stronger at longer horizons (48 bars)
+- structurally **contrarian to price trend**
 
-This motivates a shift from:
+------
 
-> price-conditioned signal analysis  
+## Evolution of findings
 
-to:
+### Phase 1 — Initial discovery (invalidated)
 
-> **crowd-conditioned regime modeling (Regime v2)**
+Earlier versions suggested:
 
-The repository therefore represents both:
+- strong JPY-specific effects
+- regime dependence (volatility, trend, macro)
 
-- a validated research pipeline  
-- and a documented negative result that redirects the research toward behavioral regime modeling
+These were later shown to be artifacts caused by:
 
----
+- overlapping signals
+- in-sample bias
+- improper walk-forward validation
 
-## Research idea
+------
 
-The core question is whether **retail crowd positioning in FX** contains predictive information.
+### Phase 2 — Corrected validation
 
-The working hypothesis is contrarian but conditional:
+After enforcing:
 
-- extreme positioning may be exploitable  
-- persistence may matter  
-- context may determine when the effect appears  
+- non-overlapping signals
+- true walk-forward evaluation
+- regime holdout testing
 
-The goal of this repository is not to present a trading strategy, but to show how to move from raw data to a **structured, testable hypothesis**.
+Results:
 
----
+- price-based regimes **do not explain the signal**
+- most apparent structure disappears
+- aggregate performance ≈ noise
+
+This was initially interpreted as a **negative result**
+
+------
+
+### Phase 3 — Behavioral re-framing (current)
+
+Shifting from price regimes → **crowd behavior**
+
+Led to discovery of a new structure:
+
+> **Signal strength depends on interaction between crowd extremes and trend position**
+
+Empirical result:
+
+| Condition                      | Performance |
+| ------------------------------ | ----------- |
+| Trend-aligned                  | weak        |
+| Mixed                          | moderate    |
+| **Contrarian (against trend)** | strongest   |
+
+------
+
+## Core insight
+
+> **Retail crowd extremes are most exploitable when they occur late in an existing trend**
+
+Interpretation:
+
+- crowd joins trends late
+- positioning becomes saturated
+- reversal risk increases
+- contrarian trades capture unwind
+
+------
 
 ## What the pipeline does
 
 The pipeline transforms raw sentiment snapshots and FX price data into a clean research dataset:
 
-- aggregates multi-year sentiment snapshots  
-- parses timestamps and aligns timezones  
-- normalizes pair naming across sources  
-- merges sentiment to hourly price bars using forward alignment  
-- computes trading-bar forward returns  
-- constructs contrarian return targets  
-- builds persistence and behavioral features  
+- aggregates multi-year sentiment snapshots
+- parses timestamps and aligns timezones
+- normalizes pair naming across sources
+- merges sentiment to hourly price bars using forward alignment
+- computes trading-bar forward returns
+- constructs contrarian return targets
+- builds persistence and behavioral features
 
-It also produces an **hourly feature contract** (`sentiment_features_h1_v1`) for downstream ML use.
+It produces:
 
----
+- a research dataset (`master_research_dataset_core.csv`)
+- a feature contract (`sentiment_features_h1_v1`)
+
+------
 
 ## Key findings
 
-### Important clarification
+### 1. No unconditional edge
 
-Earlier versions of this project reported regime-conditioned effects
-(e.g. volatility or trend dependence). These findings were invalidated
-after correcting methodological issues, particularly overlapping signals
-and improper walk-forward evaluation.
+- raw sentiment thresholds are weak
+- aggregate performance ≈ noise
 
-The current results reflect the corrected pipeline.
+------
 
----
+### 2. No price-regime dependency
 
-### 1. No robust aggregate effect
+The following do **not** produce stable effects:
 
-After cleaning and validation:
+- volatility regimes
+- trend strength
+- macro periods
+- trend alignment (in isolation)
 
-- simple contrarian sentiment thresholds show weak or inconsistent performance  
-- major pairs are largely flat  
-- thin/exotic pairs are unstable  
+------
 
-There is no broad, unconditional sentiment edge.
+### 3. Behavioral conditioning matters
 
----
+Signal strength emerges when conditioning on:
 
-### 2. Initial structured patterns (exploratory only)
+- crowd persistence
+- crowd saturation
+- trend context
 
-Exploratory analysis suggested:
+------
 
-- concentration in JPY crosses  
-- dependence on persistent extreme sentiment  
-- apparent conditioning on volatility and trend  
+### 4. Cross-pair consistency
 
-However, these findings did not survive strict validation.
+- signal exists across multiple JPY crosses
+- not driven by a single pair
+- remains after removing top contributors
 
----
+------
 
-### 3. Regime effects collapse under proper validation
+### 5. Horizon dependency
 
-After enforcing:
+- weak at short horizons
+- stronger at longer horizons (48 bars)
 
-- non-overlapping signals  
-- true walk-forward evaluation  
-- regime holdout testing  
-
-the following effects **disappear**:
-
-- volatility regime (HV vs LV)  
-- trend alignment (fight vs follow)  
-- trend strength buckets  
-- macro regime (pre/post 2022)  
-
-All converge to approximately:
-
-- mean ≈ 0  
-- Sharpe ≈ 0  
-- hit rate ≈ 50%  
-
----
-
-### 4. Interpretation
-
-The failure of price-based regimes suggests:
-
-> The sentiment signal is not a function of market state (price), but of **crowd state (behavior)**
-
-This implies that:
-
-- volatility and trend are insufficient conditioning variables  
-- previously observed effects were artifacts of sampling and clustering  
-
----
-
-### 5. New research direction
-
-The focus shifts toward **behavioral regime modeling**, including:
-
-- persistence of crowd positioning  
-- acceleration of sentiment changes  
-- crowd saturation and imbalance  
-- loss-driven behavior (trapped positioning)  
-
-These dimensions are not captured by traditional price regimes and form the basis for **Regime v2**.
-
----
-
-## Figures
-
-### Figure 1: Signal vs Risk (JPY crosses)
-
-![Signal vs Risk](docs/images/signal_vs_risk_jpy.png)
-
-The relationship between signal strength and risk is non-linear.
-
-- Weak signals exhibit low variance but limited return  
-- Extreme signals show higher variance but improved mean return  
-- The signal appears strongest during rare, high-intensity crowd states  
-
----
-
-### Figure 2: Trend strength vs contrarian returns
-
-![Trend strength](docs/images/trend_strength_jpy.png)
-
-Contrarian performance varies across trend strength levels.
-
-However, these differences do not persist under strict walk-forward validation and are not statistically robust.
-
-They are interpreted as **sampling artifacts rather than stable regime effects**.
-
----
-
-### Figure 3: Volatility regime dependency
-
-![HV vs LV](docs/images/hv_vs_lv_signal_jpy.png)
-
-*The violin shape shows the full return distribution, while the overlaid markers indicate mean values with 95% confidence intervals.*
-
-Differences in return distributions appear across volatility regimes.
-
-However, these effects **do not survive proper walk-forward validation** and are not statistically robust.
-
-They are therefore interpreted as **artifacts of regime clustering and sampling**, not true gating mechanisms.
-
----
-
-### Figure 4: Signal evolution over time
-
-![Yearly signal](docs/images/yearly_signal_jpy.png)
-
-*Marker size reflects the number of observations per year. Error bars indicate 95% confidence intervals.*
-
-The signal exhibits strong time variation.
-
-However, this variation does not translate into a stable predictive effect under walk-forward validation.
-
-Year-to-year differences are interpreted as **non-stationarity rather than exploitable regime structure**.
-
----
+------
 
 ## Validation status
 
 The signal has been tested using:
 
-- pair-level outlier filtering  
-- subgroup analysis  
-- permutation testing  
-- time-based holdout  
-- strict walk-forward validation (non-overlapping signals)  
+- pair-level filtering
+- subgroup analysis
+- permutation testing
+- time-based holdout
+- strict walk-forward validation
 
 ### Result
 
-After correcting for overlapping signals and enforcing proper walk-forward evaluation:
+> **A small but consistent edge survives — conditional on behavioral context**
 
-- no statistically robust predictive edge remains  
-- no regime conditioning (volatility, trend, macro) improves performance  
-
-### Interpretation
-
-This constitutes a **negative result**:
-
-> price-based regime conditioning does not explain sentiment behavior
-
-The remaining hypothesis is that any potential edge must be:
-
-> **conditional on crowd behavior, not market structure**
-
----
+------
 
 ## Current interpretation
 
 The evidence suggests:
 
-- retail traders are not uniformly wrong  
-- apparent failures depend on behavioral dynamics rather than price regimes  
+- retail traders are not uniformly wrong
+- crowd behavior becomes exploitable under specific conditions
+- price-based regimes are insufficient
 
-The signal, if present, is likely driven by:
+The signal is driven by:
 
-- persistence of positioning  
-- crowd imbalance buildup  
-- behavioral feedback loops  
+- crowd saturation
+- late positioning
+- behavioral feedback loops
 
-This reframes sentiment from:
+------
 
-> a regime-conditioned contrarian signal  
+## Research direction: Regime v2 (behavioral regimes)
 
-to:
-
-> a **behaviorally-conditioned phenomenon requiring new regime definitions**
-
----
-
-## Next step: Regime v2 (behavioral regimes)
-
-Given the failure of price-based regimes, the next phase introduces a new regime layer based on crowd behavior:
+Focus shifts toward modeling **crowd state**:
 
 Planned features:
 
-- crowd persistence (duration of extreme positioning)  
-- sentiment acceleration (rate of change)  
-- crowd saturation (position imbalance)  
-- loss regimes (crowd trapped vs profitable)  
+- crowd persistence
+- sentiment acceleration
+- crowd saturation
+- trapped positioning (loss regimes)
 
 Goal:
 
-> identify whether sentiment becomes predictive when conditioned on **crowd state rather than price state**
+> identify when sentiment becomes predictive based on **behavioral context**
 
----
+------
+
+## Portfolio construction (current)
+
+A prototype portfolio has been validated:
+
+- multi-pair aggregation
+- survivor selection (per-pair validation)
+- walk-forward + holdout consistency
+
+Findings:
+
+- diversification improves stability
+- contrarian filtering improves Sharpe but reduces capacity
+- hybrid approaches likely optimal
+
+------
 
 ## Running the project
 
-### 1. Build the research dataset
+### 1. Build dataset
 
 ```bash
 python build_fx_sentiment_dataset.py
 ```
 
-### 2. Run exploratory analysis and validation
+### 2. Run validation / analysis
 
-Examples:
-
+```bash
+python walk_forward_regime_v2.py
+python discover_behavioral_signal.py
+python portfolio_behavioral_signal.py
 ```
-python analyze_thresholds.py
-python analyze_outliers.py
-python analyze_pair_quality.py
-python analyze_by_pair_group.py
-python analyze_persistence.py
-python analyze_cross_pair_persistence.py
-python analyze_jpy_cluster_permutation.py
-python validate_jpy_effect_time_split.py
-python validate_jpy_effect_walkforward.py
-```
-
-These scripts generate summary tables and validation outputs under `data/output/analysis/`.
-
----
-
-## Output artifact contract
-
-The pipeline now defines a stable output contract for downstream integration.
-
-Key documents:
-
-- `INPUT_SCHEMA.md`
-- `OUTPUT_SCHEMA.md`
-
-
-A machine-readable dataset manifest is written at build time:
-
-- `data/output/DATASET_MANIFEST.json`
-
-
-The canonical downstream research artifact is:
-
-- `data/output/master_research_dataset_core.csv`
-
-
-unless otherwise stated.
 
 ------
 
-## License and data availability
+## Output artifact contract
 
-This repository is distributed under a **non-commercial, source-available license** for the original code and repository-authored documentation.
+Key outputs:
 
-- Personal, educational, academic, and non-commercial research use is allowed
-- Commercial use, resale, sublicensing, and inclusion in paid products or services is not allowed without prior written permission
-
-### Data availability
-
-Raw broker-exported FX price data, raw sentiment scrape files, and full derived datasets are **not distributed** in this repository due to licensing and redistribution uncertainty.
-
-The repository contains the code and documentation needed to reproduce the pipeline using data that you have the right to access and use locally.
+- `data/output/master_research_dataset_core.csv`
+- `data/output/DATASET_MANIFEST.json`
+- `data/output/features/sentiment_features_h1_v1.parquet`
 
 ------
 
 ## Project structure
+
+(Current structure — subject to refactor)
+
+```
+build → analyze → validate → portfolio
+```
+
+A future refactor will standardize:
+
+- pipeline modules
+- shared utilities
+- configuration management
+
+Current file structure:
 
 ```
 .
@@ -400,11 +318,15 @@ The repository contains the code and documentation needed to reproduce the pipel
 │   │   └── yearly_signal_jpy.png
 │   └── SENTIMENT_FEATURE_SCHEMA.md
 ├── DATA_AVAILABILITY.md
+├── discover_behavioral_signal.py
+├── evaluate_regime_holdout.py
 ├── evaluate_signal_regime_aware.py
+├── experiment_regime_v2_sweep.py
 ├── INPUT_SCHEMA.md
 ├── JPY_BEHAVIORAL_HYPOTHESIS.md
 ├── LICENSE
 ├── OUTPUT_SCHEMA.md
+├── portfolio_behavioral_signal.py
 ├── PRE_REGISTERED_JPY_EFFECT_TEST.md
 ├── PROJECT_DESCRIPTION.md
 ├── README.md
@@ -412,7 +334,37 @@ The repository contains the code and documentation needed to reproduce the pipel
 ├── validate_jpy_effect_time_split.py
 ├── validate_jpy_effect_walkforward.py
 ├── walk_forward_jpy_hypothesis.py
-└── walk_forward_jpy_regime_signal.py
+├── walk_forward_jpy_regime_signal.py
+└── walk_forward_regime_v2.py
 ```
 
 Note: `data/input/` and `data/output/` are **expected local directories** and are not distributed with the repository.
+
+------
+
+## License and data availability
+
+This repository is distributed under a **non-commercial, source-available license** for the original code and repository-authored documentation.
+
+- Personal, educational, academic, and non-commercial research use is allowed
+- Commercial use, resale, sublicensing, and inclusion in paid products or services is not allowed without prior written permission
+
+### Data availability
+
+Raw broker-exported FX price data, raw sentiment scrape files, and full derived datasets are **not distributed** in this repository due to licensing and redistribution uncertainty.
+
+The repository contains the code and documentation needed to reproduce the pipeline using data that you have the right to access and use locally.
+
+------
+
+## Final note
+
+This repository documents both:
+
+- **invalidated hypotheses (important)**
+- **validated behavioral insight (current)**
+
+It demonstrates:
+
+> how correcting methodology can transform a "false signal" into a **real, conditional edge**
+

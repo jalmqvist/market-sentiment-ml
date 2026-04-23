@@ -117,6 +117,10 @@ The repository now represents:
 
 ---
 
+**Updated finding**: signal is conditional on behavioral-trend interaction, not price regimes.
+
+---
+
 ## Next phase
 
 The next step is to:
