@@ -14,6 +14,13 @@ Rules:
 - All stages receive their dataset path via --data explicitly.
 - After all pipeline stages, validate_pipeline_extended.py is executed.
 
+Logging:
+- All runs write logs to both stdout and a timestamped file:
+    logs/pipeline_YYYYMMDD_HHMMSS.log
+- All subprocess output (stdout + stderr) is captured and logged.
+- Deterministic fingerprints (dataset hash, discovery artifact hash) are
+  logged at the end of each run.
+
 Usage::
 
     # Canonical pipeline (discovery + portfolio only):
@@ -40,10 +47,15 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import datetime
+import hashlib
+import json
 import logging
 import subprocess
 import sys
 from pathlib import Path
+
+import pandas as pd
 
 import config as cfg
 
@@ -54,19 +66,54 @@ log = logging.getLogger("run_pipeline_strict")
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _configure_logging(level: str) -> None:
-    logging.basicConfig(
-        level=getattr(logging, level.upper(), logging.INFO),
-        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-    )
+def _configure_logging(level: str) -> logging.FileHandler:
+    """Configure logging to stdout AND a timestamped file.
+
+    Returns the FileHandler so callers can retrieve the log file path.
+    """
+    log_level = getattr(logging, level.upper(), logging.INFO)
+    fmt = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+    formatter = logging.Formatter(fmt)
+
+    root = logging.getLogger()
+    root.setLevel(log_level)
+
+    # stdout handler
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setLevel(log_level)
+    stream_handler.setFormatter(formatter)
+    root.addHandler(stream_handler)
+
+    # file handler — logs/pipeline_YYYYMMDD_HHMMSS.log
+    logs_dir = Path("logs")
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = logs_dir / f"pipeline_{timestamp}.log"
+    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_handler.setLevel(log_level)
+    file_handler.setFormatter(formatter)
+    root.addHandler(file_handler)
+
+    root.info("Pipeline log file: %s", log_file)
+    return file_handler
 
 
 def _run(cmd: list[str]) -> None:
-    """Run *cmd* and raise RuntimeError on non-zero exit."""
+    """Run *cmd*, capture stdout+stderr, log both, and raise RuntimeError on non-zero exit."""
     log.info("Running: %s", " ".join(map(str, cmd)))
-    p = subprocess.run(cmd, check=False)
-    if p.returncode != 0:
-        raise RuntimeError(f"Command failed (exit={p.returncode}): {' '.join(str(c) for c in cmd)}")
+    result = subprocess.run(
+        cmd,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    output = result.stdout or ""
+    if output.strip():
+        for line in output.splitlines():
+            log.info("[subprocess] %s", line)
+    if result.returncode != 0:
+        raise RuntimeError(f"Command failed (exit={result.returncode}): {' '.join(str(c) for c in cmd)}")
 
 
 def _ensure_file_nonempty(path: Path, what: str) -> None:
@@ -74,6 +121,38 @@ def _ensure_file_nonempty(path: Path, what: str) -> None:
         raise FileNotFoundError(f"{what} not found: {path}")
     if path.stat().st_size == 0:
         raise ValueError(f"{what} is empty (0 bytes): {path}")
+
+
+def _hash_file(path: Path) -> str:
+    """Return MD5 hex digest of a file's contents."""
+    h = hashlib.md5()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _log_csv_summary(path: Path, label: str) -> None:
+    """Log a compact summary of a CSV dataset (rows, pairs, date range)."""
+    try:
+        df = pd.read_csv(path, low_memory=False)
+        rows = len(df)
+        pairs = df["pair"].nunique() if "pair" in df.columns else "n/a"
+        date_range = "n/a"
+        for col in ("entry_time", "time", "timestamp"):
+            if col in df.columns:
+                try:
+                    ts = pd.to_datetime(df[col], errors="coerce")
+                    date_range = f"{ts.min()} .. {ts.max()}"
+                except Exception:
+                    pass
+                break
+        log.info(
+            "[summary] %s: rows=%s, pairs=%s, date_range=%s",
+            label, f"{rows:,}", pairs, date_range,
+        )
+    except Exception as exc:
+        log.warning("[summary] Could not summarise %s: %s", path, exc)
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +247,9 @@ def main(argv=None) -> int:
     canonical_path: Path = args.canonical_dataset
     regime_path: Path | None = args.regime_dataset
 
+    # Discovery artifact path (written by discovery stage, consumed by portfolio stage)
+    discovery_artifact_path: Path = Path("data/output/discovery_results.json")
+
     run_regime_stages = regime_path is not None
 
     log.info("=" * 70)
@@ -198,6 +280,7 @@ def main(argv=None) -> int:
 
     _ensure_file_nonempty(canonical_path, "Canonical dataset")
     log.info("Canonical dataset ready: %s", canonical_path)
+    _log_csv_summary(canonical_path, "canonical dataset")
 
     # -----------------------
     # 2) Attach regime labels (optional)
@@ -215,6 +298,7 @@ def main(argv=None) -> int:
         _run(cmd)
         _ensure_file_nonempty(regime_path, "Regime-enriched dataset")
         log.info("Regime-enriched dataset ready: %s", regime_path)
+        _log_csv_summary(regime_path, "regime dataset")
     else:
         if run_regime_stages:
             log.info("[2/6] Skipped: attach_regimes")
@@ -231,10 +315,23 @@ def main(argv=None) -> int:
                 sys.executable,
                 "-m",
                 "experiments.discovery",
-                "--data",      str(canonical_path),
-                "--log-level", args.log_level,
+                "--data",             str(canonical_path),
+                "--out-artifact",     str(discovery_artifact_path),
+                "--log-level",        args.log_level,
             ]
         )
+        if discovery_artifact_path.exists():
+            log.info("[3/6] Discovery artifact written: %s", discovery_artifact_path)
+            try:
+                artifact_data = json.loads(discovery_artifact_path.read_text())
+                for horizon, info in artifact_data.get("horizons", {}).items():
+                    selected = info.get("selected_pairs", [])
+                    log.info(
+                        "[summary] discovery(h=%s): %d selected pairs: %s",
+                        horizon, len(selected), selected,
+                    )
+            except Exception as exc:
+                log.warning("[3/6] Could not parse discovery artifact: %s", exc)
     else:
         log.info("[3/6] Skipped: discovery")
 
@@ -243,15 +340,17 @@ def main(argv=None) -> int:
     # -----------------------
     if "portfolio" not in skip:
         log.info("[4/6] Running portfolio construction (canonical dataset)...")
-        _run(
-            [
-                sys.executable,
-                "-m",
-                "portfolio.portfolio_builder",
-                "--data",      str(canonical_path),
-                "--log-level", args.log_level,
-            ]
-        )
+        portfolio_cmd = [
+            sys.executable,
+            "-m",
+            "portfolio.portfolio_builder",
+            "--data",      str(canonical_path),
+            "--log-level", args.log_level,
+        ]
+        if discovery_artifact_path.exists():
+            portfolio_cmd += ["--discovery-artifact", str(discovery_artifact_path)]
+            log.info("[4/6] Using discovery artifact for pair selection: %s", discovery_artifact_path)
+        _run(portfolio_cmd)
     else:
         log.info("[4/6] Skipped: portfolio")
 
@@ -299,11 +398,31 @@ def main(argv=None) -> int:
     else:
         log.info("[6/6] Skipped: validate")
 
+    # -----------------------
+    # Final summary with fingerprints
+    # -----------------------
     log.info("=" * 70)
     log.info("PIPELINE COMPLETE")
     log.info("  canonical dataset : %s", canonical_path)
     if run_regime_stages:
         log.info("  regime dataset    : %s", regime_path)
+
+    # Deterministic fingerprints
+    try:
+        canonical_hash = _hash_file(canonical_path)
+        log.info("  dataset hash      : %s", canonical_hash)
+    except Exception as exc:
+        log.warning("  dataset hash      : <error: %s>", exc)
+
+    if discovery_artifact_path.exists():
+        try:
+            artifact_hash = _hash_file(discovery_artifact_path)
+            log.info("  discovery artifact: %s  hash=%s", discovery_artifact_path, artifact_hash)
+        except Exception as exc:
+            log.warning("  discovery artifact hash: <error: %s>", exc)
+    else:
+        log.info("  discovery artifact: <not present>")
+
     log.info("=" * 70)
     return 0
 

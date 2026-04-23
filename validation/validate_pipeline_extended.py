@@ -6,6 +6,11 @@ Extended pipeline validation script.
 Validates dataset integrity, signal parity, performance, and regime isolation.
 Exits with a non-zero status code on failure.
 
+Warnings (not failures) are issued for:
+- regime dataset row count < 30% of canonical
+- regime pair count < 30% of canonical
+- missing regime rate > 20%
+
 Usage::
 
     python validation/validate_pipeline_extended.py \\
@@ -18,11 +23,18 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import logging
 import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+)
+logger = logging.getLogger("validate_pipeline")
 
 
 # =========================
@@ -30,12 +42,16 @@ import pandas as pd
 # =========================
 
 def fail(msg: str) -> None:
-    print(f"\n❌ VALIDATION FAILED: {msg}")
+    logger.error("VALIDATION FAILED: %s", msg)
     sys.exit(1)
 
 
 def ok(msg: str) -> None:
-    print(f"✅ {msg}")
+    logger.info("OK: %s", msg)
+
+
+def warn(msg: str) -> None:
+    logger.warning("WARNING: %s", msg)
 
 
 def approx(a: float, b: float, tol: float = 1e-10) -> bool:
@@ -110,7 +126,7 @@ def main(argv=None) -> int:
     # =========================
     # LOAD
     # =========================
-    print("\n=== LOAD DATA ===")
+    logger.info("=== LOAD DATA ===")
 
     if not args.data.exists():
         fail(f"Canonical dataset not found: {args.data}")
@@ -129,21 +145,56 @@ def main(argv=None) -> int:
     ok("Datasets loaded")
 
     # =========================
+    # WARNING CHECKS (not failures)
+    # =========================
+    logger.info("=== REGIME COVERAGE WARNINGS ===")
+
+    canonical_rows = len(df)
+    regime_rows = len(df_reg)
+    canonical_pairs = df["pair"].nunique() if "pair" in df.columns else 0
+    regime_pairs_count = df_reg["pair"].nunique() if "pair" in df_reg.columns else 0
+
+    if canonical_rows > 0 and regime_rows < 0.30 * canonical_rows:
+        warn(
+            f"Regime dataset row count ({regime_rows:,}) is < 30% of canonical ({canonical_rows:,}). "
+            f"ratio={regime_rows / canonical_rows:.2%}"
+        )
+    else:
+        ok(f"Regime row coverage: {regime_rows:,} / {canonical_rows:,} = {regime_rows / canonical_rows:.2%}" if canonical_rows else "Regime row coverage: n/a")
+
+    if canonical_pairs > 0 and regime_pairs_count < 0.30 * canonical_pairs:
+        warn(
+            f"Regime pair count ({regime_pairs_count}) is < 30% of canonical ({canonical_pairs}). "
+            f"ratio={regime_pairs_count / canonical_pairs:.2%}"
+        )
+    else:
+        ok(f"Regime pair coverage: {regime_pairs_count} / {canonical_pairs} = {regime_pairs_count / canonical_pairs:.2%}" if canonical_pairs else "Regime pair coverage: n/a")
+
+    if "phase" in df_reg.columns and regime_rows > 0:
+        missing_regime_rate = df_reg["phase"].isna().mean()
+        if missing_regime_rate > 0.20:
+            warn(
+                f"Missing regime rate in regime dataset: {missing_regime_rate:.2%} > 20% threshold."
+            )
+        else:
+            ok(f"Missing regime rate: {missing_regime_rate:.2%}")
+
+    # =========================
     # TEST 1 — HASH MATCH
     # =========================
-    print("\n=== TEST 1: DATA HASH ===")
+    logger.info("=== TEST 1: DATA HASH ===")
 
     if df_ref is not None:
         if hash_df(df) != hash_df(df_ref):
             fail("Dataset hash mismatch")
         ok("Dataset hash identical")
     else:
-        print("⚠️  Reference dataset not provided; skipping hash check.")
+        logger.info("Reference dataset not provided; skipping hash check.")
 
     # =========================
     # TEST 2 — SIGNAL PARITY
     # =========================
-    print("\n=== TEST 2: SIGNAL PARITY ===")
+    logger.info("=== TEST 2: SIGNAL PARITY ===")
 
     sig = non_overlap(apply_signal(df))
 
@@ -158,7 +209,7 @@ def main(argv=None) -> int:
     # =========================
     # TEST 3 — PERFORMANCE PARITY
     # =========================
-    print("\n=== TEST 3: PERFORMANCE ===")
+    logger.info("=== TEST 3: PERFORMANCE ===")
 
     if df_ref is not None:
         sig_ref = non_overlap(apply_signal(df_ref))
@@ -174,7 +225,7 @@ def main(argv=None) -> int:
     # =========================
     # TEST 4 — BEHAVIORAL STRUCTURE
     # =========================
-    print("\n=== TEST 4: BEHAVIORAL STRUCTURE ===")
+    logger.info("=== TEST 4: BEHAVIORAL STRUCTURE ===")
 
     sig["position"] = -1  # contrarian proxy
     contra = sig["ret_48b"].dropna()
@@ -187,7 +238,7 @@ def main(argv=None) -> int:
     # =========================
     # TEST 5 — REGIME ISOLATION
     # =========================
-    print("\n=== TEST 5: REGIME ISOLATION ===")
+    logger.info("=== TEST 5: REGIME ISOLATION ===")
 
     sig_reg = non_overlap(apply_signal(df_reg))
 
@@ -199,7 +250,7 @@ def main(argv=None) -> int:
     # =========================
     # TEST 6 — STAGE INDEPENDENCE
     # =========================
-    print("\n=== TEST 6: STAGE INDEPENDENCE ===")
+    logger.info("=== TEST 6: STAGE INDEPENDENCE ===")
 
     required_cols = ["pair", "entry_time", "abs_sentiment"]
     missing = [c for c in required_cols if c not in df.columns]
@@ -211,7 +262,7 @@ def main(argv=None) -> int:
     # =========================
     # TEST 7 — LEAKAGE CHECK
     # =========================
-    print("\n=== TEST 7: LEAKAGE CHECK ===")
+    logger.info("=== TEST 7: LEAKAGE CHECK ===")
 
     sample_n = min(1000, len(df))
     sample = df.sample(sample_n, random_state=42)
@@ -227,7 +278,7 @@ def main(argv=None) -> int:
     # =========================
     # TEST 8 — PAIR DOMINANCE
     # =========================
-    print("\n=== TEST 8: PAIR ROBUSTNESS ===")
+    logger.info("=== TEST 8: PAIR ROBUSTNESS ===")
 
     pair_counts = sig["pair"].value_counts()
     top_pair = pair_counts.index[0]
@@ -244,17 +295,15 @@ def main(argv=None) -> int:
     # =========================
     # TEST 9 — DETERMINISM HOOK
     # =========================
-    print("\n=== TEST 9: DETERMINISM (OPTIONAL) ===")
+    logger.info("=== TEST 9: DETERMINISM (OPTIONAL) ===")
 
-    print("Hash:", hash_df(df))
+    logger.info("Dataset hash: %s", hash_df(df))
     ok("Determinism fingerprint generated")
 
     # =========================
     # FINAL
     # =========================
-    print("\n==============================")
-    print("🚀 PIPELINE CERTIFIED")
-    print("==============================\n")
+    logger.info("PIPELINE CERTIFIED")
     return 0
 
 

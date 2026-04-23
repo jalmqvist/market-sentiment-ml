@@ -11,11 +11,18 @@ Usage::
     python -m experiments.discovery --data data/output/master_research_dataset.csv
     python experiments/discovery.py --data data/output/master_research_dataset.csv \\
                                     --log-level DEBUG
+
+Artifact output::
+
+    By default, writes a JSON artifact to data/output/discovery_results.json
+    containing selected pairs, thresholds used, horizon, and selection metrics.
+    Use --out-artifact to override the output path.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 from pathlib import Path
@@ -33,7 +40,7 @@ import config as cfg
 from evaluation.holdout import holdout_test
 from evaluation.metrics import compute_metrics
 from evaluation.walk_forward import walk_forward_yearly  # noqa: F401 – imported for downstream use
-from pipeline.filters import enforce_non_overlap
+from pipeline.filters import enforce_non_overlap, select_survivor_pairs
 from pipeline.signal import apply_behavioral_signal
 from utils.io import read_csv, setup_logging
 from utils.validation import parse_timestamps, warn_if_empty
@@ -67,9 +74,10 @@ def load_data(path: str | Path) -> pd.DataFrame:
     # Dataset summary
     date_min = df["timestamp"].min()
     date_max = df["timestamp"].max()
-    print(f"Dataset summary: {len(df):,} rows | {df['pair'].nunique()} unique pairs | {date_min} to {date_max}")
-
-    logger.info("Dataset loaded: %d rows, %d pairs", len(df), df["pair"].nunique())
+    logger.info(
+        "Dataset loaded: rows=%d, pairs=%d, date_range=%s .. %s",
+        len(df), df["pair"].nunique(), date_min, date_max,
+    )
     return df
 
 
@@ -131,6 +139,12 @@ def main(argv=None) -> None:
         help="Path to master research dataset CSV (canonical dataset).",
     )
     p.add_argument(
+        "--out-artifact",
+        type=Path,
+        default=Path("data/output/discovery_results.json"),
+        help="Path to write the discovery artifact JSON (selected pairs + metrics).",
+    )
+    p.add_argument(
         "--log-level",
         default=cfg.LOG_LEVEL,
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -140,34 +154,82 @@ def main(argv=None) -> None:
 
     logger.info("Loading dataset...")
     df = load_data(args.data)
-    print(f"Dataset size: {len(df):,}")
+    logger.info("Dataset size: %d rows", len(df))
 
     signal = apply_behavioral_signal(df)
-    print(f"Raw signal count: {len(signal):,}")
+    raw_signal_count = len(signal)
+    logger.info("Raw signal count: %d", raw_signal_count)
 
     if warn_if_empty(signal, context="discovery.main"):
-        print("No signals found.")
+        logger.info("No signals found.")
         return
 
-    print("\n=== SIGNAL DISTRIBUTION ===")
-    print(signal["pair"].value_counts().head(10).to_string())
+    logger.info("=== SIGNAL DISTRIBUTION ===\n%s", signal["pair"].value_counts().head(10).to_string())
+
+    # Artifact: will accumulate per-horizon results
+    artifact: dict = {
+        "thresholds": {
+            "SIGNAL_EXTREME_STREAK_MIN": cfg.SIGNAL_EXTREME_STREAK_MIN,
+            "SIGNAL_PERSISTENCE_BUCKETS": cfg.SIGNAL_PERSISTENCE_BUCKETS,
+            "SURVIVOR_MIN_SIGNALS": cfg.SURVIVOR_MIN_SIGNALS,
+            "SURVIVOR_MIN_AFTER_DEDUP": cfg.SURVIVOR_MIN_AFTER_DEDUP,
+            "SURVIVOR_MIN_SHARPE": cfg.SURVIVOR_MIN_SHARPE,
+            "HOLDOUT_SPLIT_YEAR": cfg.HOLDOUT_SPLIT_YEAR,
+        },
+        "raw_signal_count": raw_signal_count,
+        "horizons": {},
+    }
 
     for horizon in cfg.EVAL_HORIZONS:
-        print(f"\n{'=' * 80}")
-        print(f"PER-PAIR DISCOVERY (horizon={horizon})")
-        print("=" * 80)
+        logger.info("=" * 80)
+        logger.info("PER-PAIR DISCOVERY (horizon=%d)", horizon)
+        logger.info("=" * 80)
 
         results = analyze_pairs(signal, horizon)
 
+        # Determine survivor pairs using the same logic as portfolio_builder
+        selected_pairs = select_survivor_pairs(signal, horizon)
+
         if results.empty:
-            print("No valid pairs.")
+            logger.info("No valid pairs for horizon=%d.", horizon)
+            artifact["horizons"][str(horizon)] = {
+                "selected_pairs": [],
+                "selection_metrics": {},
+            }
             continue
 
-        print(results.to_string(index=False))
-        print("\nTop 5:")
-        print(results.head(5).to_string(index=False))
-        print("\nBottom 5:")
-        print(results.tail(5).to_string(index=False))
+        logger.info("Per-pair results (horizon=%d):\n%s", horizon, results.to_string(index=False))
+        logger.info("Top 5:\n%s", results.head(5).to_string(index=False))
+        logger.info("Bottom 5:\n%s", results.tail(5).to_string(index=False))
+
+        # Non-overlapping count
+        non_overlapping = enforce_non_overlap(signal, horizon)
+        non_overlap_count = len(non_overlapping)
+        logger.info(
+            "[summary] discovery(h=%d): raw_signals=%d, non_overlapping=%d, selected_pairs=%d: %s",
+            horizon, raw_signal_count, non_overlap_count, len(selected_pairs), selected_pairs,
+        )
+
+        # Build per-pair metrics dict for artifact
+        metrics_by_pair = {}
+        for _, row in results.iterrows():
+            metrics_by_pair[str(row["pair"])] = {
+                k: (float(v) if not (isinstance(v, float) and np.isnan(v)) else None)
+                for k, v in row.items()
+                if k != "pair"
+            }
+
+        artifact["horizons"][str(horizon)] = {
+            "selected_pairs": selected_pairs,
+            "non_overlapping_count": non_overlap_count,
+            "selection_metrics": metrics_by_pair,
+        }
+
+    # Write artifact JSON
+    artifact_path: Path = args.out_artifact
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    artifact_path.write_text(json.dumps(artifact, indent=2))
+    logger.info("Discovery artifact written: %s", artifact_path)
 
 
 if __name__ == "__main__":
