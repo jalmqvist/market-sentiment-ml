@@ -18,6 +18,9 @@ All features are strictly causal at ``entry_time``:
   features already present in the dataset)
 * **Volatility** – ``vol_24b``: rolling 24-bar std of bar-to-bar returns
   derived from ``entry_close``, computed per pair using only past bars
+* **Interaction** – ``abs_sent_x_trend12b``, ``abs_sent_x_trend48b``,
+  ``abs_sent_x_vol24b``, ``extreme70_x_trend48b``: products of base
+  features that capture non-linear regime signals
 
 Features columns present in the dataset are used; missing columns emit a
 warning and are silently dropped.
@@ -63,7 +66,7 @@ logger = logging.getLogger(__name__)
 TARGET_COL: str = "ret_48b"
 
 #: Candidate regularisation strengths for RidgeCV (leave-one-out CV).
-RIDGE_ALPHAS: tuple[float, ...] = (0.01, 0.1, 1.0, 10.0, 100.0, 1000.0)
+RIDGE_ALPHAS: tuple[float, ...] = (0.1, 1.0, 10.0, 100.0)
 
 #: Minimum training observations before a Ridge model is fit.
 MIN_TRAIN_OBS: int = 50
@@ -89,24 +92,37 @@ TREND_FEATURES: list[str] = [
 #: Volatility feature added by ``build_features``.
 VOLATILITY_FEATURES: list[str] = ["vol_24b"]
 
+#: Interaction features added by ``build_features`` (products of base features).
+INTERACTION_FEATURES: list[str] = [
+    "abs_sent_x_trend12b",
+    "abs_sent_x_trend48b",
+    "abs_sent_x_vol24b",
+    "extreme70_x_trend48b",
+]
+
 
 # ---------------------------------------------------------------------------
 # Feature engineering
 # ---------------------------------------------------------------------------
 
 def build_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Add the causal ``vol_24b`` volatility feature.
+    """Add causal volatility and interaction features.
 
     ``vol_24b`` is the rolling 24-bar standard deviation of bar-to-bar
     ``entry_close`` returns within each pair.  Because the rolling window
     references only past observations (``min_periods=5``), there is no
     lookahead.
 
+    Interaction features are products of base features computed after
+    ``vol_24b`` is available.  Each interaction is only created when both
+    constituent columns are present; missing base columns are silently skipped
+    (a debug message is emitted).
+
     Args:
         df: Dataset with ``pair``, ``entry_time``, and ``entry_close``.
 
     Returns:
-        Copy of *df* with ``vol_24b`` added.
+        Copy of *df* with ``vol_24b`` and available interaction columns added.
     """
     require_columns(df, ["pair", "entry_time", "entry_close"], context="build_features")
 
@@ -123,6 +139,30 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     out = out.drop(columns=["_bar_ret"])
 
     logger.debug("vol_24b: %d non-null values", out["vol_24b"].notna().sum())
+
+    # Interaction features – only created when both operands are present.
+    _interactions: list[tuple[str, str, str]] = [
+        ("abs_sent_x_trend12b", "abs_sentiment", "trend_strength_12b"),
+        ("abs_sent_x_trend48b", "abs_sentiment", "trend_strength_48b"),
+        ("abs_sent_x_vol24b", "abs_sentiment", "vol_24b"),
+        ("extreme70_x_trend48b", "extreme_streak_70", "trend_strength_48b"),
+    ]
+    for new_col, col_a, col_b in _interactions:
+        if col_a in out.columns and col_b in out.columns:
+            out[new_col] = out[col_a] * out[col_b]
+            logger.debug(
+                "Interaction %s: %d non-null values",
+                new_col,
+                out[new_col].notna().sum(),
+            )
+        else:
+            missing_bases = [c for c in (col_a, col_b) if c not in out.columns]
+            logger.debug(
+                "Skipping interaction %s: base column(s) missing: %s",
+                new_col,
+                missing_bases,
+            )
+
     return out
 
 
@@ -139,7 +179,7 @@ def select_features(df: pd.DataFrame) -> list[str]:
     Returns:
         List of available feature column names.
     """
-    candidates = SENTIMENT_FEATURES + TREND_FEATURES + VOLATILITY_FEATURES
+    candidates = SENTIMENT_FEATURES + TREND_FEATURES + VOLATILITY_FEATURES + INTERACTION_FEATURES
     feature_cols = [c for c in candidates if c in df.columns]
     missing = [c for c in candidates if c not in df.columns]
     if missing:
