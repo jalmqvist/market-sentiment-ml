@@ -107,15 +107,21 @@ def main(argv=None) -> None:
         build_regimes,
         behavioural_regime_baseline,
         behavioural_regime_walk_forward,
+        crowding_regime_baseline,
+        crowding_regime_walk_forward,
         load_data,
         log_behavioural_regime_summary,
         log_behavioural_regime_wf,
+        log_crowding_regime_summary,
+        log_crowding_regime_wf,
         log_regime_baseline,
         log_regime_wf,
+        log_secondary_vol_filter,
         print_regime_summary,
         print_wf_summary,
         regime_baseline,
         regime_walk_forward,
+        secondary_vol_filter,
         select_features,
         walk_forward_ridge,
     )
@@ -149,6 +155,12 @@ def main(argv=None) -> None:
     log_behavioural_regime_summary(behavioural_summary)
 
     # ------------------------------------------------------------------
+    # Step 3c: CROWDING REGIME SUMMARY — simplified 2-axis regime discovery
+    # ------------------------------------------------------------------
+    crowding_summary = crowding_regime_baseline(df)
+    log_crowding_regime_summary(crowding_summary)
+
+    # ------------------------------------------------------------------
     # Step 4: REGIME WALK-FORWARD — out-of-sample regime validation
     # ------------------------------------------------------------------
     regime_wf = regime_walk_forward(df)
@@ -160,6 +172,20 @@ def main(argv=None) -> None:
     # ------------------------------------------------------------------
     behavioural_wf = behavioural_regime_walk_forward(df)
     log_behavioural_regime_wf(behavioural_wf)
+
+    # ------------------------------------------------------------------
+    # Step 4c: CROWDING REGIME WALK-FORWARD — out-of-sample crowding
+    #          regime validation (simplified 2-axis)
+    # ------------------------------------------------------------------
+    crowding_wf = crowding_regime_walk_forward(df)
+    log_crowding_regime_wf(crowding_wf)
+
+    # ------------------------------------------------------------------
+    # Step 4d: SECONDARY VOL FILTER — secondary conditioning on top
+    #          crowding regimes (no combinatorial regime expansion)
+    # ------------------------------------------------------------------
+    vol_filter_results = secondary_vol_filter(df, crowding_summary)
+    log_secondary_vol_filter(vol_filter_results)
 
     # ------------------------------------------------------------------
     # Step 5: MODEL WITHIN REGIME (secondary) — LightGBM walk-forward
