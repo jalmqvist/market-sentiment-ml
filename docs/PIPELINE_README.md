@@ -87,6 +87,94 @@ Regime-specific scripts validate that these columns exist and raise a clear
 
 ---
 
+## Structured file logging
+
+Every pipeline run writes logs to **both stdout and a timestamped file**:
+
+```
+logs/pipeline_YYYYMMDD_HHMMSS.log
+```
+
+The log directory is created automatically under the current working directory.
+All subprocess stage outputs (stdout + stderr) are captured and written to the
+log at `INFO` level with a `[subprocess]` prefix.
+
+The final log summary includes **deterministic fingerprints**:
+
+- **Dataset hash** — MD5 of `canonical_dataset` file contents.
+- **Discovery artifact hash** — MD5 of `data/output/discovery_results.json`
+  (if it was produced during the run).
+
+Example final log lines:
+
+```
+PIPELINE COMPLETE
+  canonical dataset : data/output/master_research_dataset.csv
+  dataset hash      : a1b2c3d4e5f6...
+  discovery artifact: data/output/discovery_results.json  hash=f9e8d7c6b5a4...
+```
+
+---
+
+## Discovery artifact
+
+The signal discovery stage writes a JSON artifact:
+
+```
+data/output/discovery_results.json
+```
+
+The artifact contains:
+
+```json
+{
+  "thresholds": { ... },
+  "raw_signal_count": 12345,
+  "horizons": {
+    "12": {
+      "selected_pairs": ["usd-jpy", "eur-jpy"],
+      "non_overlapping_count": 4321,
+      "selection_metrics": { "usd-jpy": { "n": 200, "sharpe": 0.15, ... }, ... }
+    },
+    "48": { ... }
+  }
+}
+```
+
+The portfolio stage can consume this artifact via `--discovery-artifact` to
+avoid redundant pair-selection computation:
+
+```bash
+python -m portfolio.portfolio_builder \
+  --data             data/output/master_research_dataset.csv \
+  --discovery-artifact data/output/discovery_results.json
+```
+
+If the artifact is not provided or the file is missing, the portfolio stage
+falls back to recomputing pair selection from the data (current behaviour).
+
+---
+
+## Improved regime diagnostics
+
+`attach_regimes_to_h1_dataset.py` now uses Python `logging` (not `print`) and
+logs the following diagnostics at `INFO` level:
+
+- **Pair coverage ratio**: `regime_pairs / canonical_pairs`
+- **Row reduction**: `rows_before → rows_after`
+- **Match rate**: matched rows / total rows after join
+- **Missing regime rate**: overall + per pair
+
+`WARNING` is logged (but execution is NOT stopped) when:
+
+| Metric | Threshold |
+|---|---|
+| `match_rate` | `< 0.95` |
+| `missing_rate` (overall) | `> 0.10` |
+| pair coverage | `< 0.50` |
+
+---
+
 ## Strict orchestrator (recommended)
 
 `run_pipeline_strict.py` enforces the canonical execution order and dataset
@@ -125,11 +213,19 @@ python run_pipeline_strict.py \
 ```
 
 The strict orchestrator:
+- Writes logs to `logs/pipeline_YYYYMMDD_HHMMSS.log` AND stdout simultaneously
+- Captures all subprocess output (stdout + stderr) and logs it
 - Passes `--data` explicitly to every stage (no config fallbacks)
 - Runs discovery and portfolio as **required** stages
+- Passes `--discovery-artifact data/output/discovery_results.json` to the
+  portfolio stage automatically (if the artifact was produced by discovery)
 - Runs attach_regimes and regime_v2 **only** when `--regime-dataset` is provided
 - **Never** calls walk_forward via subprocess (it is a library used internally)
-- Runs `validation/validate_pipeline_extended.py` at the end and fails if validation fails
+- Logs a compact dataset summary (rows, pairs, date range) after each stage
+- Logs deterministic fingerprints (dataset hash + discovery artifact hash) in
+  the final summary
+- Runs `validation/validate_pipeline_extended.py` at the end and fails if
+  validation fails
 
 ---
 
@@ -180,25 +276,33 @@ python attach_regimes_to_h1_dataset.py \
 to `config.REGIME_PARQUET_DEFAULT`, which can be overridden via the
 `REGIME_PARQUET_PATH` environment variable.
 
+Diagnostics logged include pair coverage ratio, row reduction, match rate, and
+per-pair missing rate.  Warnings are emitted (but do not stop execution) when
+thresholds are violated (see [Improved regime diagnostics](#improved-regime-diagnostics)).
+
 **Output:** `DATA_PATH_REGIME` (`data/output/master_research_dataset_with_regime.csv`)
 
 ---
 
 ### 3. Signal discovery
 
-Per-pair behavioral signal discovery using the canonical dataset.
+Per-pair behavioral signal discovery using the canonical dataset.  Writes a
+JSON artifact with selected pairs and selection metrics.
 
 ```bash
 python -m experiments.discovery \
-  --data      data/output/master_research_dataset.csv \
-  --log-level DEBUG
+  --data         data/output/master_research_dataset.csv \
+  --out-artifact data/output/discovery_results.json \
+  --log-level    DEBUG
 
 # Direct execution (equivalent):
 python experiments/discovery.py \
-  --data      data/output/master_research_dataset.csv
+  --data data/output/master_research_dataset.csv
 ```
 
 `--data` is **required**.  **Uses:** `DATA_PATH` (canonical)
+
+**Output artifact:** `data/output/discovery_results.json`
 
 ---
 
@@ -238,16 +342,21 @@ Applies the canonical behavioral signal, selects survivor pairs, and
 evaluates the portfolio walk-forward and on holdout.
 
 ```bash
+# Without discovery artifact (recomputes selection):
 python -m portfolio.portfolio_builder \
   --data      data/output/master_research_dataset.csv \
   --log-level INFO
 
-# Direct execution (equivalent):
-python portfolio/portfolio_builder.py \
-  --data data/output/master_research_dataset.csv
+# With discovery artifact (faster; uses pre-computed selection):
+python -m portfolio.portfolio_builder \
+  --data               data/output/master_research_dataset.csv \
+  --discovery-artifact data/output/discovery_results.json \
+  --log-level          INFO
 ```
 
-`--data` is **required**.  **Uses:** `DATA_PATH` (canonical)
+`--data` is **required**.  `--discovery-artifact` is optional; if provided and
+valid, pair selection is loaded from the artifact instead of being recomputed.
+**Uses:** `DATA_PATH` (canonical)
 
 ---
 
@@ -274,7 +383,12 @@ python experiments/regime_v2.py \
 ### 8. Extended validation
 
 Validates dataset integrity, signal parity, performance, and regime isolation.
-Exits non-zero on failure.
+Exits non-zero on failure.  Issues WARNING-level log messages (without failing)
+for borderline regime coverage:
+
+- regime row count < 30% of canonical
+- regime pair count < 30% of canonical
+- missing regime rate > 20%
 
 ```bash
 python validation/validate_pipeline_extended.py \
@@ -338,7 +452,9 @@ At `WARNING` level (default) you will see:
 
 - Empty DataFrame warnings (with the stage name)
 - NaT counts from timestamp parsing
-- Regime match-rate warnings (if < 99 %)
+- Regime match-rate warnings (if < 95%)
+- Pair coverage warnings (if < 50%)
+- Missing regime rate warnings (if > 10%)
 
 To change the log level for a single run without editing config:
 

@@ -17,6 +17,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 from pathlib import Path
@@ -171,6 +172,16 @@ def main(argv=None) -> None:
         help="Path to master research dataset CSV (canonical dataset).",
     )
     p.add_argument(
+        "--discovery-artifact",
+        type=Path,
+        default=None,
+        help=(
+            "Optional path to discovery_results.json artifact produced by experiments/discovery.py. "
+            "If provided, pair selection is loaded from the artifact instead of being recomputed. "
+            "Fallback: if not provided or artifact is missing, pair selection is computed from data."
+        ),
+    )
+    p.add_argument(
         "--log-level",
         default=cfg.LOG_LEVEL,
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -180,59 +191,85 @@ def main(argv=None) -> None:
 
     logger.info("Loading dataset...")
     df = load_data(args.data)
-    print(f"Dataset size: {len(df):,}")
+    logger.info("Dataset size: %d rows", len(df))
 
     signal = apply_behavioral_signal(df)
-    print(f"Raw signal count: {len(signal):,}")
+    raw_signal_count = len(signal)
+    logger.info("Raw signal count: %d", raw_signal_count)
 
     if warn_if_empty(signal, context="portfolio.main"):
-        print("No signals found. Exiting.")
+        logger.info("No signals found. Exiting.")
         return
 
-    for horizon in cfg.EVAL_HORIZONS:
-        print(f"\n{'=' * 80}")
-        print(f"PORTFOLIO (horizon={horizon})")
-        print("=" * 80)
+    # Load discovery artifact if provided and available
+    artifact_data: dict | None = None
+    if args.discovery_artifact is not None and Path(args.discovery_artifact).exists():
+        try:
+            artifact_data = json.loads(Path(args.discovery_artifact).read_text())
+            logger.info("Loaded discovery artifact: %s", args.discovery_artifact)
+        except Exception as exc:
+            logger.warning("Could not load discovery artifact (%s); falling back to recomputing selection.", exc)
+            artifact_data = None
 
-        survivors = select_survivor_pairs(signal, horizon)
-        print(f"\nSurvivor pairs: {survivors}")
+    for horizon in cfg.EVAL_HORIZONS:
+        logger.info("=" * 80)
+        logger.info("PORTFOLIO (horizon=%d)", horizon)
+        logger.info("=" * 80)
+
+        # Pair selection: use artifact if available, otherwise recompute
+        if artifact_data is not None:
+            horizon_data = artifact_data.get("horizons", {}).get(str(horizon))
+            if horizon_data is not None:
+                survivors = horizon_data.get("selected_pairs", [])
+                logger.info(
+                    "[portfolio] Pair selection from artifact (h=%d): %d pairs: %s",
+                    horizon, len(survivors), survivors,
+                )
+            else:
+                logger.warning(
+                    "[portfolio] Artifact missing data for horizon=%d; recomputing selection.", horizon
+                )
+                survivors = select_survivor_pairs(signal, horizon)
+        else:
+            survivors = select_survivor_pairs(signal, horizon)
+
+        logger.info("Survivor pairs (h=%d): %s", horizon, survivors)
 
         if not survivors:
-            print("No survivors.")
+            logger.info("No survivors for horizon=%d.", horizon)
             continue
 
         portfolio = build_portfolio(signal, survivors, horizon)
-        print(f"\nPortfolio size: {len(portfolio):,}")
+        logger.info(
+            "[summary] portfolio(h=%d): selected_pairs=%d, portfolio_size=%d",
+            horizon, len(survivors), len(portfolio),
+        )
 
         if warn_if_empty(portfolio, context=f"portfolio(h={horizon})"):
-            print("Empty portfolio.")
+            logger.info("Empty portfolio for horizon=%d.", horizon)
             continue
 
         # --- Overall metrics ---
         m = compute_metrics(portfolio, horizon)
         if m is None:
-            print("Insufficient signals for metrics.")
+            logger.info("Insufficient signals for metrics (h=%d).", horizon)
             continue
-        print("\n--- Overall ---")
-        print(m)
+        logger.info("Overall metrics (h=%d): %s", horizon, m)
 
         # --- Walk-forward ---
         wf = walk_forward_yearly(portfolio, horizon)
-        print("\n--- Walk-forward ---")
         if not wf.empty:
-            print(wf.to_string(index=False))
-            print(f"\nWF Sharpe mean: {wf['sharpe'].mean():.4f}")
+            logger.info("Walk-forward (h=%d):\n%s", horizon, wf.to_string(index=False))
+            logger.info("WF Sharpe mean (h=%d): %.4f", horizon, wf["sharpe"].mean())
         else:
-            print("No walk-forward results.")
+            logger.info("No walk-forward results (h=%d).", horizon)
 
         # --- Holdout ---
         hold = holdout_test(portfolio, horizon)
-        print("\n--- Holdout ---")
-        print(hold)
+        logger.info("Holdout (h=%d): %s", horizon, hold)
 
         # --- Tradeability ---
-        print("\n--- Tradeability ---")
-        print({"bps": m["mean"] * 10000, "sharpe": m["sharpe"]})
+        logger.info("Tradeability (h=%d): bps=%.4f, sharpe=%.4f", horizon, m["mean"] * 10000, m["sharpe"])
 
 
 if __name__ == "__main__":
