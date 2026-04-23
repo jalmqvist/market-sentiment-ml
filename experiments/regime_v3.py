@@ -99,6 +99,11 @@ LGBM_PARAMS: dict = {
 #: and that leave-one-out CV statistics are meaningful.
 MIN_TRAIN_OBS: int = 10_000
 
+#: Minimum test-set observations per regime before per-regime metrics are
+#: computed.  Regimes with fewer samples are skipped to avoid unreliable IC /
+#: Sharpe estimates driven by noise in very small subsets.
+MIN_REGIME_OBS: int = 50
+
 #: Whitelisted causal feature columns.  Only these may be used as model inputs.
 #: Any column matching ``ret_*`` or ``contrarian_ret_*`` is explicitly prohibited.
 SAFE_FEATURES: list[str] = [
@@ -353,15 +358,15 @@ def _regime_metrics(y_pred: np.ndarray, y_test: np.ndarray) -> dict:
         y_test: Realised returns for the subset.
 
     Returns:
-        Dict with keys ``n``, ``ic``, ``signal_sharpe``, ``signal_hit_rate``.
+        Dict with keys ``n``, ``ic``, ``sharpe``, ``hit_rate``.
     """
     n = len(y_pred)
     if n < 2:
         return {
             "n": n,
             "ic": np.nan,
-            "signal_sharpe": np.nan,
-            "signal_hit_rate": np.nan,
+            "sharpe": np.nan,
+            "hit_rate": np.nan,
         }
 
     ic, _ = stats.spearmanr(y_pred, y_test)
@@ -383,8 +388,8 @@ def _regime_metrics(y_pred: np.ndarray, y_test: np.ndarray) -> dict:
     return {
         "n": n,
         "ic": float(ic) if not np.isnan(ic) else np.nan,
-        "signal_sharpe": sharpe,
-        "signal_hit_rate": hit_rate,
+        "sharpe": sharpe,
+        "hit_rate": hit_rate,
     }
 
 
@@ -543,11 +548,21 @@ def walk_forward_ridge(
             r2 if not np.isnan(r2) else float("nan"),
         )
 
-        # Per-regime metrics for this fold.
+        # Per-regime metrics for this fold (TEST set only – no train data used here).
         if regime_col is not None and regime_col in test.columns:
             regime_labels = test[regime_col].values
             for regime_label in np.unique(regime_labels[pd.notna(regime_labels)]):
                 mask = regime_labels == regime_label
+                n_regime = int(mask.sum())
+                if n_regime < MIN_REGIME_OBS:
+                    logger.warning(
+                        "year=%d | regime=%s | skipped (n=%d < %d)",
+                        test_year,
+                        regime_label,
+                        n_regime,
+                        MIN_REGIME_OBS,
+                    )
+                    continue
                 m = _regime_metrics(y_pred[mask], y_test[mask])
                 regime_results.append(
                     {
@@ -562,8 +577,8 @@ def walk_forward_ridge(
                     regime_label,
                     m["n"],
                     m["ic"] if not np.isnan(m["ic"]) else float("nan"),
-                    m["signal_sharpe"] if not np.isnan(m["signal_sharpe"]) else float("nan"),
-                    m["signal_hit_rate"] if not np.isnan(m["signal_hit_rate"]) else float("nan"),
+                    m["sharpe"] if not np.isnan(m["sharpe"]) else float("nan"),
+                    m["hit_rate"] if not np.isnan(m["hit_rate"]) else float("nan"),
                 )
 
     if not results:
@@ -684,7 +699,7 @@ def print_regime_summary(regime_df: pd.DataFrame) -> None:
         return
 
     print("\n=== PER-FOLD REGIME METRICS ===")
-    display_cols = ["year", "regime", "n", "ic", "signal_sharpe", "signal_hit_rate"]
+    display_cols = ["year", "regime", "n", "ic", "sharpe", "hit_rate"]
     display_cols = [c for c in display_cols if c in regime_df.columns]
     print(
         regime_df.sort_values(["year", "regime"])[display_cols].to_string(index=False)
@@ -704,10 +719,10 @@ def print_regime_summary(regime_df: pd.DataFrame) -> None:
         pooled_rows.append(
             {
                 "regime": regime_label,
-                "n": int(grp["n"].sum()),
+                "total_n": int(grp["n"].sum()),
                 "ic": _wmean(grp, "ic"),
-                "signal_sharpe": _wmean(grp, "signal_sharpe"),
-                "signal_hit_rate": _wmean(grp, "signal_hit_rate"),
+                "sharpe": _wmean(grp, "sharpe"),
+                "hit_rate": _wmean(grp, "hit_rate"),
                 "folds": len(grp),
             }
         )
@@ -718,12 +733,12 @@ def print_regime_summary(regime_df: pd.DataFrame) -> None:
     logger.info("Pooled regime metrics computed for %d regimes", len(pooled))
     for row in pooled.itertuples(index=False):
         logger.info(
-            "pooled | regime=%s | n=%d | IC=%.4f | Sharpe=%.4f | hit_rate=%.4f | folds=%d",
+            "pooled | regime=%s | total_n=%d | IC=%.4f | Sharpe=%.4f | hit_rate=%.4f | folds=%d",
             row.regime,
-            row.n,
+            row.total_n,
             row.ic,
-            row.signal_sharpe,
-            row.signal_hit_rate,
+            row.sharpe,
+            row.hit_rate,
             row.folds,
         )
 
