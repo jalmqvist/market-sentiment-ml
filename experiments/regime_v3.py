@@ -1610,6 +1610,7 @@ def compute_regime_stability_summary(
             continue
         n_total = int(grp[n_col].sum())
         mean_sharpe = float(np.mean(sharpes))
+        # ddof=1: sample std across test years (unbiased estimator of year-to-year variability).
         std_sharpe = float(np.std(sharpes, ddof=1)) if n_valid_sharpes > 1 else np.nan
         positive_year_ratio = float(np.mean(sharpes > 0))
         rows.append(
