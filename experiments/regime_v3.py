@@ -90,11 +90,16 @@ Pipeline order
     * ``regime_weighted_walk_forward()`` – per-year OOS metrics, computing the
       weight map from training data only per fold (leakage-free).
 
-14. **MODEL WITHIN REGIME (secondary)** – ``walk_forward_ridge()`` trains a
-    LightGBM model globally and evaluates predictions broken down by regime.
+14. **FINAL SIGNAL SUMMARY** – ``print_final_signal_summary()`` prints a
+    consolidated view separating (A) discovery outputs and (B) signal outputs.
+    This is the authoritative final printed summary; it replaces the baseline
+    model walk-forward so that reported metrics reflect the regime-conditioned
+    signal, not an unfiltered model.
 
 Output DataFrames
 -----------------
+* ``full_performance_summary`` – schema ``["n", "mean", "std", "sharpe",
+  "hit_rate"]``; aggregate metrics on the full (unfiltered) dataset.
 * ``regime_summary`` – schema ``["regime", "n", "mean", "std", "sharpe",
   "hit_rate"]``; sorted by Sharpe descending.
 * ``regime_wf`` – schema ``["year", "regime", "n", "mean", "sharpe",
@@ -109,12 +114,8 @@ Output DataFrames
   per-year OOS metrics on filtered signals.
 * ``coverage_summary`` – schema ``["total_signals", "filtered_signals",
   "coverage_ratio"]``; signal coverage diagnostics.
-* ``regime_direction_performance`` – schema ``["n", "mean", "std", "sharpe",
-  "hit_rate"]``; aggregate metrics on the direction-signal active subset.
 * ``regime_direction_wf`` – schema ``["year", "n", "mean", "sharpe",
   "hit_rate"]``; per-year OOS metrics for the direction-signal strategy.
-* ``regime_weighted_performance`` – schema ``["n", "mean", "std", "sharpe",
-  "hit_rate"]``; aggregate metrics on the weighted-signal active subset.
 * ``regime_weighted_wf`` – schema ``["year", "n", "mean", "sharpe",
   "hit_rate"]``; per-year OOS metrics for the weighted-signal strategy.
 * ``regime_stability_summary`` – schema ``["regime", "n_total", "mean_sharpe",
@@ -3101,6 +3102,114 @@ def make_regime_weights_df(
 
 
 # ---------------------------------------------------------------------------
+# Final signal pipeline summary
+# ---------------------------------------------------------------------------
+
+def print_final_signal_summary(
+    full_perf: pd.DataFrame,
+    filtered_perf: pd.DataFrame,
+    filtered_wf: pd.DataFrame,
+    dir_wf: pd.DataFrame,
+    weighted_wf: pd.DataFrame,
+    coverage: pd.DataFrame,
+) -> None:
+    """Print a consolidated final summary of the regime-conditioned signal pipeline.
+
+    Clearly separates:
+
+    * **(A) Discovery outputs** – full-dataset baseline performance.
+    * **(B) Signal outputs** – filtered, direction, and weighted walk-forward
+      performance driven by regime conditioning.
+
+    This is the authoritative final printed summary; it replaces the
+    baseline model walk-forward (``print_wf_summary``) so that reported
+    metrics reflect the regime-conditioned signal, not the unfiltered model.
+
+    Args:
+        full_perf: DataFrame from ``full_dataset_performance``.
+        filtered_perf: DataFrame from ``filtered_regime_baseline``.
+        filtered_wf: DataFrame from ``filtered_regime_walk_forward``.
+        dir_wf: DataFrame from ``regime_direction_walk_forward``.
+        weighted_wf: DataFrame from ``regime_weighted_walk_forward``.
+        coverage: DataFrame from ``compute_coverage_summary``.
+    """
+    sep = "=" * 70
+    print(f"\n{sep}")
+    print("=== REGIME-CONDITIONED SIGNAL PIPELINE — FINAL SUMMARY ===")
+    print(sep)
+
+    # ------------------------------------------------------------------
+    # (A) DISCOVERY outputs — baseline reference (unfiltered)
+    # ------------------------------------------------------------------
+    print("\n--- (A) DISCOVERY: Full Dataset Performance (unfiltered baseline) ---")
+    if not full_perf.empty:
+        row = full_perf.iloc[0]
+        print(
+            f"  n={int(row['n'])} | mean={row['mean']:+.6f} | std={row['std']:.6f}"
+            f" | sharpe={row['sharpe']:+.4f} | hit_rate={row['hit_rate']:.4f}"
+        )
+    else:
+        print("  (no data)")
+
+    # ------------------------------------------------------------------
+    # (B) SIGNAL outputs — regime-filtered and regime-conditioned
+    # ------------------------------------------------------------------
+    print("\n--- (B) SIGNAL: Filtered Performance (regime filter applied) ---")
+    if not filtered_perf.empty:
+        row = filtered_perf.iloc[0]
+        print(
+            f"  n={int(row['n'])} | mean={row['mean']:+.6f} | std={row['std']:.6f}"
+            f" | sharpe={row['sharpe']:+.4f} | hit_rate={row['hit_rate']:.4f}"
+        )
+    else:
+        print("  (no data — TOP_REGIMES may be empty)")
+    if not coverage.empty:
+        cov = coverage.iloc[0]
+        print(
+            f"  Coverage: {float(cov['coverage_ratio']) * 100:.1f}%"
+            f" ({int(cov['filtered_signals'])} / {int(cov['total_signals'])} signals)"
+        )
+
+    print("\n--- (B) SIGNAL: Walk-Forward Filtered Performance (OOS, no refitting) ---")
+    if not filtered_wf.empty:
+        print(filtered_wf.to_string(index=False))
+        valid_sharpes = filtered_wf["sharpe"].dropna()
+        if not valid_sharpes.empty:
+            print(f"  Mean OOS Sharpe: {valid_sharpes.mean():+.4f}")
+    else:
+        print("  (no data)")
+
+    print("\n--- (B) SIGNAL: Walk-Forward Filter + Direction (OOS) ---")
+    if not dir_wf.empty:
+        print(dir_wf.to_string(index=False))
+        valid_sharpes = dir_wf["sharpe"].dropna()
+        if not valid_sharpes.empty:
+            print(f"  Mean OOS Sharpe: {valid_sharpes.mean():+.4f}")
+    else:
+        print("  (no data — CONTRARIAN_REGIMES / TREND_REGIMES may be empty)")
+
+    print("\n--- (B) SIGNAL: Walk-Forward Filter + Direction + Weighting (OOS, leakage-free) ---")
+    if not weighted_wf.empty:
+        print(weighted_wf.to_string(index=False))
+        valid_sharpes = weighted_wf["sharpe"].dropna()
+        if not valid_sharpes.empty:
+            print(f"  Mean OOS Sharpe: {valid_sharpes.mean():+.4f}")
+    else:
+        print("  (no data)")
+
+    print(f"\n{sep}")
+    logger.info(
+        "FINAL SIGNAL SUMMARY: full_n=%s | filtered_n=%s"
+        " | filtered_wf_years=%d | dir_wf_years=%d | weighted_wf_years=%d",
+        int(full_perf.iloc[0]["n"]) if not full_perf.empty else "N/A",
+        int(filtered_perf.iloc[0]["n"]) if not filtered_perf.empty else "N/A",
+        len(filtered_wf),
+        len(dir_wf),
+        len(weighted_wf),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Per-regime metrics helper (model-based: uses predictions vs actuals)
 # ---------------------------------------------------------------------------
 
@@ -3503,8 +3612,8 @@ def print_regime_summary(regime_df: pd.DataFrame) -> None:
 def main(argv=None) -> None:
     p = argparse.ArgumentParser(
         description=(
-            "Regime V3: regime discovery via discretization, then optional "
-            "LightGBM walk-forward predicting ret_48b (no leakage)."
+            "Regime V3: regime discovery via discretization, then regime-"
+            "conditioned signal pipeline (filter → direction → weighting)."
         ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
@@ -3590,22 +3699,83 @@ def main(argv=None) -> None:
     log_secondary_vol_filter(vol_filter_results)
 
     # ------------------------------------------------------------------
-    # Step 5: MODEL WITHIN REGIME (secondary) — LightGBM walk-forward
-    #         trained globally, evaluated per regime
+    # Step 4e: REGIME FILTER — apply TOP_REGIMES filter to dataset
+    #          (deterministic, leakage-free)
     # ------------------------------------------------------------------
-    feature_cols = select_features(df)
+    logger.info("=== REGIME FILTER (TOP_REGIMES=%s) ===", TOP_REGIMES)
+    df = apply_regime_filter(df)
 
-    if not feature_cols:
-        logger.warning("No valid feature columns found; skipping MODEL WITHIN REGIME.")
-        return
+    # ------------------------------------------------------------------
+    # Step 4f: FULL DATASET PERFORMANCE — baseline metrics (unfiltered)
+    # ------------------------------------------------------------------
+    full_perf = full_dataset_performance(df)
+    log_full_dataset_performance(full_perf)
 
-    logger.info("=== MODEL WITHIN REGIME ===")
-    wf_results, regime_model_results = walk_forward_ridge(
-        df, feature_cols, regime_col="regime"
+    # ------------------------------------------------------------------
+    # Step 4g: FILTERED PERFORMANCE — metrics on regime-filtered signals
+    # ------------------------------------------------------------------
+    filtered_perf = filtered_regime_baseline(df)
+    log_filtered_performance(filtered_perf)
+
+    # ------------------------------------------------------------------
+    # Step 4h: WALK-FORWARD FILTERED PERFORMANCE — per-year OOS metrics
+    #          on filtered signals (no refitting of regime list)
+    # ------------------------------------------------------------------
+    filtered_wf = filtered_regime_walk_forward(df)
+    log_filtered_wf(filtered_wf)
+
+    # ------------------------------------------------------------------
+    # Step 4i: COVERAGE SUMMARY — fraction of signals retained by filter
+    # ------------------------------------------------------------------
+    coverage = compute_coverage_summary(df)
+    log_coverage_summary(coverage)
+
+    # ------------------------------------------------------------------
+    # Step 4j: FILTER + DIRECTION — regime-specific signal direction
+    # ------------------------------------------------------------------
+    df_direction = apply_regime_direction_signal(df)
+    dir_perf = regime_direction_performance(df_direction)
+    log_regime_direction_performance(dir_perf)
+
+    # ------------------------------------------------------------------
+    # Step 4k: WALK-FORWARD FILTER + DIRECTION — per-year OOS metrics
+    # ------------------------------------------------------------------
+    dir_wf = regime_direction_walk_forward(df)
+    log_regime_direction_wf(dir_wf)
+
+    # ------------------------------------------------------------------
+    # Step 4l: FILTER + DIRECTION + WEIGHTING — continuous regime weights
+    #          derived from training-only regime Sharpe (leakage-free).
+    # ------------------------------------------------------------------
+    sharpe_map_full = compute_regime_sharpe_map(df)
+    weight_map_full = convert_sharpe_to_weight(sharpe_map_full)
+    log_regime_weight_diagnostics(weight_map_full, sharpe_map_full)
+    regime_weights_df = make_regime_weights_df(sharpe_map_full, weight_map_full)
+    if not regime_weights_df.empty:
+        logger.info(
+            "REGIME WEIGHTS MAP (top rows):\n%s",
+            regime_weights_df.head(10).to_string(index=False),
+        )
+    weighted_perf = regime_weighted_performance(df, weight_map_full)
+    log_regime_weighted_performance(weighted_perf)
+
+    # ------------------------------------------------------------------
+    # Step 4m: WALK-FORWARD FILTER + DIRECTION + WEIGHTING — per-year
+    #          OOS metrics; regime Sharpe map computed from training slice
+    #          only per fold (leakage-free).
+    # ------------------------------------------------------------------
+    weighted_wf = regime_weighted_walk_forward(df)
+    log_regime_weighted_wf(weighted_wf)
+
+    # ------------------------------------------------------------------
+    # Final summary — regime-conditioned signal pipeline results.
+    # Clearly separates (A) discovery outputs and (B) signal outputs.
+    # This replaces the baseline model walk-forward as the authoritative
+    # reported summary.
+    # ------------------------------------------------------------------
+    print_final_signal_summary(
+        full_perf, filtered_perf, filtered_wf, dir_wf, weighted_wf, coverage
     )
-
-    print_wf_summary(wf_results)
-    print_regime_summary(regime_model_results)
 
 
 if __name__ == "__main__":
