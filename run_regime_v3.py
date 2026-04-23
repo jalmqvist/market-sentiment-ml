@@ -24,7 +24,10 @@ Pipeline steps
 11. **Walk-forward filtered performance** — per-year OOS metrics on filtered
     signals (no refitting of the regime list).
 12. **Coverage summary** — fraction of signals retained after the filter.
-13. Model within regime — LightGBM walk-forward evaluated per regime.
+13. **Filter + Direction** — apply ``CONTRARIAN_REGIMES`` / ``TREND_REGIMES``
+    mapping to assign a directional signal per row; compute aggregate and
+    per-year OOS metrics on the active subset (``signal != 0``).
+14. Model within regime — LightGBM walk-forward evaluated per regime.
 
 Usage::
 
@@ -122,6 +125,7 @@ def main(argv=None) -> None:
         TARGET_COL,
         TOP_REGIMES,
         apply_regime_filter,
+        apply_regime_direction_signal,
         build_behavioural_regimes,
         build_features,
         build_regimes,
@@ -143,11 +147,15 @@ def main(argv=None) -> None:
         log_filtered_wf,
         log_full_dataset_performance,
         log_regime_baseline,
+        log_regime_direction_performance,
+        log_regime_direction_wf,
         log_regime_wf,
         log_secondary_vol_filter,
         print_regime_summary,
         print_wf_summary,
         regime_baseline,
+        regime_direction_performance,
+        regime_direction_walk_forward,
         regime_walk_forward,
         secondary_vol_filter,
         select_features,
@@ -249,6 +257,23 @@ def main(argv=None) -> None:
     # ------------------------------------------------------------------
     coverage = compute_coverage_summary(df)
     log_coverage_summary(coverage)
+
+    # ------------------------------------------------------------------
+    # Step 4j: FILTER + DIRECTION — regime-specific signal direction
+    #          (BASELINE (GLOBAL CONTRARIAN) and FILTER ONLY already
+    #          logged above; this is the FILTER + DIRECTION (FINAL) step)
+    # ------------------------------------------------------------------
+    _logging.getLogger(__name__).info("=== FILTER + DIRECTION (FINAL) ===")
+    df_direction = apply_regime_direction_signal(df)
+    dir_perf = regime_direction_performance(df_direction)
+    log_regime_direction_performance(dir_perf)
+
+    # ------------------------------------------------------------------
+    # Step 4k: WALK-FORWARD FILTER + DIRECTION — per-year OOS metrics
+    #          for the direction-signal strategy (no refitting)
+    # ------------------------------------------------------------------
+    dir_wf = regime_direction_walk_forward(df)
+    log_regime_direction_wf(dir_wf)
 
     # ------------------------------------------------------------------
     # Step 5: MODEL WITHIN REGIME (secondary) — LightGBM walk-forward

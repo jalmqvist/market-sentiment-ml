@@ -61,7 +61,18 @@ Pipeline order
 11. **COVERAGE SUMMARY** – ``compute_coverage_summary()`` reports the fraction
     of signals retained after the regime filter.
 
-12. **MODEL WITHIN REGIME (secondary)** – ``walk_forward_ridge()`` trains a
+12. **FILTER + DIRECTION** – ``apply_regime_direction_signal()`` assigns a
+    per-row directional signal based on the behavioural regime:
+
+    * ``CONTRARIAN_REGIMES`` → ``signal = -base_signal`` (fade the crowd).
+    * ``TREND_REGIMES``      → ``signal = +base_signal`` (follow the crowd).
+    * All other regimes      → ``signal = 0`` (no trade).
+
+    ``regime_direction_performance()`` computes aggregate metrics on the
+    signal-active subset.  ``regime_direction_walk_forward()`` validates
+    those metrics per year (no refitting).
+
+13. **MODEL WITHIN REGIME (secondary)** – ``walk_forward_ridge()`` trains a
     LightGBM model globally and evaluates predictions broken down by regime.
 
 Output DataFrames
@@ -80,6 +91,10 @@ Output DataFrames
   per-year OOS metrics on filtered signals.
 * ``coverage_summary`` – schema ``["total_signals", "filtered_signals",
   "coverage_ratio"]``; signal coverage diagnostics.
+* ``regime_direction_performance`` – schema ``["n", "mean", "std", "sharpe",
+  "hit_rate"]``; aggregate metrics on the direction-signal active subset.
+* ``regime_direction_wf`` – schema ``["year", "n", "mean", "sharpe",
+  "hit_rate"]``; per-year OOS metrics for the direction-signal strategy.
 
 All features are strictly causal at ``entry_time``:
 
@@ -176,6 +191,25 @@ MIN_CROWDING_REGIME_OBS: int = 100
 TOP_REGIMES: list[str] = [
     "long_extreme",
     "medium_high",
+]
+
+#: Crowding regimes where a **contrarian** signal direction is applied.
+#: In these regimes the crowd is persistently extreme, suggesting exhaustion;
+#: fading the crowd (``signal = -base_signal``) is expected to be profitable.
+#: Must be a subset of valid ``crowding_regime`` labels
+#: (``side_streak_bucket + "_" + abs_sent_bucket``).
+CONTRARIAN_REGIMES: list[str] = [
+    "long_extreme",
+    "long_high",
+]
+
+#: Crowding regimes where a **trend-following** signal direction is applied.
+#: In these regimes the crowd is moderately persistent, suggesting momentum;
+#: following the crowd (``signal = +base_signal``) is expected to be profitable.
+#: Must be a subset of valid ``crowding_regime`` labels.
+TREND_REGIMES: list[str] = [
+    "medium_high",
+    "medium_mid",
 ]
 
 #: Whitelisted causal feature columns.  Only these may be used as model inputs.
@@ -1836,6 +1870,361 @@ def log_coverage_summary(coverage_summary: pd.DataFrame) -> None:
         int(row["total_signals"]),
         int(row["filtered_signals"]),
     )
+
+
+# ---------------------------------------------------------------------------
+# FILTER + DIRECTION — regime-specific signal direction
+# ---------------------------------------------------------------------------
+
+def apply_regime_direction_signal(
+    df: pd.DataFrame,
+    contrarian_regimes: list[str] | None = None,
+    trend_regimes: list[str] | None = None,
+    *,
+    regime_col: str = "crowding_regime",
+    sentiment_col: str = "net_sentiment",
+) -> pd.DataFrame:
+    """Add regime-direction columns to *df*.
+
+    Computes a per-row signal that adapts its direction based on the
+    behavioural regime:
+
+    * ``base_signal`` – normalised sentiment signal in [−1, 1]:
+      ``net_sentiment / 100`` (sign preserved; crowd long → +1, short → −1).
+    * ``regime_direction`` – string label for the direction applied:
+      ``"contrarian"``, ``"trend"``, or ``"none"``.
+    * ``signal`` – final directional signal:
+
+      - contrarian regimes:  ``signal = -base_signal``
+      - trend regimes:       ``signal = +base_signal``
+      - all other regimes:   ``signal = 0``
+
+    * ``is_active`` – boolean; ``True`` when ``signal != 0``.
+
+    Guardrails:
+    * The mapping is applied from the fixed, pre-registered lists
+      ``CONTRARIAN_REGIMES`` and ``TREND_REGIMES``.  No target data is used.
+    * A regime label present in **both** lists is treated as contrarian
+      (contrarian takes priority) and a warning is logged.
+
+    Args:
+        df: Dataset (after ``build_behavioural_regimes``).
+        contrarian_regimes: Regime labels for contrarian direction.
+            Defaults to ``CONTRARIAN_REGIMES``.
+        trend_regimes: Regime labels for trend-following direction.
+            Defaults to ``TREND_REGIMES``.
+        regime_col: Column containing crowding regime labels (default
+            ``"crowding_regime"``).
+        sentiment_col: Column containing signed sentiment values (default
+            ``"net_sentiment"``).
+
+    Returns:
+        Copy of *df* with columns ``base_signal``, ``regime_direction``,
+        ``signal``, and ``is_active`` appended.
+    """
+    if contrarian_regimes is None:
+        contrarian_regimes = CONTRARIAN_REGIMES
+    if trend_regimes is None:
+        trend_regimes = TREND_REGIMES
+
+    out = df.copy()
+
+    # Warn if any regime appears in both lists (contrarian wins).
+    overlap = set(contrarian_regimes) & set(trend_regimes)
+    if overlap:
+        logger.warning(
+            "apply_regime_direction_signal: regime(s) in both contrarian and "
+            "trend lists (contrarian wins): %s",
+            sorted(overlap),
+        )
+
+    # base_signal: normalise net_sentiment to [−1, 1].
+    if sentiment_col not in out.columns:
+        logger.warning(
+            "apply_regime_direction_signal: '%s' not found; base_signal = 0",
+            sentiment_col,
+        )
+        out["base_signal"] = 0.0
+    else:
+        out["base_signal"] = out[sentiment_col] / 100.0
+
+    # Determine direction and final signal per row.
+    if regime_col not in out.columns:
+        logger.warning(
+            "apply_regime_direction_signal: '%s' not found; all signals = 0",
+            regime_col,
+        )
+        out["regime_direction"] = "none"
+        out["signal"] = 0.0
+    else:
+        regime = out[regime_col]
+        is_contrarian = regime.isin(contrarian_regimes)
+        is_trend = regime.isin(trend_regimes) & ~is_contrarian  # contrarian wins
+
+        out["regime_direction"] = "none"
+        out.loc[is_contrarian, "regime_direction"] = "contrarian"
+        out.loc[is_trend, "regime_direction"] = "trend"
+
+        out["signal"] = 0.0
+        out.loc[is_contrarian, "signal"] = -out.loc[is_contrarian, "base_signal"]
+        out.loc[is_trend, "signal"] = out.loc[is_trend, "base_signal"]
+
+    out["is_active"] = out["signal"] != 0.0
+
+    n_contrarian = int((out["regime_direction"] == "contrarian").sum())
+    n_trend = int((out["regime_direction"] == "trend").sum())
+    n_inactive = int((out["regime_direction"] == "none").sum())
+    coverage = (n_contrarian + n_trend) / len(out) if len(out) > 0 else 0.0
+    logger.info(
+        "apply_regime_direction_signal: contrarian=%d | trend=%d | inactive=%d"
+        " | coverage=%.1f%%",
+        n_contrarian,
+        n_trend,
+        n_inactive,
+        coverage * 100,
+    )
+    return out
+
+
+def _direction_metrics(signal: np.ndarray, returns: np.ndarray) -> dict:
+    """Compute performance metrics for a signal-weighted return series.
+
+    Args:
+        signal: Per-row signal values (non-zero rows are active trades).
+        returns: Per-row realised returns aligned to *signal*.
+
+    Returns:
+        Dict with keys ``n``, ``mean``, ``std``, ``sharpe``, ``hit_rate``.
+    """
+    active = signal != 0.0
+    n = int(active.sum())
+    if n < 2:
+        return {"n": n, "mean": np.nan, "std": np.nan, "sharpe": np.nan, "hit_rate": np.nan}
+
+    pnl = signal[active] * returns[active]
+    mean_pnl = float(np.mean(pnl))
+    std_pnl = float(np.std(pnl))
+    sharpe = mean_pnl / std_pnl if std_pnl > 1e-10 else np.nan
+    hit_rate = float(np.mean(pnl > 0))
+    return {"n": n, "mean": mean_pnl, "std": std_pnl, "sharpe": sharpe, "hit_rate": hit_rate}
+
+
+def regime_direction_performance(
+    df: pd.DataFrame,
+    *,
+    target_col: str = TARGET_COL,
+    signal_col: str = "signal",
+) -> pd.DataFrame:
+    """Compute aggregate performance for the regime-direction signal strategy.
+
+    Restricts to rows where ``is_active`` is ``True`` (i.e. ``signal != 0``)
+    and computes ``mean(signal * ret_48b)``, std, Sharpe, and hit-rate.
+
+    Args:
+        df: Dataset (after ``apply_regime_direction_signal``).
+        target_col: Forward-return column (default ``ret_48b``).
+        signal_col: Signal column (default ``"signal"``).
+
+    Returns:
+        Single-row DataFrame with schema
+        ``["n", "mean", "std", "sharpe", "hit_rate"]``.
+        This is the ``regime_direction_performance`` output artifact.
+    """
+    _COLS = ["n", "mean", "std", "sharpe", "hit_rate"]
+
+    required = [signal_col, target_col]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        logger.warning(
+            "regime_direction_performance: columns not found: %s; returning empty",
+            missing,
+        )
+        return pd.DataFrame(columns=_COLS)
+
+    valid = df.dropna(subset=[target_col])
+    if "is_active" in valid.columns:
+        active_df = valid[valid["is_active"]]
+    else:
+        active_df = valid[valid[signal_col] != 0.0]
+
+    if active_df.empty:
+        logger.warning("regime_direction_performance: no active signals after filtering")
+        return pd.DataFrame(columns=_COLS)
+
+    m = _direction_metrics(
+        active_df[signal_col].values,
+        active_df[target_col].values,
+    )
+    return pd.DataFrame([m])[_COLS]
+
+
+def regime_direction_walk_forward(
+    df: pd.DataFrame,
+    contrarian_regimes: list[str] | None = None,
+    trend_regimes: list[str] | None = None,
+    *,
+    target_col: str = TARGET_COL,
+    regime_col: str = "crowding_regime",
+    sentiment_col: str = "net_sentiment",
+    year_col: str = "year",
+    min_n: int = MIN_CROWDING_REGIME_OBS,
+) -> pd.DataFrame:
+    """Walk-forward validation of the regime-direction signal (no model).
+
+    For each test year (starting from the third unique year), applies the
+    same fixed regime-direction mapping and computes per-year OOS metrics.
+    No refitting of regime lists is performed.
+
+    Guardrails:
+    * Regime and direction mapping is applied identically across all years.
+    * Years where the active test set has fewer than ``min_n`` rows are
+      skipped and logged at WARNING level.
+
+    Args:
+        df: Full dataset (after ``build_behavioural_regimes``).
+        contrarian_regimes: Regime labels for contrarian direction.
+            Defaults to ``CONTRARIAN_REGIMES``.
+        trend_regimes: Regime labels for trend-following direction.
+            Defaults to ``TREND_REGIMES``.
+        target_col: Forward-return column (default ``ret_48b``).
+        regime_col: Column containing crowding regime labels.
+        sentiment_col: Column containing signed sentiment values.
+        year_col: Column containing calendar year.
+        min_n: Minimum active rows required per test year.
+
+    Returns:
+        DataFrame with schema
+        ``["year", "n", "mean", "sharpe", "hit_rate"]``.
+        This is the ``regime_direction_wf`` output artifact.
+    """
+    _COLS = ["year", "n", "mean", "sharpe", "hit_rate"]
+
+    if contrarian_regimes is None:
+        contrarian_regimes = CONTRARIAN_REGIMES
+    if trend_regimes is None:
+        trend_regimes = TREND_REGIMES
+
+    if regime_col not in df.columns:
+        logger.warning(
+            "regime_direction_walk_forward: '%s' column not found", regime_col
+        )
+        return pd.DataFrame(columns=_COLS)
+
+    years = sorted(df[year_col].unique())
+    if len(years) < 3:
+        logger.warning(
+            "regime_direction_walk_forward: need at least 3 unique years, got %d",
+            len(years),
+        )
+        return pd.DataFrame(columns=_COLS)
+
+    rows: list[dict] = []
+
+    for i in range(2, len(years)):
+        test_year = years[i]
+        test_all = df[df[year_col] == test_year].dropna(subset=[target_col])
+
+        if test_all.empty:
+            logger.debug(
+                "REGIME DIRECTION WALK-FORWARD: year=%d — empty test set, skipping",
+                test_year,
+            )
+            continue
+
+        # Apply regime-direction signal to the test slice.
+        test_dir = apply_regime_direction_signal(
+            test_all,
+            contrarian_regimes,
+            trend_regimes,
+            regime_col=regime_col,
+            sentiment_col=sentiment_col,
+        )
+        active = test_dir[test_dir["is_active"]]
+
+        if len(active) < min_n:
+            logger.warning(
+                "REGIME DIRECTION WALK-FORWARD: year=%d skipped"
+                " (n_active=%d < %d after direction filter)",
+                test_year,
+                len(active),
+                min_n,
+            )
+            continue
+
+        m = _direction_metrics(active["signal"].values, active[target_col].values)
+        rows.append(
+            {
+                "year": int(test_year),
+                "n": m["n"],
+                "mean": m["mean"],
+                "sharpe": m["sharpe"],
+                "hit_rate": m["hit_rate"],
+            }
+        )
+        logger.info(
+            "REGIME DIRECTION WALK-FORWARD | year=%d | n=%5d"
+            " | mean=%+.6f | sharpe=%+.4f | hit_rate=%.4f",
+            test_year,
+            m["n"],
+            m["mean"],
+            m["sharpe"] if not np.isnan(m["sharpe"]) else float("nan"),
+            m["hit_rate"] if not np.isnan(m["hit_rate"]) else float("nan"),
+        )
+
+    if not rows:
+        logger.warning(
+            "REGIME DIRECTION WALK-FORWARD: no valid years after direction filter"
+        )
+        return pd.DataFrame(columns=_COLS)
+
+    return pd.DataFrame(rows)[_COLS].reset_index(drop=True)
+
+
+def log_regime_direction_performance(perf_df: pd.DataFrame) -> None:
+    """Log regime-direction performance under the FILTER + DIRECTION header.
+
+    Logs under the section ``"FILTER + DIRECTION (FINAL)"`` as specified
+    in the problem requirements.
+
+    Args:
+        perf_df: DataFrame returned by ``regime_direction_performance``.
+    """
+    logger.info("=== FILTER + DIRECTION (FINAL) ===")
+    if perf_df.empty:
+        logger.warning("FILTER + DIRECTION (FINAL): no results to display")
+        return
+    row = perf_df.iloc[0]
+    logger.info(
+        "FILTER + DIRECTION | n=%5d | mean=%+.6f | std=%.6f"
+        " | sharpe=%+.4f | hit_rate=%.4f",
+        int(row["n"]),
+        row["mean"],
+        row["std"],
+        row["sharpe"] if not np.isnan(row["sharpe"]) else float("nan"),
+        row["hit_rate"] if not np.isnan(row["hit_rate"]) else float("nan"),
+    )
+
+
+def log_regime_direction_wf(wf_df: pd.DataFrame) -> None:
+    """Log regime-direction walk-forward results.
+
+    Args:
+        wf_df: DataFrame returned by ``regime_direction_walk_forward``.
+    """
+    logger.info("=== WALK-FORWARD FILTER + DIRECTION ===")
+    if wf_df.empty:
+        logger.warning("WALK-FORWARD FILTER + DIRECTION: no results to display")
+        return
+    for row in wf_df.itertuples(index=False):
+        logger.info(
+            "WALK-FORWARD FILTER + DIRECTION | year=%d | n=%5d"
+            " | mean=%+.6f | sharpe=%+.4f | hit_rate=%.4f",
+            row.year,
+            row.n,
+            row.mean,
+            row.sharpe if not np.isnan(row.sharpe) else float("nan"),
+            row.hit_rate if not np.isnan(row.hit_rate) else float("nan"),
+        )
 
 
 # ---------------------------------------------------------------------------
