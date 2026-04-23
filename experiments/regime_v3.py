@@ -1,40 +1,50 @@
 """
 experiments/regime_v3.py
 ========================
-LightGBM walk-forward experiment: predict ``ret_48b`` from
-sentiment + volatility + trend features with no lookahead leakage.
+Regime-discovery-first experiment: identify whether sentiment alpha is
+concentrated in specific discrete regimes BEFORE any model-based prediction.
 
-The walk-forward loop uses the same expanding-window discipline as
-``evaluation.walk_forward.walk_forward_expanding``: for each test year
-(starting from the third unique year in the dataset), the model is trained
-on all prior years and evaluated on the current year.
+Pipeline order
+--------------
+1. **Feature discretization** – ``build_regimes()`` adds:
+
+   * ``vol_bucket`` (low / mid / high tertile of ``vol_24b``)
+   * ``trend_bucket`` (weak / mid / strong tertile of ``trend_strength_48b``)
+   * ``trend_sign`` (sign of ``trend_strength_48b``)
+   * ``regime`` = ``vol_bucket + "_" + trend_sign``
+
+2. **REGIME BASELINE (NO MODEL)** – ``regime_baseline()`` groups the full
+   dataset by ``regime`` and computes mean return, std, Sharpe, and hit-rate
+   for each regime.  No model is trained or used.
+
+3. **REGIME WALK-FORWARD** – ``regime_walk_forward()`` repeats the same
+   computation on each test-year slice (expanding window, same discipline as
+   the main walk-forward).  Validates whether regime structure is stable
+   out-of-sample.
+
+4. **MODEL WITHIN REGIME (secondary)** – ``walk_forward_ridge()`` trains a
+   LightGBM model globally and evaluates predictions broken down by regime.
+
+Output DataFrames
+-----------------
+* ``regime_summary`` – schema ``["regime", "n", "mean", "std", "sharpe",
+  "hit_rate"]``; sorted by Sharpe descending.
+* ``regime_wf`` – schema ``["year", "regime", "n", "mean", "sharpe",
+  "hit_rate"]``; per test-year regime performance.
 
 All features are strictly causal at ``entry_time``:
 
 * **Sentiment** – ``net_sentiment``, ``abs_sentiment``, ``sentiment_change``,
   ``side_streak``, ``extreme_streak_70``, ``extreme_streak_80``
 * **Trend** – ``trend_strength_12b``, ``trend_strength_48b``,
-  ``trend_dir_12b``, ``trend_dir_48b`` (backward-looking past-price
-  features already present in the dataset)
-* **Volatility** – ``vol_24b``: rolling 24-bar std of bar-to-bar returns
-  derived from ``entry_close``, computed per pair using only past bars
+  ``trend_dir_12b``, ``trend_dir_48b``
+* **Volatility** – ``vol_24b``
 * **Interaction** – ``abs_sent_x_trend12b``, ``abs_sent_x_trend48b``,
-  ``abs_sent_x_vol24b``, ``extreme70_x_trend48b``: products of base
-  features that capture non-linear regime signals
+  ``abs_sent_x_vol24b``, ``extreme70_x_trend48b``
 
 Only columns listed in ``SAFE_FEATURES`` are ever used as model inputs.
 Any column matching ``ret_*`` or ``contrarian_ret_*`` is explicitly
-prohibited and triggers a ``ValueError`` if accidentally included.
-
-The experiment also evaluates **conditional performance by regime**.  Each
-observation is assigned to one of up to nine regimes formed by crossing a
-three-way volatility bucket (``vol_bucket``: low / mid / high, based on
-tertiles of ``vol_24b``) with the sign of ``trend_strength_48b``
-(``trend_sign``: −1 / 0 / +1).  The combined label is stored in the
-``regime`` column as, e.g., ``"low_-1.0"`` or ``"high_1.0"``.
-
-Per-regime metrics (IC, Sharpe, hit rate, sample size) are computed for
-each walk-forward test fold and pooled across all folds.
+prohibited.
 
 Usage::
 
@@ -286,15 +296,20 @@ def select_features(df: pd.DataFrame) -> list[str]:
 def build_regimes(df: pd.DataFrame) -> pd.DataFrame:
     """Add regime classification columns to *df*.
 
-    Creates three columns:
+    Performs feature discretization before any modeling:
 
     * ``vol_bucket`` – tertile bucket of ``vol_24b`` (``"low"`` / ``"mid"``
       / ``"high"``).  When ``vol_bucket`` is already present (computed by
       ``build_features``), that column is reused directly.  Otherwise it is
       recomputed via ``pd.qcut`` from ``vol_24b``.
+    * ``trend_bucket`` – tertile bucket of ``trend_strength_48b``
+      (``"weak"`` / ``"mid"`` / ``"strong"``).  Rows where
+      ``trend_strength_48b`` is missing are assigned ``"unknown"``.
     * ``trend_sign`` – ``np.sign(trend_strength_48b)``: ``-1.0``, ``0.0``,
       or ``1.0``.
-    * ``regime`` – combined label, e.g. ``"low_-1.0"`` or ``"high_1.0"``.
+    * ``regime`` – combined label ``vol_bucket + "_" + trend_sign``, e.g.
+      ``"low_-1.0"`` or ``"high_1.0"``.  Rows without a valid ``vol_bucket``
+      are set to ``NaN`` so they are excluded from regime analysis.
 
     Args:
         df: Dataset (after ``build_features``).  Must contain ``vol_24b``
@@ -302,10 +317,11 @@ def build_regimes(df: pd.DataFrame) -> pd.DataFrame:
             columns are handled gracefully with a warning.
 
     Returns:
-        Copy of *df* with the three regime columns added.
+        Copy of *df* with the four regime columns added.
     """
     out = df.copy()
 
+    # --- vol_bucket ---
     if "vol_bucket" in out.columns:
         # Reuse the vol_bucket already computed by build_features (avoids a
         # second qcut pass over the same data).
@@ -330,6 +346,30 @@ def build_regimes(df: pd.DataFrame) -> pd.DataFrame:
         logger.warning("build_regimes: vol_24b not found; vol_bucket will be NaN")
         out["vol_bucket"] = np.nan
 
+    # --- trend_bucket (discretization of trend_strength_48b) ---
+    if "trend_strength_48b" in out.columns:
+        valid_trend = out["trend_strength_48b"].notna()
+        if valid_trend.sum() >= 3:
+            out["trend_bucket"] = "unknown"
+            out.loc[valid_trend, "trend_bucket"] = pd.qcut(
+                out.loc[valid_trend, "trend_strength_48b"],
+                q=3,
+                labels=["weak", "mid", "strong"],
+            ).astype(str)
+        else:
+            out["trend_bucket"] = "unknown"
+            logger.warning(
+                "build_regimes: not enough trend_strength_48b values for trend_bucket qcut"
+            )
+        bucket_dist = out["trend_bucket"].value_counts().sort_index()
+        logger.info("trend_bucket distribution: %s", bucket_dist.to_dict())
+    else:
+        out["trend_bucket"] = "unknown"
+        logger.warning(
+            "build_regimes: trend_strength_48b not found; trend_bucket set to 'unknown'"
+        )
+
+    # --- trend_sign ---
     if "trend_strength_48b" not in out.columns:
         logger.warning(
             "build_regimes: trend_strength_48b not found; trend_sign will be 0"
@@ -338,6 +378,7 @@ def build_regimes(df: pd.DataFrame) -> pd.DataFrame:
     else:
         out["trend_sign"] = np.sign(out["trend_strength_48b"])
 
+    # --- regime label = vol_bucket + "_" + trend_sign ---
     out["regime"] = out["vol_bucket"].astype(str) + "_" + out["trend_sign"].astype(str)
     # Rows where vol_bucket was NaN produce 'nan_...' labels; mark these as NaN.
     out.loc[out["vol_bucket"].isna(), "regime"] = np.nan
@@ -346,11 +387,246 @@ def build_regimes(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+
 # ---------------------------------------------------------------------------
-# Per-regime metrics helper
+# Return-based (model-free) regime metrics helper
 # ---------------------------------------------------------------------------
 
-def _regime_metrics(y_pred: np.ndarray, y_test: np.ndarray) -> dict:
+def _direct_regime_metrics(returns: np.ndarray) -> dict:
+    """Compute return-based metrics for a single regime subset (no model).
+
+    Args:
+        returns: Array of realised returns (e.g. ``ret_48b``) for the subset.
+
+    Returns:
+        Dict with keys ``n``, ``mean``, ``std``, ``sharpe``, ``hit_rate``.
+    """
+    n = len(returns)
+    if n < 2:
+        return {
+            "n": n,
+            "mean": np.nan,
+            "std": np.nan,
+            "sharpe": np.nan,
+            "hit_rate": np.nan,
+        }
+
+    mean_ret = float(np.mean(returns))
+    std_ret = float(np.std(returns))
+    sharpe = mean_ret / std_ret if std_ret > 1e-10 else np.nan
+    hit_rate = float(np.mean(returns > 0))
+
+    return {
+        "n": n,
+        "mean": mean_ret,
+        "std": std_ret,
+        "sharpe": sharpe,
+        "hit_rate": hit_rate,
+    }
+
+
+# ---------------------------------------------------------------------------
+# REGIME BASELINE (NO MODEL) — full-dataset regime discovery
+# ---------------------------------------------------------------------------
+
+def regime_baseline(
+    df: pd.DataFrame,
+    *,
+    target_col: str = TARGET_COL,
+    regime_col: str = "regime",
+    min_n: int = MIN_REGIME_OBS,
+) -> pd.DataFrame:
+    """Compute regime statistics on the full dataset without any model.
+
+    Groups observations by ``regime_col`` and computes mean return, std,
+    Sharpe, and hit-rate for each regime.  Regimes with fewer than ``min_n``
+    observations are skipped.
+
+    This is the primary discovery step: no model is trained or used.
+
+    Args:
+        df: Full dataset (after ``build_regimes``).
+        target_col: Forward-return column to summarise (default ``ret_48b``).
+        regime_col: Column containing regime labels (default ``"regime"``).
+        min_n: Minimum observations required per regime.
+
+    Returns:
+        DataFrame with schema ``["regime", "n", "mean", "std", "sharpe",
+        "hit_rate"]``, sorted by Sharpe descending.
+    """
+    _COLS = ["regime", "n", "mean", "std", "sharpe", "hit_rate"]
+
+    if regime_col not in df.columns:
+        logger.warning("regime_baseline: '%s' column not found", regime_col)
+        return pd.DataFrame(columns=_COLS)
+
+    valid = df.dropna(subset=[regime_col, target_col])
+    rows: list[dict] = []
+
+    for regime_label, grp in valid.groupby(regime_col):
+        returns = grp[target_col].values
+        if len(returns) < min_n:
+            logger.warning(
+                "REGIME BASELINE: regime=%s skipped (n=%d < %d)",
+                regime_label,
+                len(returns),
+                min_n,
+            )
+            continue
+        m = _direct_regime_metrics(returns)
+        rows.append({"regime": str(regime_label), **m})
+
+    if not rows:
+        logger.warning("REGIME BASELINE (NO MODEL): no valid regimes found")
+        return pd.DataFrame(columns=_COLS)
+
+    result = (
+        pd.DataFrame(rows)[_COLS]
+        .sort_values("sharpe", ascending=False)
+        .reset_index(drop=True)
+    )
+    return result
+
+
+# ---------------------------------------------------------------------------
+# REGIME WALK-FORWARD — per-year test-set regime discovery (no model)
+# ---------------------------------------------------------------------------
+
+def regime_walk_forward(
+    df: pd.DataFrame,
+    *,
+    target_col: str = TARGET_COL,
+    regime_col: str = "regime",
+    year_col: str = "year",
+    min_n: int = MIN_REGIME_OBS,
+) -> pd.DataFrame:
+    """Validate regime structure out-of-sample using an expanding window.
+
+    For each test year (starting from the third unique year), computes
+    regime metrics on the **test set only** using raw returns — no model
+    predictions are involved.  This validates whether the regime structure
+    identified in ``regime_baseline`` is stable out-of-sample.
+
+    Guardrails:
+    * Regimes with fewer than ``min_n`` test-set observations are skipped.
+    * No training data is used; metrics depend only on the test-year slice.
+
+    Args:
+        df: Full dataset (after ``build_regimes``).
+        target_col: Forward-return column (default ``ret_48b``).
+        regime_col: Column containing regime labels (default ``"regime"``).
+        year_col: Column containing calendar year (default ``"year"``).
+        min_n: Minimum test-set observations required per regime.
+
+    Returns:
+        DataFrame with schema ``["year", "regime", "n", "mean", "sharpe",
+        "hit_rate"]``.
+    """
+    _COLS = ["year", "regime", "n", "mean", "sharpe", "hit_rate"]
+
+    if regime_col not in df.columns:
+        logger.warning("regime_walk_forward: '%s' column not found", regime_col)
+        return pd.DataFrame(columns=_COLS)
+
+    years = sorted(df[year_col].unique())
+    if len(years) < 3:
+        logger.warning(
+            "regime_walk_forward: need at least 3 unique years, got %d", len(years)
+        )
+        return pd.DataFrame(columns=_COLS)
+
+    rows: list[dict] = []
+
+    for i in range(2, len(years)):
+        test_year = years[i]
+        test = df[df[year_col] == test_year].dropna(subset=[regime_col, target_col])
+
+        if test.empty:
+            logger.debug(
+                "REGIME WALK-FORWARD: year=%d — empty test set, skipping", test_year
+            )
+            continue
+
+        for regime_label, grp in test.groupby(regime_col):
+            returns = grp[target_col].values
+            if len(returns) < min_n:
+                logger.warning(
+                    "REGIME WALK-FORWARD: year=%d | regime=%s skipped (n=%d < %d)",
+                    test_year,
+                    regime_label,
+                    len(returns),
+                    min_n,
+                )
+                continue
+            m = _direct_regime_metrics(returns)
+            rows.append(
+                {
+                    "year": int(test_year),
+                    "regime": str(regime_label),
+                    "n": m["n"],
+                    "mean": m["mean"],
+                    "sharpe": m["sharpe"],
+                    "hit_rate": m["hit_rate"],
+                }
+            )
+
+    if not rows:
+        logger.warning("REGIME WALK-FORWARD: no valid regime/year combinations found")
+        return pd.DataFrame(columns=_COLS)
+
+    return pd.DataFrame(rows)[_COLS].reset_index(drop=True)
+
+
+# ---------------------------------------------------------------------------
+# Structured logging display for new regime outputs
+# ---------------------------------------------------------------------------
+
+def log_regime_baseline(regime_summary: pd.DataFrame) -> None:
+    """Log regime_summary under a clearly labelled section header.
+
+    Args:
+        regime_summary: DataFrame returned by ``regime_baseline``.
+    """
+    logger.info("=== REGIME BASELINE (NO MODEL) ===")
+    if regime_summary.empty:
+        logger.warning("REGIME BASELINE (NO MODEL): no results to display")
+        return
+    for row in regime_summary.itertuples(index=False):
+        logger.info(
+            "REGIME BASELINE | regime=%-12s | n=%5d | mean=%+.6f | std=%.6f"
+            " | sharpe=%+.4f | hit_rate=%.4f",
+            row.regime,
+            row.n,
+            row.mean,
+            row.std,
+            row.sharpe if not np.isnan(row.sharpe) else float("nan"),
+            row.hit_rate if not np.isnan(row.hit_rate) else float("nan"),
+        )
+
+
+def log_regime_wf(regime_wf: pd.DataFrame) -> None:
+    """Log regime_wf under a clearly labelled section header.
+
+    Args:
+        regime_wf: DataFrame returned by ``regime_walk_forward``.
+    """
+    logger.info("=== REGIME WALK-FORWARD ===")
+    if regime_wf.empty:
+        logger.warning("REGIME WALK-FORWARD: no results to display")
+        return
+    for row in regime_wf.itertuples(index=False):
+        logger.info(
+            "REGIME WALK-FORWARD | year=%d | regime=%-12s | n=%5d"
+            " | mean=%+.6f | sharpe=%+.4f | hit_rate=%.4f",
+            row.year,
+            row.regime,
+            row.n,
+            row.mean,
+            row.sharpe if not np.isnan(row.sharpe) else float("nan"),
+            row.hit_rate if not np.isnan(row.hit_rate) else float("nan"),
+        )
+
+
     """Compute IC, Sharpe and hit rate for a single regime subset.
 
     Args:
@@ -749,8 +1025,8 @@ def print_regime_summary(regime_df: pd.DataFrame) -> None:
 def main(argv=None) -> None:
     p = argparse.ArgumentParser(
         description=(
-            "Regime V3: Ridge regression walk-forward predicting ret_48b "
-            "from sentiment + volatility + trend features (no leakage)."
+            "Regime V3: regime discovery via discretization, then optional "
+            "LightGBM walk-forward predicting ret_48b (no leakage)."
         ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
@@ -769,30 +1045,45 @@ def main(argv=None) -> None:
 
     df = load_data(args.data)
 
-    # Compute causal volatility feature (vol_24b).
+    # Step 1: Compute causal volatility feature (vol_24b) and interaction features.
     df = build_features(df)
 
-    # Classify each observation into a vol × trend regime.
+    # Step 2: Discretise features into regimes BEFORE any modeling.
     df = build_regimes(df)
-
-    # Determine which feature columns are available in this dataset.
-    feature_cols = select_features(df)
-
-    if not feature_cols:
-        print("ERROR: No valid feature columns found in dataset. Exiting.")
-        sys.exit(1)
 
     if TARGET_COL not in df.columns:
         print(f"ERROR: Target column '{TARGET_COL}' not found. Exiting.")
         sys.exit(1)
 
-    # Expanding-window Ridge walk-forward with per-regime evaluation.
-    wf_results, regime_results = walk_forward_ridge(
+    # ------------------------------------------------------------------
+    # Step 3: REGIME BASELINE (NO MODEL) — full-dataset regime discovery
+    # ------------------------------------------------------------------
+    regime_summary = regime_baseline(df)
+    log_regime_baseline(regime_summary)
+
+    # ------------------------------------------------------------------
+    # Step 4: REGIME WALK-FORWARD — out-of-sample regime validation
+    # ------------------------------------------------------------------
+    regime_wf = regime_walk_forward(df)
+    log_regime_wf(regime_wf)
+
+    # ------------------------------------------------------------------
+    # Step 5: MODEL WITHIN REGIME (secondary) — LightGBM walk-forward
+    #         trained globally, evaluated per regime
+    # ------------------------------------------------------------------
+    feature_cols = select_features(df)
+
+    if not feature_cols:
+        logger.warning("No valid feature columns found; skipping MODEL WITHIN REGIME.")
+        return
+
+    logger.info("=== MODEL WITHIN REGIME ===")
+    wf_results, regime_model_results = walk_forward_ridge(
         df, feature_cols, regime_col="regime"
     )
 
     print_wf_summary(wf_results)
-    print_regime_summary(regime_results)
+    print_regime_summary(regime_model_results)
 
 
 if __name__ == "__main__":
