@@ -1197,7 +1197,7 @@ def secondary_vol_filter(
     return pd.DataFrame(rows)[_COLS].reset_index(drop=True)
 
 
-
+def log_regime_baseline(regime_summary: pd.DataFrame) -> None:
     """Log regime_summary under a clearly labelled section header.
 
     Args:
@@ -1389,7 +1389,9 @@ def log_secondary_vol_filter(vol_filter_df: pd.DataFrame) -> None:
         )
 
 
-
+# ---------------------------------------------------------------------------
+# Per-regime metrics helper (model-based: uses predictions vs actuals)
+# ---------------------------------------------------------------------------
 
 def _regime_metrics(y_pred: np.ndarray, y_test: np.ndarray) -> dict:
     """Compute IC, Sharpe and hit rate for a single regime subset.
