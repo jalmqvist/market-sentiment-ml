@@ -50,7 +50,6 @@ import config as cfg
 # Defaults (sourced from config)
 # -----------------------------
 
-H1_INPUT_DEFAULT = cfg.DATA_PATH
 REGIME_INPUT_DEFAULT = cfg.REGIME_PARQUET_DEFAULT
 OUTPUT_DEFAULT = cfg.DATA_PATH_REGIME
 
@@ -103,21 +102,21 @@ def _print_missing_samples(df: pd.DataFrame, n: int = 10) -> None:
 
 def main() -> None:
     p = argparse.ArgumentParser(description="Attach D1 regime labels to H1 research dataset.")
-    p.add_argument("--h1", type=Path, default=H1_INPUT_DEFAULT, help="H1 master dataset CSV")
+    p.add_argument("--data", required=True, type=Path, help="H1 master dataset CSV (canonical input)")
     p.add_argument("--regimes", type=Path, default=REGIME_INPUT_DEFAULT, help="D1 regimes parquet")
     p.add_argument("--out", type=Path, default=OUTPUT_DEFAULT, help="Output enriched CSV")
     p.add_argument("--warn-threshold", type=float, default=0.99, help="Warn if match rate below this")
     p.add_argument("--missing-sample-n", type=int, default=10, help="Number of missing-phase rows to print")
     args = p.parse_args()
 
-    if not args.h1.exists():
-        raise FileNotFoundError(f"H1 dataset not found: {args.h1.resolve()}")
+    if not args.data.exists():
+        raise FileNotFoundError(f"H1 dataset not found: {args.data.resolve()}")
     if not args.regimes.exists():
         raise FileNotFoundError(f"Regime dataset not found: {args.regimes.resolve()}")
 
     # --- Load H1 dataset ---
-    print(f"Loading H1 dataset: {args.h1} …")
-    h1 = pd.read_csv(args.h1, parse_dates=["entry_time"])
+    print(f"Loading H1 dataset: {args.data} …")
+    h1 = pd.read_csv(args.data, parse_dates=["entry_time"])
     _require_cols(h1, ["pair", "entry_time"], "H1 dataset")
 
     # ------------------------------------------------------------------

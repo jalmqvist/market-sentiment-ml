@@ -9,27 +9,32 @@ paths, and shows how to run each stage independently.
 ## Overview
 
 ```
-build_dataset  →  [attach_regimes]  →  generate_signal  →  evaluate  →  portfolio
+build_dataset  →  [attach_regimes]  →  discovery  →  portfolio  →  [regime_v2]  →  validate
                         ↑
                   (optional step)
 ```
 
-| Stage | Script | Dataset used |
-|---|---|---|
-| Build canonical dataset | `pipeline/build_dataset.py` | raw inputs → `DATA_PATH` |
-| Attach regime labels | `attach_regimes_to_h1_dataset.py` | `DATA_PATH` → `DATA_PATH_REGIME` |
-| Signal discovery | `experiments/discovery.py` | `DATA_PATH` (canonical) |
-| Parametric sweep | `experiments/sweep.py` | `DATA_PATH` (canonical) |
-| Walk-forward evaluation | `evaluation/walk_forward.py` (library) | `DATA_PATH` (canonical) |
-| Portfolio construction | `portfolio/portfolio_builder.py` | `DATA_PATH` (canonical) |
-| Regime experiments | `experiments/regime_v2.py` | `DATA_PATH_REGIME` (regime only) |
+| Stage | Script | Dataset used | Required |
+|---|---|---|---|
+| Build canonical dataset | `pipeline/build_dataset.py` | raw inputs → `DATA_PATH` | Yes |
+| Attach regime labels | `attach_regimes_to_h1_dataset.py` | `DATA_PATH` → `DATA_PATH_REGIME` | Optional |
+| Signal discovery | `experiments/discovery.py` | `DATA_PATH` (canonical) | Yes |
+| Parametric sweep | `experiments/sweep.py` | `DATA_PATH` (canonical) | Optional |
+| Walk-forward evaluation | `evaluation/walk_forward.py` (library) | `DATA_PATH` (canonical) | Library only |
+| Portfolio construction | `portfolio/portfolio_builder.py` | `DATA_PATH` (canonical) | Yes |
+| Regime experiments | `experiments/regime_v2.py` | `DATA_PATH_REGIME` (regime only) | Optional |
+| Validation | `validation/validate_pipeline_extended.py` | both datasets | Automatic |
+
+> **Important:** `--data` is the ONLY accepted dataset argument for all stage
+> scripts.  It is **required** — no default path is used.  This prevents
+> silent mistakes from wrong-dataset fallbacks.
 
 ---
 
 ## Config variables that control paths
 
-All paths are defined in **`config.py`** and can be overridden by passing
-explicit `--input` / `--output` CLI arguments to individual scripts.
+All paths are defined in **`config.py`**.  Stage scripts do **not** fall back
+to config paths; you must pass the dataset explicitly via `--data`.
 
 | Variable | Default value | Purpose |
 |---|---|---|
@@ -78,7 +83,53 @@ dataset.  It is an **optional filter layer** used **only** for:
 Required regime columns: `phase`, `is_trending`, `is_high_vol`.
 
 Regime-specific scripts validate that these columns exist and raise a clear
-`ValueError` if they are absent (e.g. if the wrong file is passed as `--input`).
+`ValueError` if they are absent (e.g. if the wrong file is passed as `--data`).
+
+---
+
+## Strict orchestrator (recommended)
+
+`run_pipeline_strict.py` enforces the canonical execution order and dataset
+separation automatically.  It is the recommended way to run the full pipeline.
+
+### Canonical pipeline (discovery + portfolio only)
+
+```bash
+python run_pipeline_strict.py \
+  --canonical-dataset data/output/master_research_dataset.csv
+```
+
+### Full pipeline (with regime stages)
+
+```bash
+python run_pipeline_strict.py \
+  --canonical-dataset data/output/master_research_dataset.csv \
+  --regime-dataset    data/output/master_research_dataset_with_regime.csv \
+  --regimes-parquet   /path/to/phase_labels_d1.parquet
+```
+
+### Skip build (data files already exist)
+
+```bash
+python run_pipeline_strict.py \
+  --canonical-dataset data/output/master_research_dataset.csv \
+  --skip build
+```
+
+### Skip validation
+
+```bash
+python run_pipeline_strict.py \
+  --canonical-dataset data/output/master_research_dataset.csv \
+  --skip validate
+```
+
+The strict orchestrator:
+- Passes `--data` explicitly to every stage (no config fallbacks)
+- Runs discovery and portfolio as **required** stages
+- Runs attach_regimes and regime_v2 **only** when `--regime-dataset` is provided
+- **Never** calls walk_forward via subprocess (it is a library used internally)
+- Runs `validation/validate_pipeline_extended.py` at the end and fails if validation fails
 
 ---
 
@@ -101,9 +152,6 @@ Reads raw sentiment and price files, joins them, and writes
 `data/output/master_research_dataset.csv`.
 
 ```bash
-python -m pipeline.build_dataset
-
-# Explicit paths (if your data lives elsewhere):
 python -m pipeline.build_dataset \
   --sentiment-dir data/input/sentiment \
   --price-dir     data/input/fx \
@@ -122,17 +170,15 @@ canonical H1 dataset.  Run this step only when you need regime-conditioned
 experiments.
 
 ```bash
-python attach_regimes_to_h1_dataset.py
-
-# Explicit paths:
 python attach_regimes_to_h1_dataset.py \
-  --h1      data/output/master_research_dataset.csv \
+  --data    data/output/master_research_dataset.csv \
   --regimes /path/to/phase_labels_d1.parquet \
   --out     data/output/master_research_dataset_with_regime.csv
 ```
 
-The regime parquet path defaults to `config.REGIME_PARQUET_DEFAULT`, which
-can be overridden via the `REGIME_PARQUET_PATH` environment variable.
+`--data` is **required** (no default path).  The regime parquet path defaults
+to `config.REGIME_PARQUET_DEFAULT`, which can be overridden via the
+`REGIME_PARQUET_PATH` environment variable.
 
 **Output:** `DATA_PATH_REGIME` (`data/output/master_research_dataset_with_regime.csv`)
 
@@ -143,28 +189,30 @@ can be overridden via the `REGIME_PARQUET_PATH` environment variable.
 Per-pair behavioral signal discovery using the canonical dataset.
 
 ```bash
-python -m experiments.discovery
-
-# Override input:
 python -m experiments.discovery \
-  --input data/output/master_research_dataset.csv \
+  --data      data/output/master_research_dataset.csv \
   --log-level DEBUG
+
+# Direct execution (equivalent):
+python experiments/discovery.py \
+  --data      data/output/master_research_dataset.csv
 ```
 
-**Uses:** `DATA_PATH` (canonical)
+`--data` is **required**.  **Uses:** `DATA_PATH` (canonical)
 
 ---
 
 ### 4. Walk-forward evaluation
 
 `evaluation/walk_forward.py` is a **library module** — it does not have a
-standalone CLI entry-point, but is used internally by `experiments/regime_v2.py`,
+standalone CLI entry-point.  It is used internally by `experiments/regime_v2.py`,
 `experiments/sweep.py`, and `portfolio/portfolio_builder.py`.
 
 To run walk-forward evaluation as part of the portfolio pipeline:
 
 ```bash
-python -m portfolio.portfolio_builder
+python -m portfolio.portfolio_builder \
+  --data data/output/master_research_dataset.csv
 ```
 
 ---
@@ -175,11 +223,8 @@ Sweeps streak threshold × persistence flag combinations and reports
 walk-forward results.
 
 ```bash
-python -m experiments.sweep
-
-# Override input:
 python -m experiments.sweep \
-  --input data/output/master_research_dataset.csv \
+  --data      data/output/master_research_dataset.csv \
   --log-level INFO
 ```
 
@@ -193,15 +238,16 @@ Applies the canonical behavioral signal, selects survivor pairs, and
 evaluates the portfolio walk-forward and on holdout.
 
 ```bash
-python -m portfolio.portfolio_builder
-
-# Override input:
 python -m portfolio.portfolio_builder \
-  --input data/output/master_research_dataset.csv \
+  --data      data/output/master_research_dataset.csv \
   --log-level INFO
+
+# Direct execution (equivalent):
+python portfolio/portfolio_builder.py \
+  --data data/output/master_research_dataset.csv
 ```
 
-**Uses:** `DATA_PATH` (canonical)
+`--data` is **required**.  **Uses:** `DATA_PATH` (canonical)
 
 ---
 
@@ -212,15 +258,33 @@ regime-enriched dataset (`DATA_PATH_REGIME`).  Will fail with a clear error
 if regime columns (`phase`, `is_trending`, `is_high_vol`) are missing.
 
 ```bash
-python -m experiments.regime_v2
-
-# Override input:
 python -m experiments.regime_v2 \
-  --input data/output/master_research_dataset_with_regime.csv \
+  --data      data/output/master_research_dataset_with_regime.csv \
   --log-level INFO
+
+# Direct execution (equivalent):
+python experiments/regime_v2.py \
+  --data data/output/master_research_dataset_with_regime.csv
 ```
 
-**Uses:** `DATA_PATH_REGIME` (regime only)
+`--data` is **required**.  **Uses:** `DATA_PATH_REGIME` (regime only)
+
+---
+
+### 8. Extended validation
+
+Validates dataset integrity, signal parity, performance, and regime isolation.
+Exits non-zero on failure.
+
+```bash
+python validation/validate_pipeline_extended.py \
+  --data        data/output/master_research_dataset.csv \
+  --data-regime data/output/master_research_dataset_with_regime.csv \
+  --reference   data/reference/master_research_dataset.csv
+```
+
+Both `--data` and `--data-regime` are **required**.  `--reference` is optional
+(hash parity checks are skipped when omitted).
 
 ---
 
@@ -260,7 +324,7 @@ Set `LOG_LEVEL=DEBUG` to enable verbose pipeline logging:
 
 ```bash
 export LOG_LEVEL=DEBUG
-python -m experiments.discovery
+python -m experiments.discovery --data data/output/master_research_dataset.csv
 ```
 
 At `DEBUG` level you will see:
@@ -279,5 +343,6 @@ At `WARNING` level (default) you will see:
 To change the log level for a single run without editing config:
 
 ```bash
-python -m portfolio.portfolio_builder --log-level DEBUG
+python -m portfolio.portfolio_builder --data data/output/master_research_dataset.csv --log-level DEBUG
 ```
+
