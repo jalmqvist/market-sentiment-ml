@@ -28,7 +28,7 @@ prohibited and triggers a ``ValueError`` if accidentally included.
 
 The experiment also evaluates **conditional performance by regime**.  Each
 observation is assigned to one of up to nine regimes formed by crossing a
-three-way volatility bucket (``vol_regime``: low / mid / high, based on
+three-way volatility bucket (``vol_bucket``: low / mid / high, based on
 tertiles of ``vol_24b``) with the sign of ``trend_strength_48b``
 (``trend_sign``: −1 / 0 / +1).  The combined label is stored in the
 ``regime`` column as, e.g., ``"low_-1.0"`` or ``"high_1.0"``.
@@ -283,9 +283,10 @@ def build_regimes(df: pd.DataFrame) -> pd.DataFrame:
 
     Creates three columns:
 
-    * ``vol_regime`` – tertile bucket of ``vol_24b`` (``"low"`` / ``"mid"``
-      / ``"high"``).  Quantile thresholds are computed on the full dataset;
-      ``NaN`` rows are left as ``NaN``.
+    * ``vol_bucket`` – tertile bucket of ``vol_24b`` (``"low"`` / ``"mid"``
+      / ``"high"``).  When ``vol_bucket`` is already present (computed by
+      ``build_features``), that column is reused directly.  Otherwise it is
+      recomputed via ``pd.qcut`` from ``vol_24b``.
     * ``trend_sign`` – ``np.sign(trend_strength_48b)``: ``-1.0``, ``0.0``,
       or ``1.0``.
     * ``regime`` – combined label, e.g. ``"low_-1.0"`` or ``"high_1.0"``.
@@ -300,18 +301,29 @@ def build_regimes(df: pd.DataFrame) -> pd.DataFrame:
     """
     out = df.copy()
 
-    if "vol_24b" not in out.columns:
-        logger.warning("build_regimes: vol_24b not found; vol_regime will be NaN")
-        out["vol_regime"] = np.nan
-    else:
+    if "vol_bucket" in out.columns:
+        # Reuse the vol_bucket already computed by build_features (avoids a
+        # second qcut pass over the same data).
+        n_assigned = int(out["vol_bucket"].notna().sum())
+        logger.debug(
+            "build_regimes: reusing vol_bucket from build_features (%d rows)",
+            n_assigned,
+        )
+    elif "vol_24b" in out.columns:
+        logger.warning(
+            "build_regimes: vol_bucket not found; recomputing from vol_24b"
+        )
         valid_mask = out["vol_24b"].notna()
-        out.loc[valid_mask, "vol_regime"] = pd.qcut(
+        out.loc[valid_mask, "vol_bucket"] = pd.qcut(
             out.loc[valid_mask, "vol_24b"],
             q=3,
             labels=["low", "mid", "high"],
         )
         n_assigned = int(valid_mask.sum())
-        logger.debug("build_regimes: vol_regime assigned for %d rows", n_assigned)
+        logger.debug("build_regimes: vol_bucket assigned for %d rows", n_assigned)
+    else:
+        logger.warning("build_regimes: vol_24b not found; vol_bucket will be NaN")
+        out["vol_bucket"] = np.nan
 
     if "trend_strength_48b" not in out.columns:
         logger.warning(
@@ -321,9 +333,9 @@ def build_regimes(df: pd.DataFrame) -> pd.DataFrame:
     else:
         out["trend_sign"] = np.sign(out["trend_strength_48b"])
 
-    out["regime"] = out["vol_regime"].astype(str) + "_" + out["trend_sign"].astype(str)
-    # Rows where vol_24b was NaN produce 'nan_...' labels; mark these as NaN.
-    out.loc[out["vol_24b"].isna(), "regime"] = np.nan
+    out["regime"] = out["vol_bucket"].astype(str) + "_" + out["trend_sign"].astype(str)
+    # Rows where vol_bucket was NaN produce 'nan_...' labels; mark these as NaN.
+    out.loc[out["vol_bucket"].isna(), "regime"] = np.nan
     n_regimes = out["regime"].nunique()
     logger.info("build_regimes: %d unique regime labels", n_regimes)
     return out
@@ -544,7 +556,7 @@ def walk_forward_ridge(
                         **m,
                     }
                 )
-                logger.debug(
+                logger.info(
                     "year=%d | regime=%s | n=%d | IC=%.4f | Sharpe=%.4f | hit_rate=%.4f",
                     test_year,
                     regime_label,
@@ -704,7 +716,16 @@ def print_regime_summary(regime_df: pd.DataFrame) -> None:
     print("\n=== POOLED REGIME METRICS (across all folds) ===")
     print(pooled.to_string(index=False))
     logger.info("Pooled regime metrics computed for %d regimes", len(pooled))
-
+    for row in pooled.itertuples(index=False):
+        logger.info(
+            "pooled | regime=%s | n=%d | IC=%.4f | Sharpe=%.4f | hit_rate=%.4f | folds=%d",
+            row.regime,
+            row.n,
+            row.ic,
+            row.signal_sharpe,
+            row.signal_hit_rate,
+            row.folds,
+        )
 
 # ---------------------------------------------------------------------------
 # Main
