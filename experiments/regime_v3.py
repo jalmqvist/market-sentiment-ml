@@ -1887,9 +1887,9 @@ def apply_regime_direction_signal(
     """Add regime-direction columns to *df*.
 
     Computes a per-row signal that adapts its direction based on the
-    behavioural regime:
+    behavioral regime:
 
-    * ``base_signal`` – normalised sentiment signal in [−1, 1]:
+    * ``base_signal`` – normalized sentiment signal in [−1, 1]:
       ``net_sentiment / 100`` (sign preserved; crowd long → +1, short → −1).
     * ``regime_direction`` – string label for the direction applied:
       ``"contrarian"``, ``"trend"``, or ``"none"``.

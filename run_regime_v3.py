@@ -263,7 +263,6 @@ def main(argv=None) -> None:
     #          (BASELINE (GLOBAL CONTRARIAN) and FILTER ONLY already
     #          logged above; this is the FILTER + DIRECTION (FINAL) step)
     # ------------------------------------------------------------------
-    _logging.getLogger(__name__).info("=== FILTER + DIRECTION (FINAL) ===")
     df_direction = apply_regime_direction_signal(df)
     dir_perf = regime_direction_performance(df_direction)
     log_regime_direction_performance(dir_perf)
