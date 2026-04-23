@@ -486,8 +486,8 @@ def build_behavioural_regimes(df: pd.DataFrame) -> pd.DataFrame:
             streak_abs,
             bins=[0, 2, 5, np.inf],
             labels=["short", "medium", "long"],
-            right=True,   # (0, 2] → short, (2, 5] → medium, (5, ∞) → long
-            include_lowest=True,  # ensures 0 maps to "short"
+            right=True,         # [0, 2] → short, (2, 5] → medium, (5, ∞) → long
+            include_lowest=True,  # makes first bin [0, 2] (closed on left)
         ).astype(str)
         out.loc[out["side_streak"].isna(), "side_streak_bucket"] = np.nan
         dist = out["side_streak_bucket"].value_counts(dropna=True).sort_index()
@@ -507,7 +507,6 @@ def build_behavioural_regimes(df: pd.DataFrame) -> pd.DataFrame:
             labels=["none", "mild", "extreme"],
             right=True,   # (-∞, 0] → none, (0, 2] → mild, (2, ∞) → extreme
         ).astype(str)
-        out.loc[ext.isna(), "extreme_streak_bucket"] = np.nan
         dist = out["extreme_streak_bucket"].value_counts(dropna=True).sort_index()
         logger.info("extreme_streak_bucket distribution: %s", dist.to_dict())
     else:
