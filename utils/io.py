@@ -31,6 +31,10 @@ logger = logging.getLogger(__name__)
 def setup_logging(level: Optional[str] = None) -> None:
     """Configure root logger.
 
+    Only initializes logging if no handlers are already attached to the root
+    logger, preventing double initialization when called multiple times (e.g.
+    in tests or notebooks).
+
     Args:
         level: Log level string (DEBUG, INFO, WARNING, ERROR).  Defaults to
                ``config.LOG_LEVEL`` which itself falls back to the
@@ -38,6 +42,11 @@ def setup_logging(level: Optional[str] = None) -> None:
     """
     level = level or cfg.LOG_LEVEL
     numeric = getattr(logging, level.upper(), logging.INFO)
+
+    root = logging.getLogger()
+    if root.handlers:
+        return
+
     logging.basicConfig(
         stream=sys.stdout,
         level=numeric,

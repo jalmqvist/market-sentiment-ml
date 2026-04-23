@@ -27,6 +27,10 @@ log = logging.getLogger("scripts.run_regime_v3")
 def _configure_logging(level: str, log_file: str | None) -> Path:
     """Configure logging to stdout AND a log file.
 
+    Only adds handlers if the root logger has none, avoiding double
+    initialization when main() is called multiple times (e.g. in tests
+    or notebooks).
+
     If log_file is None, create logs/regime_v3_YYYYMMDD_HHMMSS.log.
     Returns the resolved log file path.
     """
@@ -37,14 +41,12 @@ def _configure_logging(level: str, log_file: str | None) -> Path:
     root = logging.getLogger()
     root.setLevel(log_level)
 
-    # Avoid duplicate handlers if main() is called multiple times (tests, notebooks)
-    root.handlers.clear()
-
-    # stdout handler
-    stream_handler = logging.StreamHandler(sys.stdout)
-    stream_handler.setLevel(log_level)
-    stream_handler.setFormatter(formatter)
-    root.addHandler(stream_handler)
+    if not root.handlers:
+        # stdout handler
+        stream_handler = logging.StreamHandler(sys.stdout)
+        stream_handler.setLevel(log_level)
+        stream_handler.setFormatter(formatter)
+        root.addHandler(stream_handler)
 
     # file handler
     if log_file is None:
@@ -56,13 +58,21 @@ def _configure_logging(level: str, log_file: str | None) -> Path:
         log_path = Path(log_file)
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    file_handler = logging.FileHandler(log_path, encoding="utf-8")
-    file_handler.setLevel(log_level)
-    file_handler.setFormatter(formatter)
-    root.addHandler(file_handler)
+    # Only add the file handler if it is not already attached.
+    existing_files = {
+        h.baseFilename
+        for h in root.handlers
+        if isinstance(h, logging.FileHandler)
+    }
+    resolved_log_path = log_path.resolve()
+    if str(resolved_log_path) not in existing_files:
+        file_handler = logging.FileHandler(log_path, encoding="utf-8")
+        file_handler.setLevel(log_level)
+        file_handler.setFormatter(formatter)
+        root.addHandler(file_handler)
 
     root.info("Regime V3 log file: %s", log_path)
-    return log_path.resolve()
+    return resolved_log_path
 
 
 def main(argv=None) -> int:
