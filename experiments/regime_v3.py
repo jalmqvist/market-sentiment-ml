@@ -1664,9 +1664,10 @@ def filtered_regime_walk_forward(
         )
         logger.info(
             "WALK-FORWARD FILTERED PERFORMANCE | year=%d | n=%5d"
-            " | sharpe=%+.4f | hit_rate=%.4f",
+            " | mean=%+.6f | sharpe=%+.4f | hit_rate=%.4f",
             test_year,
             m["n"],
+            m["mean"],
             m["sharpe"] if not np.isnan(m["sharpe"]) else float("nan"),
             m["hit_rate"] if not np.isnan(m["hit_rate"]) else float("nan"),
         )
