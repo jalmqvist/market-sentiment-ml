@@ -3,6 +3,7 @@ experiments/regime_v3.py
 ========================
 Regime-discovery-first experiment: identify whether sentiment alpha is
 concentrated in specific discrete regimes BEFORE any model-based prediction.
+Extends into a filtered-signal trading pipeline using ``TOP_REGIMES``.
 
 Pipeline order
 --------------
@@ -24,6 +25,8 @@ Pipeline order
      based on extreme-sentiment run length).
    * ``behavioural_regime`` = ``abs_sent_bucket + "_" + side_streak_bucket +
      "_" + extreme_streak_bucket``
+   * ``crowding_regime`` = ``side_streak_bucket + "_" + abs_sent_bucket``
+     (simplified 2-axis regime used by the trading filter).
 
 3. **REGIME BASELINE (NO MODEL)** – ``regime_baseline()`` groups the full
    dataset by ``regime`` and computes mean return, std, Sharpe, and hit-rate
@@ -41,8 +44,25 @@ Pipeline order
 6. **WALK-FORWARD REGIME PERFORMANCE** – ``behavioural_regime_walk_forward()``
    does the same for ``behavioural_regime``.
 
-7. **MODEL WITHIN REGIME (secondary)** – ``walk_forward_ridge()`` trains a
-   LightGBM model globally and evaluates predictions broken down by regime.
+7. **REGIME FILTER** – ``apply_regime_filter()`` marks rows active when their
+   ``crowding_regime`` is in ``TOP_REGIMES``.  Filter is deterministic and
+   leakage-free; no forward-looking information is used.
+
+8. **FULL DATASET PERFORMANCE** – ``full_dataset_performance()`` computes
+   aggregate metrics on the full (unfiltered) dataset as baseline comparison.
+
+9. **FILTERED PERFORMANCE** – ``filtered_regime_baseline()`` computes
+   aggregate metrics on the regime-filtered dataset only.
+
+10. **WALK-FORWARD FILTERED PERFORMANCE** – ``filtered_regime_walk_forward()``
+    computes per-year OOS metrics on filtered signals (no refitting of the
+    regime list).
+
+11. **COVERAGE SUMMARY** – ``compute_coverage_summary()`` reports the fraction
+    of signals retained after the regime filter.
+
+12. **MODEL WITHIN REGIME (secondary)** – ``walk_forward_ridge()`` trains a
+    LightGBM model globally and evaluates predictions broken down by regime.
 
 Output DataFrames
 -----------------
@@ -54,6 +74,12 @@ Output DataFrames
   the behavioural regime label.
 * ``behavioural_regime_wf`` – same schema as ``regime_wf``; uses the
   behavioural regime label.
+* ``filtered_performance_summary`` – schema ``["n", "mean", "std", "sharpe",
+  "hit_rate"]``; aggregate metrics on the regime-filtered dataset.
+* ``filtered_wf`` – schema ``["year", "n", "mean", "sharpe", "hit_rate"]``;
+  per-year OOS metrics on filtered signals.
+* ``coverage_summary`` – schema ``["total_signals", "filtered_signals",
+  "coverage_ratio"]``; signal coverage diagnostics.
 
 All features are strictly causal at ``entry_time``:
 
@@ -141,6 +167,16 @@ MIN_REGIME_OBS: int = 50
 #: Higher threshold than MIN_REGIME_OBS to ensure statistical stability with
 #: fewer, broader regime buckets.
 MIN_CROWDING_REGIME_OBS: int = 100
+
+#: Hardcoded list of high-quality crowding regimes selected from regime_v3
+#: discovery results.  Each entry must match the ``crowding_regime`` label
+#: format: ``side_streak_bucket + "_" + abs_sent_bucket``
+#: (e.g. ``"long_extreme"``, ``"medium_high"``).
+#: Update this list to change which regimes are active in the trading filter.
+TOP_REGIMES: list[str] = [
+    "long_extreme",
+    "medium_high",
+]
 
 #: Whitelisted causal feature columns.  Only these may be used as model inputs.
 #: Any column matching ``ret_*`` or ``contrarian_ret_*`` is explicitly prohibited.
@@ -1387,6 +1423,418 @@ def log_secondary_vol_filter(vol_filter_df: pd.DataFrame) -> None:
             row.sharpe if not np.isnan(row.sharpe) else float("nan"),
             row.hit_rate if not np.isnan(row.hit_rate) else float("nan"),
         )
+
+
+# ---------------------------------------------------------------------------
+# REGIME FILTER — apply TOP_REGIMES filter to dataset
+# ---------------------------------------------------------------------------
+
+def apply_regime_filter(
+    df: pd.DataFrame,
+    top_regimes: list[str] | None = None,
+    *,
+    regime_col: str = "crowding_regime",
+) -> pd.DataFrame:
+    """Add an ``is_active`` boolean column marking rows in the top regimes.
+
+    Rows whose ``regime_col`` value is in *top_regimes* are marked
+    ``is_active = True``; all other rows (including NaN regime rows) are
+    marked ``False``.  The filter is deterministic and leakage-free because
+    ``crowding_regime`` is computed entirely from past/contemporaneous
+    sentiment data before any target column is observed.
+
+    Args:
+        df: Dataset (after ``build_behavioural_regimes``).
+        top_regimes: List of regime labels to activate.  Defaults to the
+            module-level ``TOP_REGIMES`` constant.
+        regime_col: Column containing regime labels (default
+            ``"crowding_regime"``).
+
+    Returns:
+        Copy of *df* with an ``is_active`` boolean column appended.
+    """
+    if top_regimes is None:
+        top_regimes = TOP_REGIMES
+
+    out = df.copy()
+
+    if regime_col not in out.columns:
+        logger.warning(
+            "apply_regime_filter: '%s' column not found; is_active will be False",
+            regime_col,
+        )
+        out["is_active"] = False
+        return out
+
+    out["is_active"] = out[regime_col].isin(top_regimes)
+    n_active = int(out["is_active"].sum())
+    n_total = len(out)
+    logger.info(
+        "apply_regime_filter: %d / %d rows active (top_regimes=%s)",
+        n_active,
+        n_total,
+        top_regimes,
+    )
+    return out
+
+
+# ---------------------------------------------------------------------------
+# FULL DATASET PERFORMANCE — aggregate metrics without regime filter
+# ---------------------------------------------------------------------------
+
+def full_dataset_performance(
+    df: pd.DataFrame,
+    *,
+    target_col: str = TARGET_COL,
+) -> pd.DataFrame:
+    """Compute aggregate performance metrics on the full (unfiltered) dataset.
+
+    Computes n, mean return, std, Sharpe, and hit-rate across all rows where
+    *target_col* is non-null.  This acts as the baseline comparison for the
+    filtered performance.
+
+    Args:
+        df: Full dataset (after ``build_behavioural_regimes``).
+        target_col: Forward-return column to summarise (default ``ret_48b``).
+
+    Returns:
+        Single-row DataFrame with schema
+        ``["n", "mean", "std", "sharpe", "hit_rate"]``.
+        This is the ``full_performance_summary`` output artifact.
+    """
+    _COLS = ["n", "mean", "std", "sharpe", "hit_rate"]
+    valid = df.dropna(subset=[target_col])
+    if valid.empty:
+        logger.warning("full_dataset_performance: no valid rows found")
+        return pd.DataFrame(columns=_COLS)
+
+    m = _direct_regime_metrics(valid[target_col].values)
+    return pd.DataFrame([m])[_COLS]
+
+
+# ---------------------------------------------------------------------------
+# FILTERED PERFORMANCE — aggregate metrics on regime-filtered dataset
+# ---------------------------------------------------------------------------
+
+def filtered_regime_baseline(
+    df: pd.DataFrame,
+    top_regimes: list[str] | None = None,
+    *,
+    target_col: str = TARGET_COL,
+    regime_col: str = "crowding_regime",
+) -> pd.DataFrame:
+    """Compute aggregate performance metrics on the regime-filtered dataset.
+
+    Filters the dataset to rows whose ``regime_col`` is in *top_regimes* and
+    computes n, mean return, std, Sharpe, and hit-rate.
+
+    Guardrails:
+    * ``is_active`` (if present) or an inline ``isin`` filter is applied;
+      no forward-looking information is introduced.
+    * NaN regime rows are always excluded from the filtered set.
+
+    Args:
+        df: Dataset (after ``apply_regime_filter`` or at minimum after
+            ``build_behavioural_regimes``).
+        top_regimes: List of regime labels to include.  Defaults to
+            ``TOP_REGIMES``.
+        target_col: Forward-return column (default ``ret_48b``).
+        regime_col: Column containing regime labels (default
+            ``"crowding_regime"``).
+
+    Returns:
+        Single-row DataFrame with schema
+        ``["n", "mean", "std", "sharpe", "hit_rate"]``.
+        This is the ``filtered_performance_summary`` output artifact.
+    """
+    _COLS = ["n", "mean", "std", "sharpe", "hit_rate"]
+
+    if top_regimes is None:
+        top_regimes = TOP_REGIMES
+
+    if regime_col not in df.columns:
+        logger.warning(
+            "filtered_regime_baseline: '%s' column not found; returning empty",
+            regime_col,
+        )
+        return pd.DataFrame(columns=_COLS)
+
+    # Use is_active column if already computed; otherwise apply filter inline.
+    if "is_active" in df.columns:
+        df_filtered = df[df["is_active"]].dropna(subset=[target_col])
+    else:
+        df_filtered = df[df[regime_col].isin(top_regimes)].dropna(subset=[target_col])
+
+    if df_filtered.empty:
+        logger.warning(
+            "filtered_regime_baseline: no rows remain after regime filter "
+            "(top_regimes=%s)",
+            top_regimes,
+        )
+        return pd.DataFrame(columns=_COLS)
+
+    m = _direct_regime_metrics(df_filtered[target_col].values)
+    return pd.DataFrame([m])[_COLS]
+
+
+# ---------------------------------------------------------------------------
+# WALK-FORWARD FILTERED PERFORMANCE — per-year metrics on filtered signals
+# ---------------------------------------------------------------------------
+
+def filtered_regime_walk_forward(
+    df: pd.DataFrame,
+    top_regimes: list[str] | None = None,
+    *,
+    target_col: str = TARGET_COL,
+    regime_col: str = "crowding_regime",
+    year_col: str = "year",
+    min_n: int = MIN_CROWDING_REGIME_OBS,
+) -> pd.DataFrame:
+    """Walk-forward validation of filtered-regime performance (no model).
+
+    For each test year (starting from the third unique year), applies the same
+    regime filter and computes aggregate metrics on the filtered test-year
+    slice.  No refitting is done; the filter list is fixed (``top_regimes``).
+
+    Guardrails:
+    * Regime filter applied identically across all years (no look-ahead).
+    * Years where the filtered test set has fewer than ``min_n`` rows are
+      skipped and logged at WARNING level.
+
+    Args:
+        df: Full dataset (after ``build_behavioural_regimes``).
+        top_regimes: Regime labels to include.  Defaults to ``TOP_REGIMES``.
+        target_col: Forward-return column (default ``ret_48b``).
+        regime_col: Column containing regime labels (default
+            ``"crowding_regime"``).
+        year_col: Column containing calendar year (default ``"year"``).
+        min_n: Minimum filtered rows required per test year.
+
+    Returns:
+        DataFrame with schema
+        ``["year", "n", "mean", "sharpe", "hit_rate"]``.
+        This is the ``filtered_wf`` output artifact.
+    """
+    _COLS = ["year", "n", "mean", "sharpe", "hit_rate"]
+
+    if top_regimes is None:
+        top_regimes = TOP_REGIMES
+
+    if regime_col not in df.columns:
+        logger.warning(
+            "filtered_regime_walk_forward: '%s' column not found", regime_col
+        )
+        return pd.DataFrame(columns=_COLS)
+
+    years = sorted(df[year_col].unique())
+    if len(years) < 3:
+        logger.warning(
+            "filtered_regime_walk_forward: need at least 3 unique years, got %d",
+            len(years),
+        )
+        return pd.DataFrame(columns=_COLS)
+
+    rows: list[dict] = []
+
+    for i in range(2, len(years)):
+        test_year = years[i]
+        test_all = df[df[year_col] == test_year].dropna(subset=[target_col])
+
+        # Apply regime filter (no refitting — same list across all years).
+        test_filtered = test_all[test_all[regime_col].isin(top_regimes)]
+
+        if len(test_filtered) < min_n:
+            logger.warning(
+                "WALK-FORWARD FILTERED: year=%d skipped (n=%d < %d after filter)",
+                test_year,
+                len(test_filtered),
+                min_n,
+            )
+            continue
+
+        m = _direct_regime_metrics(test_filtered[target_col].values)
+        rows.append(
+            {
+                "year": int(test_year),
+                "n": m["n"],
+                "mean": m["mean"],
+                "sharpe": m["sharpe"],
+                "hit_rate": m["hit_rate"],
+            }
+        )
+        logger.info(
+            "WALK-FORWARD FILTERED PERFORMANCE | year=%d | n=%5d"
+            " | sharpe=%+.4f | hit_rate=%.4f",
+            test_year,
+            m["n"],
+            m["sharpe"] if not np.isnan(m["sharpe"]) else float("nan"),
+            m["hit_rate"] if not np.isnan(m["hit_rate"]) else float("nan"),
+        )
+
+    if not rows:
+        logger.warning(
+            "WALK-FORWARD FILTERED PERFORMANCE: no valid years after regime filter"
+        )
+        return pd.DataFrame(columns=_COLS)
+
+    return pd.DataFrame(rows)[_COLS].reset_index(drop=True)
+
+
+# ---------------------------------------------------------------------------
+# COVERAGE SUMMARY — how many signals survive the regime filter
+# ---------------------------------------------------------------------------
+
+def compute_coverage_summary(
+    df: pd.DataFrame,
+    top_regimes: list[str] | None = None,
+    *,
+    regime_col: str = "crowding_regime",
+    target_col: str = TARGET_COL,
+) -> pd.DataFrame:
+    """Compute coverage diagnostics for the regime filter.
+
+    Counts total signals (rows with non-null *target_col*), filtered signals
+    (rows also passing the regime filter), and the coverage ratio.
+
+    Args:
+        df: Dataset (after ``build_behavioural_regimes``).
+        top_regimes: Regime labels to include.  Defaults to ``TOP_REGIMES``.
+        regime_col: Column containing regime labels (default
+            ``"crowding_regime"``).
+        target_col: Target column used to determine signal eligibility.
+
+    Returns:
+        Single-row DataFrame with schema
+        ``["total_signals", "filtered_signals", "coverage_ratio"]``.
+        This is the ``coverage_summary`` output artifact.
+    """
+    _COLS = ["total_signals", "filtered_signals", "coverage_ratio"]
+
+    if top_regimes is None:
+        top_regimes = TOP_REGIMES
+
+    valid = df.dropna(subset=[target_col])
+    total = len(valid)
+
+    if regime_col not in df.columns:
+        logger.warning(
+            "compute_coverage_summary: '%s' column not found; filtered=0",
+            regime_col,
+        )
+        return pd.DataFrame(
+            [{"total_signals": total, "filtered_signals": 0, "coverage_ratio": 0.0}]
+        )[_COLS]
+
+    filtered = int(valid[regime_col].isin(top_regimes).sum())
+    coverage_ratio = filtered / total if total > 0 else 0.0
+
+    logger.info(
+        "Coverage: %.1f%% of signals retained after regime filter "
+        "(%d / %d signals; top_regimes=%s)",
+        coverage_ratio * 100,
+        filtered,
+        total,
+        top_regimes,
+    )
+    return pd.DataFrame(
+        [
+            {
+                "total_signals": total,
+                "filtered_signals": filtered,
+                "coverage_ratio": coverage_ratio,
+            }
+        ]
+    )[_COLS]
+
+
+# ---------------------------------------------------------------------------
+# Logging helpers for filtered-signal pipeline sections
+# ---------------------------------------------------------------------------
+
+def log_full_dataset_performance(full_summary: pd.DataFrame) -> None:
+    """Log full-dataset performance under the FULL DATASET PERFORMANCE header.
+
+    Args:
+        full_summary: DataFrame returned by ``full_dataset_performance``.
+    """
+    logger.info("=== FULL DATASET PERFORMANCE ===")
+    if full_summary.empty:
+        logger.warning("FULL DATASET PERFORMANCE: no results to display")
+        return
+    row = full_summary.iloc[0]
+    logger.info(
+        "FULL DATASET | n=%5d | mean=%+.6f | std=%.6f"
+        " | sharpe=%+.4f | hit_rate=%.4f",
+        int(row["n"]),
+        row["mean"],
+        row["std"],
+        row["sharpe"] if not np.isnan(row["sharpe"]) else float("nan"),
+        row["hit_rate"] if not np.isnan(row["hit_rate"]) else float("nan"),
+    )
+
+
+def log_filtered_performance(filtered_summary: pd.DataFrame) -> None:
+    """Log filtered-dataset performance under the FILTERED PERFORMANCE header.
+
+    Args:
+        filtered_summary: DataFrame returned by ``filtered_regime_baseline``.
+    """
+    logger.info("=== FILTERED PERFORMANCE ===")
+    if filtered_summary.empty:
+        logger.warning("FILTERED PERFORMANCE: no results to display")
+        return
+    row = filtered_summary.iloc[0]
+    logger.info(
+        "FILTERED | n=%5d | mean=%+.6f | std=%.6f"
+        " | sharpe=%+.4f | hit_rate=%.4f",
+        int(row["n"]),
+        row["mean"],
+        row["std"],
+        row["sharpe"] if not np.isnan(row["sharpe"]) else float("nan"),
+        row["hit_rate"] if not np.isnan(row["hit_rate"]) else float("nan"),
+    )
+
+
+def log_filtered_wf(filtered_wf: pd.DataFrame) -> None:
+    """Log filtered walk-forward results under WALK-FORWARD FILTERED PERFORMANCE.
+
+    Args:
+        filtered_wf: DataFrame returned by ``filtered_regime_walk_forward``.
+    """
+    logger.info("=== WALK-FORWARD FILTERED PERFORMANCE ===")
+    if filtered_wf.empty:
+        logger.warning("WALK-FORWARD FILTERED PERFORMANCE: no results to display")
+        return
+    for row in filtered_wf.itertuples(index=False):
+        logger.info(
+            "WALK-FORWARD FILTERED | year=%d | n=%5d"
+            " | mean=%+.6f | sharpe=%+.4f | hit_rate=%.4f",
+            row.year,
+            row.n,
+            row.mean,
+            row.sharpe if not np.isnan(row.sharpe) else float("nan"),
+            row.hit_rate if not np.isnan(row.hit_rate) else float("nan"),
+        )
+
+
+def log_coverage_summary(coverage_summary: pd.DataFrame) -> None:
+    """Log coverage diagnostics under the COVERAGE SUMMARY header.
+
+    Args:
+        coverage_summary: DataFrame returned by ``compute_coverage_summary``.
+    """
+    logger.info("=== COVERAGE SUMMARY ===")
+    if coverage_summary.empty:
+        logger.warning("COVERAGE SUMMARY: no results to display")
+        return
+    row = coverage_summary.iloc[0]
+    logger.info(
+        "Coverage: %.1f%% of signals retained after regime filter"
+        " | total=%d | filtered=%d",
+        float(row["coverage_ratio"]) * 100,
+        int(row["total_signals"]),
+        int(row["filtered_signals"]),
+    )
 
 
 # ---------------------------------------------------------------------------

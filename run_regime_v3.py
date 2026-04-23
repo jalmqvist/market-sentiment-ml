@@ -8,6 +8,24 @@ optional log file.  All walk-forward and regime-metrics logic lives in
 ``experiments/regime_v3.py``; this script is a thin launcher that
 configures logging and delegates to ``experiments.regime_v3.main``.
 
+Pipeline steps
+--------------
+1. Load and prepare the research dataset.
+2. Compute causal volatility and interaction features (``build_features``).
+3. Discretise vol/trend features into vol×trend regimes (``build_regimes``).
+4. Discretise sentiment features into behavioural regimes
+   (``build_behavioural_regimes``), producing ``crowding_regime``.
+5. Full-dataset regime discovery baselines (regime, behavioural, crowding).
+6. Walk-forward regime validation (regime, behavioural, crowding).
+7. Secondary vol conditioning on top crowding regimes.
+8. **Regime filter** — apply ``TOP_REGIMES`` filter; add ``is_active`` column.
+9. **Full dataset performance** — aggregate metrics without filter (baseline).
+10. **Filtered performance** — aggregate metrics on regime-filtered signals.
+11. **Walk-forward filtered performance** — per-year OOS metrics on filtered
+    signals (no refitting of the regime list).
+12. **Coverage summary** — fraction of signals retained after the filter.
+13. Model within regime — LightGBM walk-forward evaluated per regime.
+
 Usage::
 
     # Log to stdout only (default)
@@ -102,18 +120,28 @@ def main(argv=None) -> None:
     # the handlers set above.
     from experiments.regime_v3 import (  # noqa: PLC0415
         TARGET_COL,
+        TOP_REGIMES,
+        apply_regime_filter,
         build_behavioural_regimes,
         build_features,
         build_regimes,
         behavioural_regime_baseline,
         behavioural_regime_walk_forward,
+        compute_coverage_summary,
         crowding_regime_baseline,
         crowding_regime_walk_forward,
+        filtered_regime_baseline,
+        filtered_regime_walk_forward,
+        full_dataset_performance,
         load_data,
         log_behavioural_regime_summary,
         log_behavioural_regime_wf,
+        log_coverage_summary,
         log_crowding_regime_summary,
         log_crowding_regime_wf,
+        log_filtered_performance,
+        log_filtered_wf,
+        log_full_dataset_performance,
         log_regime_baseline,
         log_regime_wf,
         log_secondary_vol_filter,
@@ -188,6 +216,41 @@ def main(argv=None) -> None:
     log_secondary_vol_filter(vol_filter_results)
 
     # ------------------------------------------------------------------
+    # Step 4e: REGIME FILTER — apply TOP_REGIMES filter to dataset
+    #          (deterministic, leakage-free: computed before any target use)
+    # ------------------------------------------------------------------
+    import logging as _logging  # noqa: PLC0415
+    _logging.getLogger(__name__).info(
+        "=== REGIME FILTER (TOP_REGIMES=%s) ===", TOP_REGIMES
+    )
+    df = apply_regime_filter(df)
+
+    # ------------------------------------------------------------------
+    # Step 4f: FULL DATASET PERFORMANCE — baseline metrics (unfiltered)
+    # ------------------------------------------------------------------
+    full_perf = full_dataset_performance(df)
+    log_full_dataset_performance(full_perf)
+
+    # ------------------------------------------------------------------
+    # Step 4g: FILTERED PERFORMANCE — metrics on regime-filtered signals
+    # ------------------------------------------------------------------
+    filtered_perf = filtered_regime_baseline(df)
+    log_filtered_performance(filtered_perf)
+
+    # ------------------------------------------------------------------
+    # Step 4h: WALK-FORWARD FILTERED PERFORMANCE — per-year OOS metrics
+    #          on filtered signals (no refitting of regime list)
+    # ------------------------------------------------------------------
+    filtered_wf_results = filtered_regime_walk_forward(df)
+    log_filtered_wf(filtered_wf_results)
+
+    # ------------------------------------------------------------------
+    # Step 4i: COVERAGE SUMMARY — fraction of signals retained by filter
+    # ------------------------------------------------------------------
+    coverage = compute_coverage_summary(df)
+    log_coverage_summary(coverage)
+
+    # ------------------------------------------------------------------
     # Step 5: MODEL WITHIN REGIME (secondary) — LightGBM walk-forward
     #         trained globally, evaluated per regime
     # ------------------------------------------------------------------
@@ -197,7 +260,6 @@ def main(argv=None) -> None:
         print("ERROR: No valid feature columns found in dataset. Exiting.")
         sys.exit(1)
 
-    import logging as _logging  # noqa: PLC0415
     _logging.getLogger(__name__).info("=== MODEL WITHIN REGIME ===")
 
     # Expanding-window LightGBM walk-forward with per-regime evaluation.
