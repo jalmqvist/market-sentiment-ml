@@ -100,17 +100,29 @@ class TestComputeRegimeSharpeMap:
         the map changes when different data is passed — confirming that no
         external data bleeds in.
         """
-        df = _make_df(n=600, seed=1)
-        # Split into train / test
+        # Use a small min_n so both slices can produce non-empty maps.
+        df = _make_df(n=900, seed=1)
         train = df[df["year"] < 2022]
         test = df[df["year"] >= 2022]
 
-        map_train = compute_regime_sharpe_map(train)
-        map_test = compute_regime_sharpe_map(test)
+        map_train = compute_regime_sharpe_map(train, min_n=10)
+        map_test = compute_regime_sharpe_map(test, min_n=10)
 
-        # Maps may differ because they are computed on different data slices.
-        # This is the correct leakage-free behavior.
-        assert map_train != map_test or len(map_train) == 0
+        # Both maps must be non-empty.
+        assert len(map_train) > 0, "Training map must be non-empty"
+        assert len(map_test) > 0, "Test map must be non-empty"
+
+        # Maps are computed on different data; Sharpe values should differ.
+        shared_regimes = set(map_train) & set(map_test)
+        assert shared_regimes, "Expected overlapping regime labels across slices"
+        sharpe_pairs = [(map_train[r], map_test[r]) for r in shared_regimes]
+        # At least one regime must have a different Sharpe across splits
+        # (returns are random so this is virtually guaranteed).
+        all_equal = all(abs(a - b) < 1e-12 for a, b in sharpe_pairs)
+        assert not all_equal, (
+            "Training and test Sharpe maps are identical; this suggests "
+            "data from the test slice may have leaked into the training map."
+        )
 
     def test_empty_dataframe(self):
         df = _make_df(n=0)
@@ -267,8 +279,9 @@ class TestRegimeWeightedWalkForward:
     def test_schema(self):
         df = _make_df(n=600)
         result = regime_weighted_walk_forward(df)
-        if not result.empty:
-            assert list(result.columns) == ["year", "n", "mean", "sharpe", "hit_rate"]
+        # Result may be empty if min_n threshold is not met, but columns must
+        # always match the defined schema regardless of row count.
+        assert list(result.columns) == ["year", "n", "mean", "sharpe", "hit_rate"]
 
     def test_fewer_than_3_years_returns_empty(self):
         df = _make_df(n=300)

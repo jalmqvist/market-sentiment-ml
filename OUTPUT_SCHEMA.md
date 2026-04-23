@@ -475,7 +475,7 @@ Walk-forward (OOS) versions are logged under:
 
 | Parameter           | Default | CLI flag              | Description                                              |
 |---------------------|---------|-----------------------|----------------------------------------------------------|
-| `WEIGHT_THRESHOLD`  | `0.05`  | `--weight-threshold`  | Minimum `\|weight\|` for a signal to be active           |
+| `WEIGHT_THRESHOLD`  | `0.05`  | `--weight-threshold`  | Minimum `abs(weight)` for a signal to be active          |
 | `NORMALIZE_WEIGHTS` | `False` | `--normalize-weights` | Normalize weights by `max_abs_sharpe` instead of clipping|
 
 ---
