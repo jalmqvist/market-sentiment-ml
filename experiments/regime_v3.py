@@ -249,7 +249,7 @@ def walk_forward_ridge(
         if n_active > 1:
             sr_mean = float(np.mean(signal_returns))
             sr_std = float(np.std(signal_returns))
-            sharpe = sr_mean / sr_std if sr_std > 0 else np.nan
+            sharpe = sr_mean / sr_std if sr_std > 1e-10 else np.nan
             hit_rate = float(np.mean(signal_returns > 0))
         else:
             sharpe = np.nan
@@ -258,7 +258,7 @@ def walk_forward_ridge(
         # R² on the test set.
         ss_res = float(np.sum((y_test - y_pred) ** 2))
         ss_tot = float(np.sum((y_test - y_test.mean()) ** 2))
-        r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else np.nan
+        r2 = 1.0 - ss_res / ss_tot if ss_tot > 1e-10 else np.nan
 
         results.append(
             {
@@ -379,7 +379,7 @@ def print_wf_summary(wf_df: pd.DataFrame) -> None:
     print(f"  Mean IC:           {wf_df['ic'].mean():.4f}")
     print(f"  Mean Sharpe:       {wf_df['signal_sharpe'].mean():.4f}")
     print(f"  Mean Hit Rate:     {wf_df['signal_hit_rate'].mean():.4f}")
-    print(f"  Mean R\u00b2:           {wf_df['r2'].mean():.4f}")
+    print(f"  Median R\u00b2:         {wf_df['r2'].median():.4f}")
     print(f"  Folds evaluated:   {len(wf_df)}")
     logger.info("wf_summary (library): %s", summary)
 
