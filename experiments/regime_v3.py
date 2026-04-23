@@ -2399,7 +2399,12 @@ def convert_sharpe_to_weight(
         # Tanh mode (default): standardise by cross-sectional std then apply
         # tanh so that the full (-1, 1) range is utilised even when absolute
         # Sharpe values are small.
-        std_sharpe = float(np.std(values))  # population std (ddof=0)
+        # Population std (ddof=0) is used here deliberately: we treat the
+        # observed set of regime Sharpes as the full reference distribution for
+        # this fold, not a sample from a larger population.  Using ddof=0
+        # avoids division by zero when only one regime is present and produces
+        # a stable normalisation regardless of how many regimes are in the map.
+        std_sharpe = float(np.std(values))  # ddof=0 (population std)
         weights = np.tanh(values / (std_sharpe + 1e-6))
 
     weight_map = {k: float(w) for k, w in zip(sharpe_map.keys(), weights)}
@@ -2887,6 +2892,7 @@ def make_regime_weights_df(
         for r in all_regimes
     ]
     df_out = pd.DataFrame(rows, columns=_COLS)
+    # Sort by absolute weight descending so highest-conviction regimes appear first.
     df_out = df_out.sort_values("weight", key=np.abs, ascending=False).reset_index(
         drop=True
     )
