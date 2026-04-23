@@ -14,16 +14,16 @@ build_dataset  →  [attach_regimes]  →  discovery  →  portfolio  →  [regi
                   (optional step)
 ```
 
-| Stage | Script | Dataset used | Required |
-|---|---|---|---|
-| Build canonical dataset | `pipeline/build_dataset.py` | raw inputs → `DATA_PATH` | Yes |
-| Attach regime labels | `attach_regimes_to_h1_dataset.py` | `DATA_PATH` → `DATA_PATH_REGIME` | Optional |
-| Signal discovery | `experiments/discovery.py` | `DATA_PATH` (canonical) | Yes |
-| Parametric sweep | `experiments/sweep.py` | `DATA_PATH` (canonical) | Optional |
-| Walk-forward evaluation | `evaluation/walk_forward.py` (library) | `DATA_PATH` (canonical) | Library only |
-| Portfolio construction | `portfolio/portfolio_builder.py` | `DATA_PATH` (canonical) | Yes |
-| Regime experiments | `experiments/regime_v2.py` | `DATA_PATH_REGIME` (regime only) | Optional |
-| Validation | `validation/validate_pipeline_extended.py` | both datasets | Automatic |
+| Stage                   | Script                                     | Dataset used                     | Required     |
+| ----------------------- | ------------------------------------------ | -------------------------------- | ------------ |
+| Build canonical dataset | `pipeline/build_dataset.py`                | raw inputs → `DATA_PATH`         | Yes          |
+| Attach regime labels    | `attach_regimes_to_h1_dataset.py`          | `DATA_PATH` → `DATA_PATH_REGIME` | Optional     |
+| Signal discovery        | `experiments/discovery.py`                 | `DATA_PATH` (canonical)          | Yes          |
+| Parametric sweep        | `experiments/sweep.py`                     | `DATA_PATH` (canonical)          | Optional     |
+| Walk-forward evaluation | `evaluation/walk_forward.py` (library)     | `DATA_PATH` (canonical)          | Library only |
+| Portfolio construction  | `portfolio/portfolio_builder.py`           | `DATA_PATH` (canonical)          | Yes          |
+| Regime experiments      | `experiments/regime_v2.py`                 | `DATA_PATH_REGIME` (regime only) | Optional     |
+| Validation              | `validation/validate_pipeline_extended.py` | both datasets                    | Automatic    |
 
 > **Important:** `--data` is the ONLY accepted dataset argument for all stage
 > scripts.  It is **required** — no default path is used.  This prevents
@@ -36,16 +36,16 @@ build_dataset  →  [attach_regimes]  →  discovery  →  portfolio  →  [regi
 All paths are defined in **`config.py`**.  Stage scripts do **not** fall back
 to config paths; you must pass the dataset explicitly via `--data`.
 
-| Variable | Default value | Purpose |
-|---|---|---|
-| `DATA_PATH` | `data/output/master_research_dataset.csv` | **Canonical base dataset.** Used by all non-regime scripts. |
-| `DATA_PATH_REGIME` | `data/output/master_research_dataset_with_regime.csv` | Regime-enriched dataset. Used **only** by regime scripts. |
-| `SENTIMENT_DIR` | `data/input/sentiment` | Input directory for sentiment snapshot CSVs. |
-| `PRICE_DIR` | `data/input/fx` | Input directory for hourly FX price CSVs. |
+| Variable                 | Default value                                                | Purpose                                                      |
+| ------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| `DATA_PATH`              | `data/output/master_research_dataset.csv`                    | **Canonical base dataset.** Used by all non-regime scripts.  |
+| `DATA_PATH_REGIME`       | `data/output/master_research_dataset_with_regime.csv`        | Regime-enriched dataset. Used **only** by regime scripts.    |
+| `SENTIMENT_DIR`          | `data/input/sentiment`                                       | Input directory for sentiment snapshot CSVs.                 |
+| `PRICE_DIR`              | `data/input/fx`                                              | Input directory for hourly FX price CSVs.                    |
 | `REGIME_PARQUET_DEFAULT` | `../market-phase-ml/data/output/regimes/phase_labels_d1.parquet` | D1 regime labels from the companion repo. Override via `REGIME_PARQUET_PATH` env var. |
-| `OUTPUT_DIR` | `data/output/` | Root output directory. |
-| `HORIZONS` | `[1, 2, 4, 6, 12, 24, 48]` | Forward-return horizons (hourly bars). |
-| `EVAL_HORIZONS` | `[12, 48]` | Horizons used in evaluation experiments. |
+| `OUTPUT_DIR`             | `data/output/`                                               | Root output directory.                                       |
+| `HORIZONS`               | `[1, 2, 4, 6, 12, 24, 48]`                                   | Forward-return horizons (hourly bars).                       |
+| `EVAL_HORIZONS`          | `[12, 48]`                                                   | Horizons used in evaluation experiments.                     |
 
 > **Tip:** set the `LOG_LEVEL` environment variable (e.g. `export LOG_LEVEL=DEBUG`)
 > to enable verbose output across all scripts.
@@ -167,11 +167,11 @@ logs the following diagnostics at `INFO` level:
 
 `WARNING` is logged (but execution is NOT stopped) when:
 
-| Metric | Threshold |
-|---|---|
-| `match_rate` | `< 0.95` |
-| `missing_rate` (overall) | `> 0.10` |
-| pair coverage | `< 0.50` |
+| Metric                   | Threshold |
+| ------------------------ | --------- |
+| `match_rate`             | `< 0.95`  |
+| `missing_rate` (overall) | `> 0.10`  |
+| pair coverage            | `< 0.50`  |
 
 ---
 
@@ -380,6 +380,39 @@ python experiments/regime_v2.py \
 
 ---
 
+### 7b. Regime V3 (LightGBM walk-forward on canonical dataset)
+
+`experiments/regime_v3.py` is a LightGBM regression walk-forward experiment that
+predicts `ret_48b` from **sentiment + trend + a causal volatility feature**
+(`vol_24b`, computed from `entry_close` with a past-only rolling window), plus a
+small set of causal interaction terms.
+
+It runs an **expanding-window walk-forward by year** (train on all prior years,
+test on the current year) and prints per-fold metrics such as:
+
+- Spearman IC between predictions and realized `ret_48b`
+- a simple directional “signal Sharpe” using `sign(pred) * ret_48b`
+- hit rate, and test-set R²
+
+Run it on the **canonical dataset**:
+
+```bash
+python -m experiments.regime_v3 \
+  --data data/output/master_research_dataset.csv \
+  --log-level INFO
+
+# Direct execution (equivalent):
+python experiments/regime_v3.py \
+  --data data/output/master_research_dataset.csv \
+  --log-level DEBUG
+```
+
+If some candidate feature columns are missing in the dataset, they are skipped
+(with a warning); the experiment still runs as long as at least one feature and
+the target column `ret_48b` are present.
+
+---
+
 ### 8. Extended validation
 
 Validates dataset integrity, signal parity, performance, and regime isolation.
@@ -422,10 +455,10 @@ processing data.  If a required column is missing the script raises
 `ValueError` with a clear message listing the missing columns and the
 call-site context.
 
-| Script | Required columns |
-|---|---|
-| All scripts | `pair`, `time` |
-| `experiments/regime_v2.py` | `phase`, `is_trending`, `is_high_vol` (regime columns) |
+| Script                           | Required columns                                             |
+| -------------------------------- | ------------------------------------------------------------ |
+| All scripts                      | `pair`, `time`                                               |
+| `experiments/regime_v2.py`       | `phase`, `is_trending`, `is_high_vol` (regime columns)       |
 | `portfolio/portfolio_builder.py` | `extreme_streak_70`, `crowd_persistence_bucket_70` (signal columns) |
 
 Non-regime scripts do **not** require regime columns.
@@ -438,27 +471,4 @@ Set `LOG_LEVEL=DEBUG` to enable verbose pipeline logging:
 
 ```bash
 export LOG_LEVEL=DEBUG
-python -m experiments.discovery --data data/output/master_research_dataset.csv
-```
-
-At `DEBUG` level you will see:
-
-- Row counts after each filter stage
-- Min/max timestamps after normalization
-- Missing column errors with call-site context
-- Walk-forward fold statistics
-
-At `WARNING` level (default) you will see:
-
-- Empty DataFrame warnings (with the stage name)
-- NaT counts from timestamp parsing
-- Regime match-rate warnings (if < 95%)
-- Pair coverage warnings (if < 50%)
-- Missing regime rate warnings (if > 10%)
-
-To change the log level for a single run without editing config:
-
-```bash
-python -m portfolio.portfolio_builder --data data/output/master_research_dataset.csv --log-level DEBUG
-```
-
+python -m experiments.discovery --data data/output/master_research
