@@ -350,9 +350,7 @@ Future work focuses on behavioral regime features derived from sentiment.
 
 ---
 
----
-
-## Column classification for downstream modelling
+## Column classification for downstream modeling
 
 This section clarifies which columns are safe to use as model inputs and which
 are prohibited due to forward-looking content.

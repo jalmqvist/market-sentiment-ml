@@ -94,6 +94,9 @@ LGBM_PARAMS: dict = {
 }
 
 #: Minimum training observations before a LightGBM model is fit (stability guard).
+#: 10 000 rows is a conservative lower bound for tree-based models with up to
+#: 31 leaves and 200 estimators, ensuring that each leaf has sufficient coverage
+#: and that leave-one-out CV statistics are meaningful.
 MIN_TRAIN_OBS: int = 10_000
 
 #: Whitelisted causal feature columns.  Only these may be used as model inputs.
@@ -194,8 +197,9 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
 
     # Regime diagnostic: volatility buckets (low / mid / high).
     # Only computed for rows with valid vol_24b; not used for modeling.
+    # Requires at least 3 non-null values to produce 3 distinct quantile buckets.
     valid_vol = out["vol_24b"].notna()
-    if valid_vol.sum() >= 3:
+    if valid_vol.sum() >= 3:  # minimum for a 3-way qcut
         out.loc[valid_vol, "vol_bucket"] = pd.qcut(
             out.loc[valid_vol, "vol_24b"],
             q=3,
@@ -474,7 +478,7 @@ def walk_forward_ridge(
 
         # Demean y_train per fold to remove in-sample level bias.
         # Test targets are NOT modified; no test information leaks into training.
-        y_train_mean = float(np.mean(y_train))
+        y_train_mean = np.mean(y_train)
         y_train_demeaned = y_train - y_train_mean
 
         model = lgb.LGBMRegressor(**params)
