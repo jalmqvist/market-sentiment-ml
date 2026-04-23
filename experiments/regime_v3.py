@@ -1,7 +1,7 @@
 """
 experiments/regime_v3.py
 ========================
-Ridge regression walk-forward experiment: predict ``ret_48b`` from
+LightGBM walk-forward experiment: predict ``ret_48b`` from
 sentiment + volatility + trend features with no lookahead leakage.
 
 The walk-forward loop uses the same expanding-window discipline as
@@ -22,8 +22,9 @@ All features are strictly causal at ``entry_time``:
   ``abs_sent_x_vol24b``, ``extreme70_x_trend48b``: products of base
   features that capture non-linear regime signals
 
-Features columns present in the dataset are used; missing columns emit a
-warning and are silently dropped.
+Only columns listed in ``SAFE_FEATURES`` are ever used as model inputs.
+Any column matching ``ret_*`` or ``contrarian_ret_*`` is explicitly
+prohibited and triggers a ``ValueError`` if accidentally included.
 
 The experiment also evaluates **conditional performance by regime**.  Each
 observation is assigned to one of up to nine regimes formed by crossing a
@@ -55,11 +56,10 @@ if __package__ is None or __package__ == "":
     if str(_repo_root) not in sys.path:
         sys.path.insert(0, str(_repo_root))
 
+import lightgbm as lgb
 import numpy as np
 import pandas as pd
 from scipy import stats
-from sklearn.linear_model import RidgeCV
-from sklearn.preprocessing import StandardScaler
 
 import config as cfg
 from evaluation.walk_forward import wf_summary
@@ -75,13 +75,53 @@ logger = logging.getLogger(__name__)
 
 TARGET_COL: str = "ret_48b"
 
-#: Candidate regularisation strengths for RidgeCV (leave-one-out CV).
-RIDGE_ALPHAS: tuple[float, ...] = (0.1, 1.0, 10.0, 100.0)
+#: LightGBM parameters.  Using canonical names to avoid duplicates:
+#: - ``min_data_in_leaf`` (not ``min_child_samples``)
+#: - ``min_gain_to_split`` (not ``min_split_gain``)
+LGBM_PARAMS: dict = {
+    "objective": "regression",
+    "verbosity": -1,
+    "n_estimators": 200,
+    "learning_rate": 0.05,
+    "num_leaves": 31,
+    "min_data_in_leaf": 20,
+    "min_gain_to_split": 0.0,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "reg_alpha": 0.1,
+    "reg_lambda": 1.0,
+    "random_state": 42,
+}
 
-#: Minimum training observations before a Ridge model is fit.
-MIN_TRAIN_OBS: int = 50
+#: Minimum training observations before a LightGBM model is fit (stability guard).
+MIN_TRAIN_OBS: int = 10_000
 
-#: Sentiment features – all available at ``snapshot_time`` (causal).
+#: Whitelisted causal feature columns.  Only these may be used as model inputs.
+#: Any column matching ``ret_*`` or ``contrarian_ret_*`` is explicitly prohibited.
+SAFE_FEATURES: list[str] = [
+    # Sentiment features – available at snapshot_time (causal)
+    "net_sentiment",
+    "abs_sentiment",
+    "sentiment_change",
+    "side_streak",
+    "extreme_streak_70",
+    "extreme_streak_80",
+    # Trend features – backward-looking past-price columns (causal)
+    "trend_strength_12b",
+    "trend_strength_48b",
+    "trend_dir_12b",
+    "trend_dir_48b",
+    # Volatility feature added by build_features
+    "vol_24b",
+    # Interaction features added by build_features
+    "abs_sent_x_trend12b",
+    "abs_sent_x_trend48b",
+    "abs_sent_x_vol24b",
+    "extreme70_x_trend48b",
+]
+
+#: Sentinel sub-lists kept for backward compatibility with callers that
+#: reference the individual category lists.
 SENTIMENT_FEATURES: list[str] = [
     "net_sentiment",
     "abs_sentiment",
@@ -91,7 +131,6 @@ SENTIMENT_FEATURES: list[str] = [
     "extreme_streak_80",
 ]
 
-#: Trend features – backward-looking past-price columns (causal).
 TREND_FEATURES: list[str] = [
     "trend_strength_12b",
     "trend_strength_48b",
@@ -99,10 +138,8 @@ TREND_FEATURES: list[str] = [
     "trend_dir_48b",
 ]
 
-#: Volatility feature added by ``build_features``.
 VOLATILITY_FEATURES: list[str] = ["vol_24b"]
 
-#: Interaction features added by ``build_features`` (products of base features).
 INTERACTION_FEATURES: list[str] = [
     "abs_sent_x_trend12b",
     "abs_sent_x_trend48b",
@@ -116,12 +153,16 @@ INTERACTION_FEATURES: list[str] = [
 # ---------------------------------------------------------------------------
 
 def build_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Add causal volatility and interaction features.
+    """Add causal volatility and interaction features, plus a regime diagnostic.
 
     ``vol_24b`` is the rolling 24-bar standard deviation of bar-to-bar
     ``entry_close`` returns within each pair.  Because the rolling window
     references only past observations (``min_periods=5``), there is no
     lookahead.
+
+    ``vol_bucket`` is a three-way volatility quantile bucket computed via
+    ``pd.qcut(vol_24b, 3)`` for regime diagnostics.  It is not used as a
+    model input; it is stored for distribution logging only.
 
     Interaction features are products of base features computed after
     ``vol_24b`` is available.  Each interaction is only created when both
@@ -132,7 +173,8 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
         df: Dataset with ``pair``, ``entry_time``, and ``entry_close``.
 
     Returns:
-        Copy of *df* with ``vol_24b`` and available interaction columns added.
+        Copy of *df* with ``vol_24b``, ``vol_bucket``, and available
+        interaction columns added.
     """
     require_columns(df, ["pair", "entry_time", "entry_close"], context="build_features")
 
@@ -149,6 +191,21 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     out = out.drop(columns=["_bar_ret"])
 
     logger.debug("vol_24b: %d non-null values", out["vol_24b"].notna().sum())
+
+    # Regime diagnostic: volatility buckets (low / mid / high).
+    # Only computed for rows with valid vol_24b; not used for modeling.
+    valid_vol = out["vol_24b"].notna()
+    if valid_vol.sum() >= 3:
+        out.loc[valid_vol, "vol_bucket"] = pd.qcut(
+            out.loc[valid_vol, "vol_24b"],
+            q=3,
+            labels=["low", "mid", "high"],
+        )
+        bucket_dist = out["vol_bucket"].value_counts().sort_index()
+        logger.info("vol_bucket distribution: %s", bucket_dist.to_dict())
+    else:
+        out["vol_bucket"] = np.nan
+        logger.warning("build_features: not enough vol_24b values for vol_bucket qcut")
 
     # Interaction features – only created when both operands are present.
     _interactions: list[tuple[str, str, str]] = [
@@ -179,19 +236,34 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
 def select_features(df: pd.DataFrame) -> list[str]:
     """Return feature column names that are present in *df*.
 
-    Combines SENTIMENT_FEATURES + TREND_FEATURES + VOLATILITY_FEATURES and
-    filters to columns that actually exist.  Missing candidates emit a
-    warning.
+    Filters ``SAFE_FEATURES`` to columns that actually exist in *df*.
+    Missing candidates emit a warning.
+
+    Also performs leakage protection: raises ``ValueError`` if any selected
+    feature column starts with ``ret_`` or matches ``contrarian_ret_*``, as
+    these are forward-looking target columns that must never be used as inputs.
 
     Args:
         df: Dataset (after ``build_features``).
 
     Returns:
-        List of available feature column names.
+        List of available feature column names (subset of ``SAFE_FEATURES``).
+
+    Raises:
+        ValueError: If a leaking column is detected in the candidate list.
     """
-    candidates = SENTIMENT_FEATURES + TREND_FEATURES + VOLATILITY_FEATURES + INTERACTION_FEATURES
-    feature_cols = [c for c in candidates if c in df.columns]
-    missing = [c for c in candidates if c not in df.columns]
+    # Leakage guard: assert SAFE_FEATURES itself contains no forbidden columns.
+    leaking = [
+        c for c in SAFE_FEATURES
+        if c.startswith("ret_") or c.startswith("contrarian_ret_")
+    ]
+    if leaking:
+        raise ValueError(
+            f"Leakage detected: SAFE_FEATURES contains forward-looking columns: {leaking}"
+        )
+
+    feature_cols = [c for c in SAFE_FEATURES if c in df.columns]
+    missing = [c for c in SAFE_FEATURES if c not in df.columns]
     if missing:
         logger.warning("Feature columns not in dataset (skipped): %s", missing)
     logger.info("Using %d features: %s", len(feature_cols), feature_cols)
@@ -301,7 +373,7 @@ def _regime_metrics(y_pred: np.ndarray, y_test: np.ndarray) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Walk-forward Ridge regression
+# Walk-forward LightGBM regression
 # ---------------------------------------------------------------------------
 
 def walk_forward_ridge(
@@ -310,38 +382,46 @@ def walk_forward_ridge(
     *,
     target_col: str = TARGET_COL,
     year_col: str = "year",
-    alphas: tuple[float, ...] = RIDGE_ALPHAS,
     min_train_obs: int = MIN_TRAIN_OBS,
     regime_col: str | None = None,
+    lgbm_params: dict | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Expanding-window walk-forward with Ridge regression.
+    """Expanding-window walk-forward with LightGBM regression.
 
     Follows the same discipline as
     ``evaluation.walk_forward.walk_forward_expanding``: for each test year
     (starting from index 2 in the sorted unique-year list), the model is
     trained on *all prior years* and evaluated on the current year.
 
-    Feature scaling (``StandardScaler``) is fit on training data only and
-    applied to test data – no leakage.
+    **Stability guard**: folds where the training set has fewer than
+    ``min_train_obs`` rows (default 10 000) are skipped with a warning.
+
+    **Target demeaning**: ``y_train`` is demeaned per fold before fitting.
+    The fold mean is subtracted from training targets to remove any
+    in-sample level bias.  Test targets are *not* modified, preventing
+    leakage of test information into training.
 
     When *regime_col* is provided the test-set predictions are also broken
     down by regime and metrics are computed for each regime group.
 
     Args:
         df: Dataset with feature columns, *target_col*, and *year_col*.
-        feature_cols: Columns to use as predictors.
+        feature_cols: Columns to use as predictors (must be a subset of
+            ``SAFE_FEATURES``; no ``ret_*`` or ``contrarian_ret_*`` allowed).
         target_col: Regression target column (default ``ret_48b``).
         year_col: Column containing the calendar year.
-        alphas: Regularisation strengths for ``RidgeCV``.
-        min_train_obs: Minimum training observations required per fold.
+        min_train_obs: Minimum training rows required per fold.  Folds
+            below this threshold are skipped.  Default is 10 000.
         regime_col: Optional column name containing regime labels.  When
             provided, per-regime metrics are computed for each fold.
+        lgbm_params: Optional override for LightGBM parameters.  Defaults
+            to ``LGBM_PARAMS``.
 
     Returns:
         A 2-tuple ``(wf_df, regime_df)``:
 
         * *wf_df* – one row per test fold:
-          year, n_train, n_test, alpha, ic, signal_sharpe, signal_hit_rate, r2.
+          year, n_train, n_test, ic, signal_sharpe, signal_hit_rate, r2.
         * *regime_df* – one row per (fold, regime) combination:
           year, regime, n, ic, signal_sharpe, signal_hit_rate.
           Empty if *regime_col* is ``None`` or no valid folds.
@@ -349,6 +429,8 @@ def walk_forward_ridge(
     require_columns(
         df, [year_col, target_col] + feature_cols, context="walk_forward_ridge"
     )
+
+    params = dict(LGBM_PARAMS) if lgbm_params is None else dict(lgbm_params)
 
     years = sorted(df[year_col].unique())
     if len(years) < 3:
@@ -371,8 +453,9 @@ def walk_forward_ridge(
             subset=feature_cols + [target_col]
         )
 
+        # Walk-forward stability guard: require sufficient training data.
         if len(train) < min_train_obs:
-            logger.debug(
+            logger.warning(
                 "Skipping test_year=%d: %d train rows (need %d)",
                 test_year,
                 len(train),
@@ -384,21 +467,20 @@ def walk_forward_ridge(
             logger.debug("Skipping test_year=%d: empty test set", test_year)
             continue
 
-        X_train = train[feature_cols].values
+        X_train = train[feature_cols]
         y_train = train[target_col].values
-        X_test = test[feature_cols].values
+        X_test = test[feature_cols]
         y_test = test[target_col].values
 
-        # Fit scaler on training data only (no leakage).
-        scaler = StandardScaler()
-        X_train_s = scaler.fit_transform(X_train)
-        X_test_s = scaler.transform(X_test)
+        # Demean y_train per fold to remove in-sample level bias.
+        # Test targets are NOT modified; no test information leaks into training.
+        y_train_mean = float(np.mean(y_train))
+        y_train_demeaned = y_train - y_train_mean
 
-        # RidgeCV selects alpha via leave-one-out CV on the training set.
-        model = RidgeCV(alphas=alphas)
-        model.fit(X_train_s, y_train)
+        model = lgb.LGBMRegressor(**params)
+        model.fit(X_train, y_train_demeaned)
 
-        y_pred = model.predict(X_test_s)
+        y_pred = model.predict(X_test)
 
         # IC: Spearman rank correlation between predictions and actuals.
         ic, _ = stats.spearmanr(y_pred, y_test)
@@ -428,7 +510,6 @@ def walk_forward_ridge(
                 "year": int(test_year),
                 "n_train": len(train),
                 "n_test": len(test),
-                "alpha": float(model.alpha_),
                 "ic": float(ic) if not np.isnan(ic) else np.nan,
                 "signal_sharpe": sharpe,
                 "signal_hit_rate": hit_rate,
@@ -437,11 +518,10 @@ def walk_forward_ridge(
         )
 
         logger.debug(
-            "year=%d | train=%d | test=%d | alpha=%.2f | IC=%.4f | Sharpe=%.4f | R2=%.4f",
+            "year=%d | train=%d | test=%d | IC=%.4f | Sharpe=%.4f | R2=%.4f",
             test_year,
             len(train),
             len(test),
-            model.alpha_,
             ic,
             sharpe if not np.isnan(sharpe) else float("nan"),
             r2 if not np.isnan(r2) else float("nan"),
@@ -511,10 +591,12 @@ def load_data(path: str | Path) -> pd.DataFrame:
 
     date_min = df["timestamp"].min()
     date_max = df["timestamp"].max()
-    print(
-        f"Dataset summary: {len(df):,} rows | "
-        f"{df['pair'].nunique()} unique pairs | "
-        f"{date_min} to {date_max}"
+    logger.info(
+        "Dataset summary: %d rows | %d unique pairs | %s to %s",
+        len(df),
+        df["pair"].nunique(),
+        date_min,
+        date_max,
     )
     logger.info("Dataset loaded: %d rows, %d pairs", len(df), df["pair"].nunique())
     return df
@@ -537,12 +619,11 @@ def print_wf_summary(wf_df: pd.DataFrame) -> None:
         print("No walk-forward results.")
         return
 
-    print("\n=== WALK-FORWARD RESULTS (Ridge → ret_48b) ===")
+    print("\n=== WALK-FORWARD RESULTS (LightGBM → ret_48b) ===")
     display_cols = [
         "year",
         "n_train",
         "n_test",
-        "alpha",
         "ic",
         "signal_sharpe",
         "signal_hit_rate",

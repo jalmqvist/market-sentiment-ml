@@ -196,6 +196,14 @@ This normalization must be consistent across all output artifacts.
 
 ## 4. Forward returns
 
+> ⚠️ **Target columns — forward-looking, NEVER use as features**
+>
+> The columns below are computed from future price information.  They are
+> strictly out-of-sample relative to the signal at ``entry_time`` and must
+> **never** be used as predictive inputs in any model or analysis.
+> Specifically, **`ret_*` and `contrarian_ret_*` columns are prohibited as
+> features** in all downstream modelling code.
+
 For each horizon `h` in:
 
 ```
@@ -339,6 +347,74 @@ They are retained for analysis and comparison, but are not considered
 primary candidates for signal gating in the current research direction.
 
 Future work focuses on behavioral regime features derived from sentiment.
+
+---
+
+---
+
+## Column classification for downstream modelling
+
+This section clarifies which columns are safe to use as model inputs and which
+are prohibited due to forward-looking content.
+
+### (A) Target columns — forward-looking, NOT usable as features
+
+The following columns are computed from future price information and must
+**never** be used as predictive inputs in any model or signal:
+
+| Column pattern          | Reason                                      |
+|-------------------------|---------------------------------------------|
+| `ret_{h}b`              | Forward return — depends on future prices   |
+| `contrarian_ret_{h}b`   | Derived from `ret_{h}b` — equally forbidden |
+
+**Rule**: Any column whose name starts with `ret_` or matches
+`contrarian_ret_*` is a leaking target column.  Downstream code must assert
+that no such column appears in the feature list.
+
+### (B) Causal feature columns — safe for modelling
+
+The following columns are safe for use as model inputs because they depend
+only on past information available at `entry_time`:
+
+**Sentiment features** (available at `snapshot_time`, which precedes `entry_time`):
+
+- `net_sentiment`
+- `abs_sentiment`
+- `sentiment_change`
+- `side_streak`
+- `extreme_streak_70`
+- `extreme_streak_80`
+
+**Trend features** (backward-looking past-price columns):
+
+- `trend_strength_12b`
+- `trend_strength_48b`
+- `trend_dir_12b`
+- `trend_dir_48b`
+
+**Volatility** (rolling past-bar standard deviation):
+
+- `vol_24b`
+
+**Interaction features** (products of causal base columns):
+
+- `abs_sent_x_trend12b`
+- `abs_sent_x_trend48b`
+- `abs_sent_x_vol24b`
+- `extreme70_x_trend48b`
+
+The canonical safe feature list is defined in `experiments/regime_v3.SAFE_FEATURES`.
+
+### (C) Deprecated or ambiguous names
+
+| Column                  | Status        | Notes                                           |
+|-------------------------|---------------|-------------------------------------------------|
+| `past_ret_{h}b`         | Causal        | Safe for analysis; not in primary feature set   |
+| `trend_alignment_{h}b`  | Causal        | Safe for analysis; not in primary feature set   |
+| `trend_strength_bucket_*` | Causal      | Discretized version; for regime diagnostics only|
+| `vol_bucket`            | Causal        | Regime diagnostic only; not a model input       |
+| `vol_regime`            | Causal        | Regime label; not a model input                 |
+| `regime`                | Causal        | Combined regime label; not a model input        |
 
 ---
 
