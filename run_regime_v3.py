@@ -102,9 +102,14 @@ def main(argv=None) -> None:
     # the handlers set above.
     from experiments.regime_v3 import (  # noqa: PLC0415
         TARGET_COL,
+        build_behavioural_regimes,
         build_features,
         build_regimes,
+        behavioural_regime_baseline,
+        behavioural_regime_walk_forward,
         load_data,
+        log_behavioural_regime_summary,
+        log_behavioural_regime_wf,
         log_regime_baseline,
         log_regime_wf,
         print_regime_summary,
@@ -120,8 +125,11 @@ def main(argv=None) -> None:
     # Step 1: Compute causal volatility feature (vol_24b) and interaction features.
     df = build_features(df)
 
-    # Step 2: Discretise features into regimes BEFORE any modeling.
+    # Step 2: Discretise features into vol/trend regimes BEFORE any modeling.
     df = build_regimes(df)
+
+    # Step 2b: Discretise sentiment features into behavioural regimes.
+    df = build_behavioural_regimes(df)
 
     if TARGET_COL not in df.columns:
         print(f"ERROR: Target column '{TARGET_COL}' not found. Exiting.")
@@ -134,10 +142,24 @@ def main(argv=None) -> None:
     log_regime_baseline(regime_summary)
 
     # ------------------------------------------------------------------
+    # Step 3b: BEHAVIOURAL REGIME SUMMARY — full-dataset behavioural
+    #          discovery (no model)
+    # ------------------------------------------------------------------
+    behavioural_summary = behavioural_regime_baseline(df)
+    log_behavioural_regime_summary(behavioural_summary)
+
+    # ------------------------------------------------------------------
     # Step 4: REGIME WALK-FORWARD — out-of-sample regime validation
     # ------------------------------------------------------------------
     regime_wf = regime_walk_forward(df)
     log_regime_wf(regime_wf)
+
+    # ------------------------------------------------------------------
+    # Step 4b: WALK-FORWARD REGIME PERFORMANCE — out-of-sample
+    #          behavioural regime validation
+    # ------------------------------------------------------------------
+    behavioural_wf = behavioural_regime_walk_forward(df)
+    log_behavioural_regime_wf(behavioural_wf)
 
     # ------------------------------------------------------------------
     # Step 5: MODEL WITHIN REGIME (secondary) — LightGBM walk-forward
