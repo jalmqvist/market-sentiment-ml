@@ -35,6 +35,20 @@ MASTER_DATASET_CORE_PATH = OUTPUT_DIR / "master_research_dataset_core.csv"
 MASTER_DATASET_EXTENDED_PATH = OUTPUT_DIR / "master_research_dataset_extended.csv"
 MASTER_DATASET_WITH_REGIME_PATH = OUTPUT_DIR / "master_research_dataset_with_regime.csv"
 PAIR_COVERAGE_PATH = OUTPUT_DIR / "pair_coverage_summary.csv"
+
+# ---------------------------------------------------------------------------
+# Canonical dataset aliases
+# ---------------------------------------------------------------------------
+
+# DATA_PATH: canonical base dataset used for signal discovery, walk-forward
+# evaluation, portfolio construction, and sanity checks.
+DATA_PATH: Path = MASTER_DATASET_PATH  # data/output/master_research_dataset.csv
+
+# DATA_PATH_REGIME: regime-enriched dataset.  Use ONLY for regime experiments,
+# conditioning tests, and feature engineering that requires regime columns
+# (phase, is_trending, is_high_vol).  Scripts that require this dataset will
+# fail clearly if those columns are absent.
+DATA_PATH_REGIME: Path = MASTER_DATASET_WITH_REGIME_PATH  # data/output/master_research_dataset_with_regime.csv
 DATASET_MANIFEST_PATH = OUTPUT_DIR / "DATASET_MANIFEST.json"
 
 FEATURES_DIR = OUTPUT_DIR / "features"

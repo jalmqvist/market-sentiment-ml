@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 def load_data(path=None) -> pd.DataFrame:
     """Load and prepare the research dataset for the sweep."""
     if path is None:
-        path = cfg.MASTER_DATASET_PATH
+        path = cfg.DATA_PATH
 
     df = read_csv(path, required_columns=["pair", "time"])
 
@@ -175,7 +175,7 @@ def main(argv=None) -> None:
     )
     p.add_argument(
         "--input",
-        default=str(cfg.MASTER_DATASET_PATH),
+        default=str(cfg.DATA_PATH),
         help="Path to master research dataset CSV.",
     )
     p.add_argument(

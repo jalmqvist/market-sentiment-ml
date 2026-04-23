@@ -9,7 +9,7 @@ only structure and safety checks have been added.
 Usage::
 
     python -m experiments.regime_v2
-    python -m experiments.regime_v2 --input data/output/master_research_dataset.csv \\
+    python -m experiments.regime_v2 --input data/output/master_research_dataset_with_regime.csv \\
                                     --log-level DEBUG
 """
 
@@ -35,18 +35,43 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Regime column validation
+# ---------------------------------------------------------------------------
+
+#: Columns that must be present in the regime-enriched dataset.
+REGIME_REQUIRED_COLUMNS: list[str] = ["phase", "is_trending", "is_high_vol"]
+
+
+def _require_regime_columns(df: pd.DataFrame, context: str = "") -> None:
+    """Raise ``ValueError`` if regime columns are missing from *df*.
+
+    This provides a clear, actionable error when a non-regime dataset is
+    accidentally passed to a regime-specific script.
+    """
+    require_columns(df, REGIME_REQUIRED_COLUMNS, context=context)
+
+
+# ---------------------------------------------------------------------------
 # Data loading
 # ---------------------------------------------------------------------------
 
 def load_data(path=None) -> pd.DataFrame:
-    """Load and prepare the research dataset for Regime V2 evaluation."""
+    """Load and prepare the research dataset for Regime V2 evaluation.
+
+    Defaults to ``config.DATA_PATH_REGIME`` (the regime-enriched dataset).
+    Raises ``ValueError`` clearly if required regime columns are absent.
+    """
     if path is None:
-        path = cfg.MASTER_DATASET_PATH
+        path = cfg.DATA_PATH_REGIME
 
     df = read_csv(
         path,
         required_columns=["pair", "time"],
     )
+
+    # Regime scripts require regime-specific columns. Fail clearly rather
+    # than producing silently empty or misleading results.
+    _require_regime_columns(df, context="regime_v2.load_data")
 
     df = parse_timestamps(df, "time", context="regime_v2.load_data")
     df["timestamp"] = df["time"]
@@ -183,8 +208,8 @@ def main(argv=None) -> None:
     )
     p.add_argument(
         "--input",
-        default=str(cfg.MASTER_DATASET_PATH),
-        help="Path to master research dataset CSV.",
+        default=str(cfg.DATA_PATH_REGIME),
+        help="Path to regime-enriched research dataset CSV (must contain phase, is_trending, is_high_vol).",
     )
     p.add_argument(
         "--log-level",
