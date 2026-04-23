@@ -232,10 +232,12 @@ TREND_REGIMES: list[str] = [
 #: Default weight threshold for regime-based signal weighting.
 #: Regimes whose absolute weight falls below this value are treated as
 #: inactive (``signal = 0``).  Override via CLI ``--weight-threshold``.
-WEIGHT_THRESHOLD: float = 0.05
+#: Set to 0.0 so that small but meaningful weights are retained rather than
+#: collapsed to zero (regime Sharpes are typically small, ~±0.05).
+WEIGHT_THRESHOLD: float = 0.0
 
 #: Default weighting mode for ``convert_sharpe_to_weight``.
-#: When ``False`` (default): ``weight = clip(sharpe, -1.0, 1.0)``.
+#: When ``False`` (default): ``weight = tanh(sharpe / (std_sharpe + 1e-6))``.
 #: When ``True``:            ``weight = sharpe / max_abs_sharpe``.
 #: Override via CLI ``--normalize-weights``.
 NORMALIZE_WEIGHTS: bool = False
@@ -2357,8 +2359,13 @@ def convert_sharpe_to_weight(
 
     Two modes are supported:
 
-    * **Clip mode** (``normalize=False``, default):
-      ``weight = clip(sharpe, -1.0, 1.0)``
+    * **Tanh mode** (``normalize=False``, default):
+      ``std_sharpe = std(sharpe_values)``
+      ``weight = tanh(sharpe / (std_sharpe + 1e-6))``
+      This rescales regime Sharpes by their cross-sectional spread before
+      applying tanh, ensuring meaningful weight dispersion even when all
+      regime Sharpes are small (e.g. ~±0.05).  Weights are bounded to
+      ``(-1, 1)``.
     * **Normalize mode** (``normalize=True``):
       ``weight = sharpe / max_abs_sharpe`` where
       ``max_abs_sharpe = max(abs(sharpe))`` across all regimes.
@@ -2370,7 +2377,8 @@ def convert_sharpe_to_weight(
             Defaults to ``NORMALIZE_WEIGHTS`` (``False``).
 
     Returns:
-        Dict mapping regime label → weight in the range ``[-1, 1]``.
+        Dict mapping regime label → weight in the range ``(-1, 1)`` (tanh
+        mode) or ``[-1, 1]`` (normalize mode).
         Returns an empty dict if *sharpe_map* is empty.
     """
     if not sharpe_map:
@@ -2388,7 +2396,16 @@ def convert_sharpe_to_weight(
             return {k: 0.0 for k in sharpe_map}
         weights = values / max_abs
     else:
-        weights = np.clip(values, -1.0, 1.0)
+        # Tanh mode (default): standardise by cross-sectional std then apply
+        # tanh so that the full (-1, 1) range is utilised even when absolute
+        # Sharpe values are small.
+        # Population std (ddof=0) is used here deliberately: we treat the
+        # observed set of regime Sharpes as the full reference distribution for
+        # this fold, not a sample from a larger population.  Using ddof=0
+        # avoids division by zero when only one regime is present and produces
+        # a stable normalisation regardless of how many regimes are in the map.
+        std_sharpe = float(np.std(values))  # ddof=0 (population std)
+        weights = np.tanh(values / (std_sharpe + 1e-6))
 
     weight_map = {k: float(w) for k, w in zip(sharpe_map.keys(), weights)}
 
@@ -2396,7 +2413,7 @@ def convert_sharpe_to_weight(
     logger.debug(
         "convert_sharpe_to_weight: mode=%s | n=%d | "
         "min=%.4f | mean=%.4f | max=%.4f",
-        "normalize" if normalize else "clip",
+        "normalize" if normalize else "tanh",
         len(weight_map),
         float(np.min(abs_weights)) if len(abs_weights) else float("nan"),
         float(np.mean(abs_weights)) if len(abs_weights) else float("nan"),
@@ -2777,13 +2794,16 @@ def log_regime_weight_diagnostics(
     weight_map: dict[str, float],
     sharpe_map: dict[str, float] | None = None,
     *,
+    weight_threshold: float = WEIGHT_THRESHOLD,
     top_n: int = 5,
 ) -> None:
     """Log weight diagnostics: top regimes, distribution stats, and coverage.
 
     Logs:
+    * Summary statistics: min, max, mean(abs), std of weights.
+    * Percentage of regimes whose absolute weight falls below *weight_threshold*
+      (i.e. would be zeroed out).
     * Top *top_n* regimes by absolute weight with their weights and Sharpe.
-    * Summary statistics of the weight distribution.
 
     Args:
         weight_map: Dict mapping regime label → weight (from
@@ -2791,6 +2811,9 @@ def log_regime_weight_diagnostics(
         sharpe_map: Optional dict mapping regime label → Sharpe ratio (from
             ``compute_regime_sharpe_map``).  When provided, Sharpe values are
             included in the top-regime log lines.
+        weight_threshold: Threshold below which a regime weight is considered
+            inactive.  Used to compute the % zeroed-out statistic.
+            Defaults to ``WEIGHT_THRESHOLD``.
         top_n: Number of top regimes by absolute weight to log (default 5).
     """
     if not weight_map:
@@ -2799,15 +2822,22 @@ def log_regime_weight_diagnostics(
 
     weights = np.array(list(weight_map.values()), dtype=float)
     abs_weights = np.abs(weights)
+    n_zeroed = int(np.sum(abs_weights < weight_threshold))
+    pct_zeroed = 100.0 * n_zeroed / len(weights) if len(weights) else 0.0
 
     logger.info(
         "REGIME WEIGHT DIAGNOSTICS | n_regimes=%d"
-        " | min_abs=%.4f | mean_abs=%.4f | max_abs=%.4f | std_abs=%.4f",
+        " | min=%.4f | max=%.4f | mean_abs=%.4f | std_abs=%.4f"
+        " | zeroed_out=%d/%d (%.1f%%, threshold=%.4f)",
         len(weight_map),
-        float(np.min(abs_weights)),
+        float(np.min(weights)),
+        float(np.max(weights)),
         float(np.mean(abs_weights)),
-        float(np.max(abs_weights)),
         float(np.std(abs_weights)),
+        n_zeroed,
+        len(weights),
+        pct_zeroed,
+        weight_threshold,
     )
 
     sorted_regimes = sorted(
@@ -2825,6 +2855,48 @@ def log_regime_weight_diagnostics(
             w,
             sharpe_str,
         )
+
+
+def make_regime_weights_df(
+    sharpe_map: dict[str, float],
+    weight_map: dict[str, float],
+) -> pd.DataFrame:
+    """Build a tidy DataFrame summarising per-regime Sharpe and weights.
+
+    Combines the outputs of ``compute_regime_sharpe_map`` and
+    ``convert_sharpe_to_weight`` into a single DataFrame sorted by absolute
+    weight (descending).
+
+    Args:
+        sharpe_map: Dict mapping regime label → training-period Sharpe ratio
+            (output of ``compute_regime_sharpe_map``).
+        weight_map: Dict mapping regime label → weight
+            (output of ``convert_sharpe_to_weight``).
+
+    Returns:
+        DataFrame with columns ``["regime", "train_sharpe", "weight"]``,
+        sorted by ``abs(weight)`` descending.  Returns an empty DataFrame
+        with those columns if both inputs are empty.
+    """
+    _COLS = ["regime", "train_sharpe", "weight"]
+    if not sharpe_map and not weight_map:
+        return pd.DataFrame(columns=_COLS)
+
+    all_regimes = sorted(set(sharpe_map) | set(weight_map))
+    rows = [
+        {
+            "regime": r,
+            "train_sharpe": sharpe_map.get(r, float("nan")),
+            "weight": weight_map.get(r, float("nan")),
+        }
+        for r in all_regimes
+    ]
+    df_out = pd.DataFrame(rows, columns=_COLS)
+    # Sort by absolute weight descending so highest-conviction regimes appear first.
+    df_out = df_out.sort_values("weight", key=np.abs, ascending=False).reset_index(
+        drop=True
+    )
+    return df_out
 
 
 # ---------------------------------------------------------------------------
