@@ -561,13 +561,14 @@ def regime_v5_walk_forward(
         # ------------------------------------------------------------------
         # Step 5: Final position
         # ------------------------------------------------------------------
-        logger.debug(
-            "Diagnostics | year=%d | base_mean=%.4f | regime_mean=%.4f | behavior_mean=%.4f",
-            test_year,
-            np.mean(np.abs(base_signal)),
-            np.mean(np.abs(regime_score)),
-            np.mean(np.abs(behavior_score)),
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Diagnostics | year=%d | base_mean=%.4f | regime_mean=%.4f | behavior_mean=%.4f",
+                test_year,
+                np.mean(np.abs(base_signal)),
+                np.mean(np.abs(regime_score)),
+                np.mean(np.abs(behavior_score)),
+            )
 
         position = base_signal * regime_score * behavior_score
 
