@@ -839,19 +839,11 @@ def walk_forward(
             " | avg_score_mag=%.4f",
             test_year,
             m.get("n", 0),
-            m.get("mean", float("nan"))
-            if not np.isnan(m.get("mean", float("nan")))
-            else float("nan"),
-            m.get("sharpe", float("nan"))
-            if not np.isnan(m.get("sharpe", float("nan")))
-            else float("nan"),
-            m.get("hit_rate", float("nan"))
-            if not np.isnan(m.get("hit_rate", float("nan")))
-            else float("nan"),
+            m.get("mean", float("nan")),
+            m.get("sharpe", float("nan")),
+            m.get("hit_rate", float("nan")),
             coverage * 100,
-            m.get("avg_score_magnitude", float("nan"))
-            if not np.isnan(m.get("avg_score_magnitude", float("nan")))
-            else float("nan"),
+            m.get("avg_score_magnitude", float("nan")),
         )
 
         # Log score-type frequency in active rows
@@ -940,9 +932,9 @@ def log_fold_results(fold_df: pd.DataFrame) -> None:
             " | hit_rate=%.4f | coverage=%.1f%%",
             row.year,
             row.n,
-            row.mean if not np.isnan(row.mean) else float("nan"),
-            row.sharpe if not np.isnan(row.sharpe) else float("nan"),
-            row.hit_rate if not np.isnan(row.hit_rate) else float("nan"),
+            row.mean,
+            row.sharpe,
+            row.hit_rate,
             row.coverage * 100,
         )
 
@@ -967,18 +959,8 @@ def log_final_summary(
         return
 
     logger.info("Folds evaluated  : %d", pooled["n_folds"])
-    logger.info(
-        "Mean Sharpe      : %+.4f",
-        pooled["mean_sharpe"]
-        if not np.isnan(pooled["mean_sharpe"])
-        else float("nan"),
-    )
-    logger.info(
-        "Mean hit rate    : %.4f",
-        pooled["mean_hit_rate"]
-        if not np.isnan(pooled["mean_hit_rate"])
-        else float("nan"),
-    )
+    logger.info("Mean Sharpe      : %+.4f", pooled["mean_sharpe"])
+    logger.info("Mean hit rate    : %.4f", pooled["mean_hit_rate"])
     logger.info("Mean coverage    : %.1f%%", pooled["mean_coverage"] * 100)
     logger.info(sep)
     logger.info("Per-fold detail:")
@@ -986,8 +968,8 @@ def log_final_summary(
         logger.info(
             "  year=%d | sharpe=%+.4f | hit_rate=%.4f | cov=%.1f%%",
             row.year,
-            row.sharpe if not np.isnan(row.sharpe) else float("nan"),
-            row.hit_rate if not np.isnan(row.hit_rate) else float("nan"),
+            row.sharpe,
+            row.hit_rate,
             row.coverage * 100,
         )
     logger.info(sep)
