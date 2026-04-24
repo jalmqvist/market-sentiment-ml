@@ -141,7 +141,6 @@ def load_data(path: str | Path) -> pd.DataFrame:
         required_columns=[
             "pair",
             "time",
-            "price_end",
             "net_sentiment",
             "sentiment_change",
             "abs_sentiment",
@@ -491,18 +490,61 @@ def main(argv=None) -> None:
 
     df = load_data(args.data)
 
-    # --- MAP: price_end → price ---
-    if "price_end" not in df.columns:
-        raise ValueError("Signal V2 requires 'price_end' column")
+    # --- ROBUST PRICE COLUMN DETECTION ---
+    _PRICE_CANDIDATES: list[str] = ["price", "price_end", "entry_close"]
+    _VALID_RATIO_THRESHOLD: float = 0.99
 
-    df["price"] = df["price_end"]
+    _log.debug("PRICE COLUMN VALIDATION:")
+    selected_col: str | None = None
+    selected_series: pd.Series | None = None
+    candidate_diagnostics: list[str] = []
 
-    # --- CONVERT ---
-    df["price"] = pd.to_numeric(df["price"], errors="raise")
+    for candidate in _PRICE_CANDIDATES:
+        if candidate not in df.columns:
+            _log.debug("  candidate=%s | not present in dataset", candidate)
+            continue
 
-    # --- DEBUG ---
-    _log.debug("price dtype: %s", df["price"].dtype)
-    _log.debug("price sample: %s", df["price"].head().tolist())
+        raw = df[candidate]
+        converted = pd.to_numeric(raw, errors="coerce")
+        total = len(converted)
+        valid_count = converted.notna().sum()
+        valid_ratio = valid_count / total if total > 0 else 0.0
+        sample = raw.dropna().head(5).tolist()
+
+        _log.debug(
+            "  candidate=%s | dtype=%s | valid_ratio=%.2f | sample=%s",
+            candidate,
+            raw.dtype,
+            valid_ratio,
+            sample,
+        )
+
+        candidate_diagnostics.append(
+            f"candidate={candidate} | dtype={raw.dtype} | valid_ratio={valid_ratio:.2f} "
+            f"| first_5_raw={raw.head(5).tolist()}"
+        )
+
+        if selected_col is None and valid_ratio >= _VALID_RATIO_THRESHOLD:
+            selected_col = candidate
+            selected_series = converted
+
+    if selected_col is None:
+        diagnostics_str = "\n  ".join(candidate_diagnostics) if candidate_diagnostics else "(none checked)"
+        raise ValueError(
+            f"Signal V2: no valid numeric price column found among candidates "
+            f"{_PRICE_CANDIDATES}.\n  {diagnostics_str}"
+        )
+
+    _log.debug("Selected price column: %s", selected_col)
+    df["price"] = selected_series
+
+    nan_count = df["price"].isna().sum()
+    if nan_count > 0:
+        _log.warning(
+            "Selected price column '%s' has %d NaN(s); these will be dropped during feature construction",
+            selected_col,
+            nan_count,
+        )
 
     df = build_features(df, window=args.window)
 
