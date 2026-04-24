@@ -528,7 +528,7 @@ def main(argv=None) -> None:
             selected_col = candidate
             selected_series = converted
 
-    if selected_col is None or selected_series is None:
+    if selected_col is None:
         diagnostics_str = "\n  ".join(candidate_diagnostics) if candidate_diagnostics else "(none checked)"
         raise ValueError(
             f"Signal V2: no valid numeric price column found among candidates "
@@ -538,8 +538,13 @@ def main(argv=None) -> None:
     _log.debug("Selected price column: %s", selected_col)
     df["price"] = selected_series
 
-    if df["price"].isna().any():
-        raise ValueError("Selected price column still contains NaNs after validation")
+    nan_count = df["price"].isna().sum()
+    if nan_count > 0:
+        _log.warning(
+            "Selected price column '%s' has %d NaN(s); these will be dropped during feature construction",
+            selected_col,
+            nan_count,
+        )
 
     df = build_features(df, window=args.window)
 
