@@ -197,6 +197,9 @@ def build_features(df: pd.DataFrame, window: int = DEFAULT_WINDOW) -> pd.DataFra
             "Expected caller to map 'price_end' → 'price'."
         )
 
+    if not pd.api.types.is_numeric_dtype(df["price"]):
+        raise TypeError("'price' must be numeric before feature computation")
+
     missing = [c for c in _REQUIRED_INPUT_COLS if c not in df.columns]
     if missing:
         raise ValueError(f"build_features: missing required columns: {missing}")
@@ -487,6 +490,18 @@ def main(argv=None) -> None:
                 "Signal V2 requires a 'price' column. "
                 "No 'price' or 'price_end' column found in dataset."
             )
+
+    # Ensure numeric dtype (Arrow CSV loader can infer string for numeric cols)
+    df["price"] = pd.to_numeric(df["price"], errors="coerce")
+    _log.debug("price dtype after conversion: %s", df["price"].dtype)
+
+    # Fail fast if any values could not be converted
+    n_conversion_failures = df["price"].isna().sum()
+    if n_conversion_failures > 0:
+        raise ValueError(
+            f"'price' contains {n_conversion_failures} NaNs after numeric conversion. "
+            "Check source data."
+        )
 
     df = build_features(df, window=args.window)
 
