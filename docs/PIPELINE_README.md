@@ -23,6 +23,8 @@ build_dataset  →  [attach_regimes]  →  discovery  →  portfolio  →  [regi
 | Walk-forward evaluation | `evaluation/walk_forward.py` (library)     | `DATA_PATH` (canonical)          | Library only |
 | Portfolio construction  | `portfolio/portfolio_builder.py`           | `DATA_PATH` (canonical)          | Yes          |
 | Regime experiments      | `experiments/regime_v2.py`                 | `DATA_PATH_REGIME` (regime only) | Optional     |
+| Regime filter pipeline  | `experiments/regime_filter_pipeline.py`    | `DATA_PATH` (canonical)          | Optional     |
+| Regime V4 (weighted)    | `experiments/regime_v4.py`                 | `DATA_PATH` (canonical)          | Optional     |
 | Validation              | `validation/validate_pipeline_extended.py` | both datasets                    | Automatic    |
 
 > **Important:** `--data` is the ONLY accepted dataset argument for all stage
@@ -497,6 +499,133 @@ No regime-enriched dataset or companion repo is needed.
 
 ---
 
+### 7d. Regime V4 (continuous regime-conditioned signal)
+
+`experiments/regime_v4.py` converts regime filtering into a **continuous
+regime-weighted signal pipeline**.  Instead of selecting a discrete set of
+"good" regimes and producing trades only for those, it assigns a smooth weight
+to *every* regime based on its historical Sharpe ratio and applies that weight
+multiplicatively to a base sentiment signal.  Every test row receives a
+position — the weight may be zero, but no explicit filtering step exists.
+
+#### Design philosophy
+
+| Aspect                  | Regime Filter Pipeline (`7c`)        | Regime V4 (`7d`)                          |
+| ----------------------- | ------------------------------------ | ----------------------------------------- |
+| Signal generation       | Trade only selected regimes (top-k)  | Trade all regimes, scale by weight        |
+| Weight form             | Binary (0 or 1)                      | Continuous in `(-1, +1)` via tanh         |
+| Base signal             | Raw return sign                      | `sign(net_sentiment)`                     |
+| Regime key components   | 3 (vol + trend_dir + sent)           | 4 (vol + trend_dir + trend_strength + sent) |
+| Leakage guarantee       | Train-only cuts and stats            | Train-only cuts and stats                 |
+
+#### Regime key (4 components)
+
+All four features are built from **training-data cut points only**:
+
+| Feature              | Source column            | Discretization                        |
+| -------------------- | ------------------------ | ------------------------------------- |
+| `vol_regime`         | `vol_24b`                | Tertiles from training data           |
+| `trend_dir`          | `trend_strength_48b`     | `sign()` → down / flat / up          |
+| `trend_strength_bin` | `\|trend_strength_48b\|` | Tertiles from training data           |
+| `sent_regime`        | `abs_sentiment`          | Fixed bins: [0–50) / [50–70) / [70+) |
+
+```
+regime_key = f"{vol_regime}__{trend_dir}__{trend_strength_bin}__{sent_regime}"
+```
+
+#### Weight computation (train only)
+
+For each eligible regime (`n >= min_n` in the training fold):
+
+```
+weight = tanh(sharpe / std_sharpe)      # default
+weight = sharpe / max_abs_sharpe        # --normalize-weights
+```
+
+Regimes absent from the training map or with `n < min_n` receive `weight = 0`.
+
+#### Signal application
+
+```
+base_signal = sign(net_sentiment)
+position    = base_signal * weight
+```
+
+#### Output schema
+
+| DataFrame | Schema                                                                          |
+| --------- | ------------------------------------------------------------------------------- |
+| `fold_df` | `["year", "n", "mean", "sharpe", "hit_rate", "coverage", "avg_weight"]`         |
+| `pooled`  | `{"n_folds", "mean_sharpe", "mean_hit_rate", "mean_coverage", "mean_avg_weight"}` |
+
+Metrics are computed on non-zero-position rows only.  `coverage` is the
+fraction of test rows with a non-zero weight.  `avg_weight` is the mean
+absolute weight across all test rows (including zero-weight rows).
+
+#### Per-fold logging
+
+Each fold logs:
+
+- Number of eligible regimes in the training fold (`n >= min_n`)
+- `std_sharpe` (or `max_abs_sharpe` in normalize mode)
+- Top-5 regimes by `|weight|` with their Sharpe and weight
+- Weight distribution: min / max / mean across eligible regimes
+
+#### Running
+
+Use the thin launcher at the repo root:
+
+```bash
+# Default settings (min_n=100, tanh weighting, file-only logging)
+python run_regime_v4.py \
+  --data data/output/master_research_dataset.csv
+
+# Log to a specific file
+python run_regime_v4.py \
+  --data     data/output/master_research_dataset.csv \
+  --log-file logs/regime_v4.log
+
+# Alternative weight normalization
+python run_regime_v4.py \
+  --data              data/output/master_research_dataset.csv \
+  --normalize-weights
+
+# Custom min-n and verbose logging
+python run_regime_v4.py \
+  --data      data/output/master_research_dataset.csv \
+  --min-n     150 \
+  --log-level DEBUG \
+  --log-file  logs/regime_v4_n150.log
+
+# Direct module execution (equivalent):
+python -m experiments.regime_v4 \
+  --data data/output/master_research_dataset.csv
+```
+
+**CLI arguments:**
+
+| Argument              | Default | Description                                           |
+| --------------------- | ------- | ----------------------------------------------------- |
+| `--data`              | —       | Path to master research dataset CSV (**required**)    |
+| `--min-n`             | `100`   | Min training observations per regime for non-zero weight |
+| `--log-level`         | `INFO`  | Logging verbosity (DEBUG / INFO / WARNING / ERROR)    |
+| `--log-file`          | auto    | Log file path; auto-timestamped in `logs/` if omitted |
+| `--normalize-weights` | off     | Use `sharpe / max_abs_sharpe` instead of `tanh` scaling |
+| `--top-n-log`         | `5`     | Top-N regimes by `\|weight\|` to log per fold          |
+
+`--data` is **required**.  **Uses:** `DATA_PATH` (canonical dataset).
+No regime-enriched dataset or companion repo is needed.
+
+> **Logging rule:** file logging is **on by default**; a timestamped log file
+> is created in `logs/` automatically.  When a log file is used, no output is
+> written to stdout.
+
+> **Note:** Regime V4 is a standalone alternative signal pipeline.  It lives
+> *alongside* `regime_filter_pipeline` and `regime_v3` and does **not** replace
+> them.
+
+---
+
 ### 8. Extended validation
 
 Validates dataset integrity, signal parity, performance, and regime isolation.
@@ -529,6 +658,7 @@ The repo root contains only **pipeline-critical** scripts:
 | `run_pipeline_strict.py`             | Strict deterministic pipeline orchestrator    |
 | `run_regime_v3.py`                   | Launcher for `experiments/regime_v3`          |
 | `run_regime_filter_pipeline.py`      | Launcher for `experiments/regime_filter_pipeline` |
+| `run_regime_v4.py`                   | Launcher for `experiments/regime_v4`          |
 | `build_fx_sentiment_dataset.py`      | Build canonical dataset from raw inputs       |
 | `build_sentiment_feature_contract.py`| Feature contract builder                      |
 | `attach_regimes_to_h1_dataset.py`    | Attach D1 regime labels to H1 dataset         |
