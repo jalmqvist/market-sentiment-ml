@@ -479,29 +479,48 @@ def main(argv=None) -> None:
 
     df = load_data(args.data)
 
-    # PR #30: Signal V2 uses causal price momentum (pct_change on price).
-    # Dataset provides 'price_end', so we map it to 'price' here.
+    # --- MAP: price_end → price ---
     if "price" not in df.columns:
         if "price_end" in df.columns:
-            _log.info("Mapping 'price_end' → 'price' for Signal V2 compatibility")
+            _log.info("Mapping 'price_end' → 'price'")
             df = df.rename(columns={"price_end": "price"})
         else:
-            raise ValueError(
-                "Signal V2 requires a 'price' column. "
-                "No 'price' or 'price_end' column found in dataset."
-            )
+            raise ValueError("Missing 'price' and 'price_end' columns")
 
-    # Ensure numeric dtype (Arrow CSV loader can infer string for numeric cols)
-    df["price"] = pd.to_numeric(df["price"], errors="coerce")
-    _log.debug("price dtype after conversion: %s", df["price"].dtype)
+    # --- DEBUG: inspect raw values ---
+    _log.debug("price raw dtype: %s", df["price"].dtype)
+    _log.debug("price sample (first 5): %s", df["price"].head().tolist())
 
-    # Fail fast if any values could not be converted
-    n_conversion_failures = df["price"].isna().sum()
-    if n_conversion_failures > 0:
-        raise ValueError(
-            f"'price' contains {n_conversion_failures} NaNs after numeric conversion. "
-            "Check source data."
+    # --- CLEAN: handle common string issues ---
+    if df["price"].dtype == "object" or "string" in str(df["price"].dtype):
+        df["price"] = (
+            df["price"]
+            .astype(str)
+            .str.strip()
+            .str.replace(",", "", regex=False)  # remove thousands separators
         )
+
+    # --- CONVERT ---
+    df["price"] = pd.to_numeric(df["price"], errors="coerce")
+
+    # --- VALIDATE ---
+    n_null = df["price"].isna().sum()
+    total = len(df)
+
+    _log.debug("price NaNs after conversion: %d/%d", n_null, total)
+
+    if n_null == total:
+        raise ValueError(
+            "All price values became NaN after conversion. "
+            "price_end is not a valid numeric price column. "
+            "Inspect raw values in logs."
+        )
+
+    if n_null > 0:
+        _log.warning(
+            "Partial NaNs in price column: %d/%d. Dropping NaNs.", n_null, total
+        )
+        df = df.dropna(subset=["price"])
 
     df = build_features(df, window=args.window)
 
