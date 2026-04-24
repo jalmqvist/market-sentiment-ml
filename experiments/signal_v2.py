@@ -136,7 +136,19 @@ def load_data(path: str | Path) -> pd.DataFrame:
     Raises:
         ValueError: If required columns are missing.
     """
-    df = read_csv(path, required_columns=["pair", "time"])
+    df = read_csv(
+        path,
+        required_columns=[
+            "pair",
+            "time",
+            "price_end",
+            "net_sentiment",
+            "sentiment_change",
+            "abs_sentiment",
+            "side_streak",
+            "ret_48b",
+        ],
+    )
     df = parse_timestamps(df, "time", context="signal_v2.load_data")
     df["timestamp"] = df["time"]
     df = df.dropna(subset=["timestamp"])
@@ -480,48 +492,17 @@ def main(argv=None) -> None:
     df = load_data(args.data)
 
     # --- MAP: price_end → price ---
-    if "price" not in df.columns:
-        if "price_end" in df.columns:
-            _log.info("Mapping 'price_end' → 'price'")
-            df = df.rename(columns={"price_end": "price"})
-        else:
-            raise ValueError("Missing 'price' and 'price_end' columns")
+    if "price_end" not in df.columns:
+        raise ValueError("Signal V2 requires 'price_end' column")
 
-    # --- DEBUG: inspect raw values ---
-    _log.debug("price raw dtype: %s", df["price"].dtype)
-    _log.debug("price sample (first 5): %s", df["price"].head().tolist())
-
-    # --- CLEAN: handle common string issues ---
-    if pd.api.types.is_string_dtype(df["price"]):
-        df["price"] = (
-            df["price"]
-            .astype(str)
-            .str.strip()
-            .str.replace(",", "", regex=False)  # remove thousands separators
-            .replace(["nan", "None", "<NA>", ""], pd.NA)
-        )
+    df["price"] = df["price_end"]
 
     # --- CONVERT ---
-    df["price"] = pd.to_numeric(df["price"], errors="coerce")
+    df["price"] = pd.to_numeric(df["price"], errors="raise")
 
-    # --- VALIDATE ---
-    n_null = df["price"].isna().sum()
-    total = len(df)
-
-    _log.debug("price NaNs after conversion: %d/%d", n_null, total)
-
-    if n_null == total:
-        raise ValueError(
-            "All price values became NaN after conversion. "
-            "The price column is not a valid numeric column. "
-            "Inspect raw values in logs."
-        )
-
-    if n_null > 0:
-        _log.warning(
-            "Partial NaNs in price column: %d/%d. Dropping NaNs.", n_null, total
-        )
-        df = df.dropna(subset=["price"])
+    # --- DEBUG ---
+    _log.debug("price dtype: %s", df["price"].dtype)
+    _log.debug("price sample: %s", df["price"].head().tolist())
 
     df = build_features(df, window=args.window)
 
