@@ -14,18 +14,19 @@ build_dataset  →  [attach_regimes]  →  discovery  →  portfolio  →  [regi
                   (optional step)
 ```
 
-| Stage                   | Script                                     | Dataset used                     | Required     |
-| ----------------------- | ------------------------------------------ | -------------------------------- | ------------ |
-| Build canonical dataset | `pipeline/build_dataset.py`                | raw inputs → `DATA_PATH`         | Yes          |
-| Attach regime labels    | `attach_regimes_to_h1_dataset.py`          | `DATA_PATH` → `DATA_PATH_REGIME` | Optional     |
-| Signal discovery        | `experiments/discovery.py`                 | `DATA_PATH` (canonical)          | Yes          |
-| Parametric sweep        | `experiments/sweep.py`                     | `DATA_PATH` (canonical)          | Optional     |
-| Walk-forward evaluation | `evaluation/walk_forward.py` (library)     | `DATA_PATH` (canonical)          | Library only |
-| Portfolio construction  | `portfolio/portfolio_builder.py`           | `DATA_PATH` (canonical)          | Yes          |
-| Regime experiments      | `experiments/regime_v2.py`                 | `DATA_PATH_REGIME` (regime only) | Optional     |
-| Regime filter pipeline  | `experiments/regime_filter_pipeline.py`    | `DATA_PATH` (canonical)          | Optional     |
-| Regime V4 (weighted)    | `experiments/regime_v4.py`                 | `DATA_PATH` (canonical)          | Optional     |
-| Validation              | `validation/validate_pipeline_extended.py` | both datasets                    | Automatic    |
+| Stage                           | Script                                           | Dataset used                     | Required     |
+| ------------------------------- | ------------------------------------------------ | -------------------------------- | ------------ |
+| Build canonical dataset         | `pipeline/build_dataset.py`                      | raw inputs → `DATA_PATH`         | Yes          |
+| Attach regime labels            | `attach_regimes_to_h1_dataset.py`                | `DATA_PATH` → `DATA_PATH_REGIME` | Optional     |
+| Signal discovery                | `experiments/discovery.py`                       | `DATA_PATH` (canonical)          | Yes          |
+| Parametric sweep                | `experiments/sweep.py`                           | `DATA_PATH` (canonical)          | Optional     |
+| Walk-forward evaluation         | `evaluation/walk_forward.py` (library)           | `DATA_PATH` (canonical)          | Library only |
+| Portfolio construction          | `portfolio/portfolio_builder.py`                 | `DATA_PATH` (canonical)          | Yes          |
+| Regime experiments              | `experiments/regime_v2.py`                       | `DATA_PATH_REGIME` (regime only) | Optional     |
+| Regime filter pipeline          | `experiments/regime_filter_pipeline.py`          | `DATA_PATH` (canonical)          | Optional     |
+| Regime V4 (weighted)            | `experiments/regime_v4.py`                       | `DATA_PATH` (canonical)          | Optional     |
+| Signal V2 × Regime Filter       | `experiments/regime_v4_signal_filter.py`         | `DATA_PATH` (canonical)          | Optional     |
+| Validation                      | `validation/validate_pipeline_extended.py`       | both datasets                    | Automatic    |
 
 > **Important:** `--data` is the ONLY accepted dataset argument for all stage
 > scripts.  It is **required** — no default path is used.  This prevents
@@ -689,6 +690,144 @@ python run_signal_v2.py \
 
 ---
 
+### 7f. Signal V2 × Regime Filter (Regime V4 Signal Filter)
+
+`experiments/regime_v4_signal_filter.py` implements the **Signal V2 × Regime
+Filter** hybrid pipeline.  It uses **Signal V2** as the base signal and
+applies **regime keys** as a conditional filter and optional direction modifier.
+
+#### Design philosophy
+
+This experiment answers the question: *do market regimes improve Signal V2
+performance via filtering?*
+
+Unlike Regime V4 (`7d`) which assigns a continuous weight to every regime,
+this pipeline applies a binary filter — a regime is either **selected** (trade)
+or **not selected** (no trade).  Unlike Regime Filter Pipeline (`7c`) which
+uses `sign(net_sentiment)` as the base signal, this pipeline uses the richer
+**Signal V2** composite signal (divergence + shock + exhaustion).
+
+| Aspect                  | Regime Filter Pipeline (`7c`)        | Regime V4 (`7d`)                         | Signal V2 × Regime Filter (`7f`)            |
+| ----------------------- | ------------------------------------ | ---------------------------------------- | ------------------------------------------- |
+| Base signal             | Raw return sign                      | `sign(net_sentiment)`                    | Signal V2 (divergence + shock + exhaustion) |
+| Weight form             | Binary (0 or 1)                      | Continuous in `(-1, +1)` via tanh        | Binary (0 or 1)                             |
+| Regime key components   | 3 (vol + trend_dir + sent)           | 4 (vol + trend_dir + trend_strength + sent) | 4 (vol + trend_dir + trend_strength + sent) |
+| Regime stats target     | Raw return (`ret_48b`)               | `sign(net_sentiment) × ret_48b`          | `position × ret_48b`                        |
+| Leakage guarantee       | Train-only cuts and stats            | Train-only cuts and stats                | Train-only cuts and stats                   |
+
+#### Regime key (4 components)
+
+Same 4-component key as Regime V4, built from **training-data cut points only**:
+
+| Feature              | Source column            | Discretization                        |
+| -------------------- | ------------------------ | ------------------------------------- |
+| `vol_regime`         | `vol_24b`                | Tertiles from training data           |
+| `trend_dir`          | `trend_strength_48b`     | `sign()` → down / flat / up          |
+| `trend_strength_bin` | `\|trend_strength_48b\|` | Tertiles from training data           |
+| `sent_regime`        | `abs_sentiment`          | Fixed bins: [0–50) / [50–70) / [70+) |
+
+#### Regime selection (train only)
+
+Per-regime signal-weighted statistics are computed from the training fold:
+
+```
+signal_ret  = position × ret_48b
+mean_return = mean(signal_ret)
+sharpe      = mean_return / std(signal_ret)
+```
+
+A regime is **selected** when both conditions hold:
+
+- `n >= min_n`          (default: 100)
+- `sharpe >= min_sharpe` (default: 0.05)
+
+#### Signal application
+
+Filter (always applied):
+
+```
+if regime_key ∉ selected:
+    position = 0
+```
+
+Direction modification (optional, `--with-direction`):
+
+```
+if mean_return >  direction_threshold  →  keep position
+if mean_return < -direction_threshold  →  flip position (×−1)
+else                                   →  position = 0
+```
+
+`direction_threshold` defaults to `0.0002`.
+
+#### Output schema
+
+| DataFrame | Schema                                                                              |
+| --------- | ----------------------------------------------------------------------------------- |
+| `fold_df` | `["year", "n", "mean", "sharpe", "hit_rate", "coverage", "n_selected_regimes"]`    |
+| summary   | `{"folds", "mean_sharpe", "mean_coverage", "mean_hit_rate", "mean_n_selected"}`     |
+
+#### Running
+
+Use the thin launcher at the repo root:
+
+```bash
+# Default settings (min_n=100, min_sharpe=0.05, no direction)
+python run_regime_v4_signal_filter.py \
+  --data data/output/master_research_dataset.csv
+
+# Custom thresholds
+python run_regime_v4_signal_filter.py \
+  --data       data/output/master_research_dataset.csv \
+  --min-n      150 \
+  --min-sharpe 0.1
+
+# Enable direction modification
+python run_regime_v4_signal_filter.py \
+  --data                data/output/master_research_dataset.csv \
+  --with-direction \
+  --direction-threshold 0.0003
+
+# Signal V2 with threshold + verbose logging
+python run_regime_v4_signal_filter.py \
+  --data      data/output/master_research_dataset.csv \
+  --threshold 0.5 \
+  --log-level DEBUG \
+  --log-file  logs/regime_v4_signal_filter_debug.log
+
+# Direct module execution (equivalent):
+python -m experiments.regime_v4_signal_filter \
+  --data data/output/master_research_dataset.csv
+```
+
+**CLI arguments:**
+
+| Argument                | Default   | Description                                                             |
+| ----------------------- | --------- | ----------------------------------------------------------------------- |
+| `--data`                | —         | Path to master research dataset CSV (**required**)                      |
+| `--window`              | `96`      | Rolling z-score window for Signal V2 features                           |
+| `--threshold`           | `None`    | Optional position threshold for Signal V2 (`\|signal_v2_raw\| <= T → 0`) |
+| `--min-n`               | `100`     | Min training observations per regime for selection                      |
+| `--min-sharpe`          | `0.05`    | Min training Sharpe to select a regime                                  |
+| `--direction-threshold` | `0.0002`  | Mean-return threshold for direction logic (requires `--with-direction`) |
+| `--with-direction`      | off       | Enable direction modification                                           |
+| `--no-direction`        | (default) | Disable direction modification                                          |
+| `--log-level`           | `INFO`    | Logging verbosity (DEBUG / INFO / WARNING / ERROR)                      |
+| `--log-file`            | auto      | Log file path; auto-timestamped in `logs/` if omitted                  |
+
+`--data` is **required**.  **Uses:** `DATA_PATH` (canonical dataset).
+No regime-enriched dataset or companion repo is needed.
+
+> **Logging rule:** file logging is **on by default**; a timestamped log file
+> named `regime_v4_signal_filter_YYYYMMDD_HHMMSS.log` is created in `logs/`
+> automatically.  No output is written to stdout.
+
+> **No leakage guarantee:** all regime cuts and statistics are derived
+> exclusively from training data for each fold.  Signal V2 itself is left
+> completely unmodified.
+
+---
+
 ### 8. Extended validation
 
 Validates dataset integrity, signal parity, performance, and regime isolation.
@@ -715,17 +854,18 @@ Both `--data` and `--data-regime` are **required**.  `--reference` is optional
 
 The repo root contains only **pipeline-critical** scripts:
 
-| Script / Entry-point                 | Purpose                                       |
-| ------------------------------------ | --------------------------------------------- |
-| `run_pipeline.py`                    | Simple pipeline orchestrator                  |
-| `run_pipeline_strict.py`             | Strict deterministic pipeline orchestrator    |
-| `run_regime_v3.py`                   | Launcher for `experiments/regime_v3`          |
-| `run_regime_filter_pipeline.py`      | Launcher for `experiments/regime_filter_pipeline` |
-| `run_regime_v4.py`                   | Launcher for `experiments/regime_v4`          |
-| `build_fx_sentiment_dataset.py`      | Build canonical dataset from raw inputs       |
-| `build_sentiment_feature_contract.py`| Feature contract builder                      |
-| `attach_regimes_to_h1_dataset.py`    | Attach D1 regime labels to H1 dataset         |
-| `config.py`                          | Centralised pipeline configuration            |
+| Script / Entry-point                    | Purpose                                       |
+| --------------------------------------- | --------------------------------------------- |
+| `run_pipeline.py`                       | Simple pipeline orchestrator                  |
+| `run_pipeline_strict.py`                | Strict deterministic pipeline orchestrator    |
+| `run_regime_v3.py`                      | Launcher for `experiments/regime_v3`          |
+| `run_regime_filter_pipeline.py`         | Launcher for `experiments/regime_filter_pipeline` |
+| `run_regime_v4.py`                      | Launcher for `experiments/regime_v4`          |
+| `run_regime_v4_signal_filter.py`        | Launcher for `experiments/regime_v4_signal_filter` |
+| `build_fx_sentiment_dataset.py`         | Build canonical dataset from raw inputs       |
+| `build_sentiment_feature_contract.py`   | Feature contract builder                      |
+| `attach_regimes_to_h1_dataset.py`       | Attach D1 regime labels to H1 dataset         |
+| `config.py`                             | Centralised pipeline configuration            |
 
 Standalone analysis and investigation scripts (JPY effect validation,
 one-off walk-forward analyses, pair-quality audits, etc.) live in
