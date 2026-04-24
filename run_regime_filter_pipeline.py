@@ -13,19 +13,20 @@ Pipeline steps
 --------------
 1. Load and prepare the research dataset.
 2. Compute causal volatility feature (``vol_24b``) via ``build_features``.
-3. Build four discrete regime features per fold (training-derived cuts):
+3. Build three discrete regime features per fold (training-derived cuts):
 
-   * ``vol_regime``         – tertile of ``vol_24b``
-   * ``trend_dir``          – sign of ``trend_strength_48b``
-   * ``trend_strength_bin`` – tertile of ``|trend_strength_48b|``
-   * ``sent_regime``        – fixed-threshold bin of ``abs_sentiment``
+   * ``vol_regime``  – tertile of ``vol_24b``
+   * ``trend_dir``   – sign of ``trend_strength_48b``
+   * ``sent_regime`` – fixed-threshold bin of ``abs_sentiment``
 
-4. Walk-forward regime selection (train only): keep regimes with
-   ``n >= min_n`` and ``sharpe >= min_sharpe``.
-5. Apply regime filter to the test set.
-6. Optional direction logic: follow if train mean > 0, fade if < 0.
-7. Compute per-fold metrics (mean return, Sharpe, hit rate, coverage).
-8. Log pooled summary.
+4. Walk-forward regime selection (train only): filter regimes with
+   ``n >= min_n``, rank by Sharpe, keep top-k (default 5).
+5. Apply test-set stability filters: drop regimes with
+   ``n_test < min_test_n`` or ``coverage_test < min_test_coverage``.
+6. Apply regime filter to the test set.
+7. Optional direction logic: follow/fade only if ``|train_mean| >= direction_threshold``.
+8. Compute per-fold metrics (mean return, Sharpe, hit rate, coverage).
+9. Log pooled summary.
 
 Usage::
 
@@ -45,7 +46,7 @@ Usage::
     # Custom thresholds
     python run_regime_filter_pipeline.py \\
         --data data/output/master_research_dataset.csv \\
-        --min-n 150 --min-sharpe 0.08
+        --min-n 150 --top-k 8 --min-test-coverage 0.03 --min-test-n 30
 
     # Disable direction logic
     python run_regime_filter_pipeline.py \\
@@ -139,13 +140,35 @@ def main(argv=None) -> None:
         ),
     )
     p.add_argument(
-        "--min-sharpe",
+        "--top-k",
+        type=int,
+        default=None,
+        metavar="K",
+        help=(
+            "Number of top regimes (by training Sharpe) to select per fold.  "
+            "Defaults to the module-level TOP_K constant (5)."
+        ),
+    )
+    p.add_argument(
+        "--min-test-coverage",
         type=float,
         default=None,
-        metavar="SHARPE",
+        metavar="FRAC",
         help=(
-            "Minimum training Sharpe ratio per regime for selection.  "
-            "Defaults to the module-level MIN_REGIME_SHARPE constant (0.05)."
+            "Minimum fraction of test signals a regime must cover to survive "
+            "the stability filter.  "
+            "Defaults to the module-level MIN_TEST_COVERAGE constant (0.05)."
+        ),
+    )
+    p.add_argument(
+        "--min-test-n",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Minimum raw count of test signals per regime to survive the "
+            "stability filter.  "
+            "Defaults to the module-level MIN_TEST_N constant (50)."
         ),
     )
     p.add_argument(
@@ -164,6 +187,17 @@ def main(argv=None) -> None:
         help="Disable direction logic; use raw returns for all filtered regimes.",
     )
     p.add_argument(
+        "--direction-threshold",
+        type=float,
+        default=None,
+        metavar="THRESH",
+        help=(
+            "Minimum |train mean| to activate follow/fade direction logic.  "
+            "Below this threshold signals are kept unmodified.  "
+            "Defaults to the module-level DIRECTION_THRESHOLD constant (0.0002)."
+        ),
+    )
+    p.add_argument(
         "--top-n-log",
         type=int,
         default=None,
@@ -179,9 +213,12 @@ def main(argv=None) -> None:
 
     # Import after logging is configured so module-level loggers pick up handlers.
     from experiments.regime_filter_pipeline import (  # noqa: PLC0415
+        DIRECTION_THRESHOLD,
         MIN_REGIME_N,
-        MIN_REGIME_SHARPE,
+        MIN_TEST_COVERAGE,
+        MIN_TEST_N,
         TARGET_COL,
+        TOP_K,
         TOP_N_LOG,
         build_features,
         compute_pooled_summary,
@@ -194,7 +231,18 @@ def main(argv=None) -> None:
 
     # Resolve CLI overrides against module-level defaults.
     min_n = args.min_n if args.min_n is not None else MIN_REGIME_N
-    min_sharpe = args.min_sharpe if args.min_sharpe is not None else MIN_REGIME_SHARPE
+    top_k = args.top_k if args.top_k is not None else TOP_K
+    min_test_coverage = (
+        args.min_test_coverage
+        if args.min_test_coverage is not None
+        else MIN_TEST_COVERAGE
+    )
+    min_test_n = args.min_test_n if args.min_test_n is not None else MIN_TEST_N
+    direction_threshold = (
+        args.direction_threshold
+        if args.direction_threshold is not None
+        else DIRECTION_THRESHOLD
+    )
     # args.with_direction is always a bool (store_true/store_false with default=True),
     # so we use it directly without a fallback check.
     with_direction = args.with_direction
@@ -214,9 +262,13 @@ def main(argv=None) -> None:
     _log = _logging.getLogger(__name__)
     _log.info(
         "=== REGIME FILTER PIPELINE ==="
-        " | min_n=%d | min_sharpe=%.4f | with_direction=%s",
+        " | min_n=%d | top_k=%d | min_test_coverage=%.2f"
+        " | min_test_n=%d | direction_threshold=%.4f | with_direction=%s",
         min_n,
-        min_sharpe,
+        top_k,
+        min_test_coverage,
+        min_test_n,
+        direction_threshold,
         with_direction,
     )
 
@@ -224,8 +276,11 @@ def main(argv=None) -> None:
         df,
         target_col=TARGET_COL,
         min_n=min_n,
-        min_sharpe=min_sharpe,
+        top_k=top_k,
+        min_test_coverage=min_test_coverage,
+        min_test_n=min_test_n,
         with_direction=with_direction,
+        direction_threshold=direction_threshold,
         top_n_log=top_n_log,
     )
 
