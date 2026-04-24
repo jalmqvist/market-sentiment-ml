@@ -1795,7 +1795,15 @@ def select_top_regimes(
     if not stability_summary.empty and "regime" in stability_summary.columns:
         stab_cols = ["regime", "mean_sharpe", "std_sharpe", "positive_year_ratio"]
         stab = stability_summary[stab_cols].copy()
+        before_merge = len(df)
         df = df.merge(stab, on="regime", how="inner")  # inner: drop regimes with no WF data
+        dropped = before_merge - len(df)
+        if dropped > 0:
+            logger.debug(
+                "select_top_regimes: inner merge with stability_summary dropped "
+                "%d regime(s) that had no walk-forward data",
+                dropped,
+            )
 
         before_stab = len(df)
 
@@ -3941,19 +3949,27 @@ def main(argv=None) -> None:
     # Step 4e: REGIME FILTER — apply top_regimes filter to dataset
     #          (deterministic, leakage-free)
     # ------------------------------------------------------------------
+    # n_before_filter = all non-null target rows (baseline for coverage reporting).
     n_before_filter = int(df[TARGET_COL].notna().sum())
     logger.info(
         "=== REGIME FILTER (top_regimes=%s) === coverage before: %d signals",
         top_regimes, n_before_filter,
     )
     df = apply_regime_filter(df, top_regimes=top_regimes)
+    # n_after_filter = active (filtered) rows with non-null target; strict subset
+    # of n_before_filter, giving the fraction of signals retained by the filter.
     n_after_filter = int(df.loc[df["is_active"], TARGET_COL].notna().sum())
-    logger.info(
-        "REGIME FILTER: coverage after = %d signals (%.1f%% of %d)",
-        n_after_filter,
-        100.0 * n_after_filter / n_before_filter if n_before_filter > 0 else 0.0,
-        n_before_filter,
-    )
+    if n_before_filter > 0:
+        logger.info(
+            "REGIME FILTER: coverage after = %d signals (%.1f%% of %d)",
+            n_after_filter,
+            100.0 * n_after_filter / n_before_filter,
+            n_before_filter,
+        )
+    else:
+        logger.warning(
+            "REGIME FILTER: n_before_filter = 0 — no signals available before filter"
+        )
 
     # ------------------------------------------------------------------
     # Step 4f: FULL DATASET PERFORMANCE — baseline metrics (unfiltered)

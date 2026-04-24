@@ -345,19 +345,27 @@ def main(argv=None) -> None:
     # Step 4e: REGIME FILTER — apply top_regimes filter to dataset
     #          (deterministic, leakage-free: computed before any target use)
     # ------------------------------------------------------------------
+    # n_before_filter = all non-null target rows (baseline for coverage reporting).
     n_before_filter = int(df[TARGET_COL].notna().sum())
     logging.getLogger(__name__).info(
         "=== REGIME FILTER (top_regimes=%s) === coverage before: %d signals",
         top_regimes, n_before_filter,
     )
     df = apply_regime_filter(df, top_regimes=top_regimes)
+    # n_after_filter = active (filtered) rows with non-null target; strict subset
+    # of n_before_filter, giving the fraction of signals retained by the filter.
     n_after_filter = int(df.loc[df["is_active"], TARGET_COL].notna().sum())
-    logging.getLogger(__name__).info(
-        "REGIME FILTER: coverage after = %d signals (%.1f%% of %d)",
-        n_after_filter,
-        100.0 * n_after_filter / n_before_filter if n_before_filter > 0 else 0.0,
-        n_before_filter,
-    )
+    if n_before_filter > 0:
+        logging.getLogger(__name__).info(
+            "REGIME FILTER: coverage after = %d signals (%.1f%% of %d)",
+            n_after_filter,
+            100.0 * n_after_filter / n_before_filter,
+            n_before_filter,
+        )
+    else:
+        logging.getLogger(__name__).warning(
+            "REGIME FILTER: n_before_filter = 0 — no signals available before filter"
+        )
 
     # ------------------------------------------------------------------
     # Step 4f: FULL DATASET PERFORMANCE — baseline metrics (unfiltered)
