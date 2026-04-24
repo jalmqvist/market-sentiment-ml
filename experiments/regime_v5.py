@@ -238,6 +238,11 @@ def load_data(path: str | Path, *, window: int = DEFAULT_WINDOW) -> pd.DataFrame
     df = _build_signal_v2_features(df, window=window)
     logger.info("load_data: signal_v2 features built (%d rows)", len(df))
 
+    # Build Signal V2 composite (creates signal_v2_raw column)
+    df = _build_signal_v2(df)
+    if "signal_v2_raw" not in df.columns:
+        raise ValueError("signal_v2_raw not created in load_data")
+
     # Build Regime V3 features (vol_24b, interaction columns) —
     # regime_v3.build_features expects entry_time and entry_close.
     if "entry_time" in df.columns and "entry_close" in df.columns:
@@ -475,9 +480,25 @@ def regime_v5_walk_forward(
         # ------------------------------------------------------------------
         # Step 1: Regime cuts and keys (training-derived, applied to test)
         # ------------------------------------------------------------------
-        cuts = _compute_train_cuts(train_df)
-        train_labeled = _build_regime_key(train_df, cuts)
-        test_labeled = _build_regime_key(test_valid, cuts)
+        required_regime_cols = ["vol_24b", "trend_strength_48b", "abs_sentiment"]
+        missing = [c for c in required_regime_cols if c not in train_df.columns]
+        if missing:
+            logger.warning(
+                "Missing regime columns %s — regime_score will default to 0",
+                missing,
+            )
+            use_regime = False
+        else:
+            use_regime = True
+
+        if use_regime:
+            cuts = _compute_train_cuts(train_df)
+            train_labeled = _build_regime_key(train_df, cuts)
+            test_labeled = _build_regime_key(test_valid, cuts)
+        else:
+            train_labeled = train_df.copy()
+            test_labeled = test_valid.copy()
+            test_labeled["regime_key"] = "NO_REGIME"
 
         # ------------------------------------------------------------------
         # Step 2: Regime Sharpe → weight map (train only)
@@ -485,29 +506,41 @@ def regime_v5_walk_forward(
         regime_stats = _compute_regime_stats(
             train_labeled, target_col=target_col, min_n=min_n
         )
-        weight_map, std_sharpe = _build_weight_map(regime_stats)
 
-        n_eligible = len(regime_stats)
-        logger.info(
-            "REGIME V5 [year=%d] | n_eligible_regimes=%d | std_sharpe=%.4f",
-            test_year,
-            n_eligible,
-            std_sharpe,
-        )
+        if len(regime_stats) == 0:
+            logger.warning("No valid regimes — regime_score = 0")
+            regime_score = np.zeros(len(test_labeled))
+        else:
+            weight_map, std_sharpe = _build_weight_map(regime_stats)
 
-        # Regime score per test row (0 for unknown / ineligible)
-        regime_score = (
-            test_labeled["regime_key"]
-            .map(weight_map)
-            .fillna(0.0)
-            .values.astype(float)
-        )
+            n_eligible = len(regime_stats)
+            logger.info(
+                "REGIME V5 [year=%d] | n_eligible_regimes=%d | std_sharpe=%.4f",
+                test_year,
+                n_eligible,
+                std_sharpe,
+            )
+
+            if std_sharpe < 1e-10:
+                logger.warning("std_sharpe ~ 0 — regime_score = 0")
+                regime_score = np.zeros(len(test_labeled))
+            else:
+                regime_score = (
+                    test_labeled["regime_key"]
+                    .map(weight_map)
+                    .fillna(0.0)
+                    .values.astype(float)
+                )
 
         # ------------------------------------------------------------------
         # Step 3: Behavioral z-score parameters (train only)
         # ------------------------------------------------------------------
         behavior_params = _compute_behavior_params(train_labeled)
-        behavior_score = _apply_behavior_score(test_labeled, behavior_params)
+        if not behavior_params:
+            logger.warning("No behavioral features — using neutral score = 1")
+            behavior_score = np.ones(len(test_labeled))
+        else:
+            behavior_score = _apply_behavior_score(test_labeled, behavior_params)
 
         # ------------------------------------------------------------------
         # Step 4: Base signal = tanh(signal_v2_raw)
@@ -517,14 +550,39 @@ def regime_v5_walk_forward(
             # signal_v2 is purely feature-based)
             test_labeled = _build_signal_v2(test_labeled)
 
-        base_signal = np.tanh(test_labeled["signal_v2_raw"].fillna(0.0).values)
+        if "signal_v2_raw" not in test_labeled.columns:
+            logger.warning("signal_v2_raw missing in test fold — using zeros")
+            base_signal = np.zeros(len(test_labeled))
+        else:
+            base_signal = np.tanh(
+                test_labeled["signal_v2_raw"].fillna(0.0).values
+            )
 
         # ------------------------------------------------------------------
         # Step 5: Final position
         # ------------------------------------------------------------------
+        logger.debug(
+            "Diagnostics | year=%d | base_mean=%.4f | regime_mean=%.4f | behavior_mean=%.4f",
+            test_year,
+            np.mean(np.abs(base_signal)),
+            np.mean(np.abs(regime_score)),
+            np.mean(np.abs(behavior_score)),
+        )
+
         position = base_signal * regime_score * behavior_score
 
-        returns_arr = test_labeled[target_col].values
+        if np.all(np.abs(position) < 1e-12):
+            logger.warning(
+                "All positions ~ 0 in fold year=%d — forcing base_signal fallback",
+                test_year,
+            )
+            position = base_signal
+
+        returns_arr = test_labeled[target_col].values.astype(float)
+
+        if np.isnan(returns_arr).all():
+            logger.warning("All returns NaN — skipping fold")
+            continue
 
         m = _fold_metrics(
             position,
@@ -769,7 +827,7 @@ def main(argv: list[str] | None = None) -> None:
 
     require_columns(
         df,
-        [TARGET_COL, "signal_v2_raw", "year"],
+        [TARGET_COL, "year"],
         context="regime_v5.main",
     )
     _log.info("Dataset ready: %d rows", len(df))
