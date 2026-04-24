@@ -413,6 +413,90 @@ the target column `ret_48b` are present.
 
 ---
 
+### 7c. Regime Filter Pipeline (no model, filter-only)
+
+`experiments/regime_filter_pipeline.py` is a **model-free** regime-as-filter
+pipeline that decides *when* to trade using discrete regime labels — it does
+**not** predict return magnitudes.
+
+#### Design philosophy
+
+Unlike `regime_v3` (which uses regimes to condition a LightGBM model), the
+Regime Filter Pipeline selects trades purely by regime membership:
+
+1. Four causal discrete regime features are built per fold from **training
+   data cut points only** (no lookahead):
+
+   | Feature              | Source column            | Discretization                        |
+   | -------------------- | ------------------------ | ------------------------------------- |
+   | `vol_regime`         | `vol_24b`                | Tertiles from training data           |
+   | `trend_dir`          | `trend_strength_48b`     | `sign()` → down / flat / up          |
+   | `trend_strength_bin` | `\|trend_strength_48b\|` | Tertiles from training data           |
+   | `sent_regime`        | `abs_sentiment`          | Fixed bins: [0–50) / [50–70) / [70+) |
+
+   The four features are concatenated into a single `regime_key` string.
+
+2. **Walk-forward (strict, no leakage)**: for each test year, regime
+   statistics (mean, std, Sharpe) are computed on training years only.
+
+3. **Regime selection**: regimes must satisfy `n >= min_n` (default 100)
+   **and** `sharpe >= min_sharpe` (default 0.05) on training data.
+
+4. **Filter**: only test-set rows whose `regime_key` is in the selected
+   set are traded.
+
+5. **Optional direction logic**: if a regime's training mean is positive →
+   follow (keep return sign); if negative → fade (invert return sign).
+
+6. **Metrics per fold**: mean return, Sharpe, hit rate, coverage
+   (fraction of test signals kept).
+
+#### Output schema
+
+| DataFrame | Schema                                                        |
+| --------- | ------------------------------------------------------------- |
+| `fold_df` | `["year", "n", "mean", "sharpe", "hit_rate", "coverage"]`    |
+| `pooled`  | `{"n_folds", "mean_return", "mean_sharpe", "mean_hit_rate", "mean_coverage"}` |
+
+#### Running
+
+Use the thin launcher at the repo root:
+
+```bash
+# Default thresholds (min_n=100, min_sharpe=0.05, direction enabled)
+python run_regime_filter_pipeline.py \
+  --data data/output/master_research_dataset.csv
+
+# Log to stdout + file
+python run_regime_filter_pipeline.py \
+  --data     data/output/master_research_dataset.csv \
+  --log-file logs/regime_filter.log
+
+# Custom thresholds
+python run_regime_filter_pipeline.py \
+  --data       data/output/master_research_dataset.csv \
+  --min-n      150 \
+  --min-sharpe 0.08
+
+# No direction logic (raw returns for all filtered regimes)
+python run_regime_filter_pipeline.py \
+  --data         data/output/master_research_dataset.csv \
+  --no-direction
+
+# Direct module execution (equivalent):
+python -m experiments.regime_filter_pipeline \
+  --data data/output/master_research_dataset.csv \
+  --log-level DEBUG
+```
+
+`--data` is **required**.  **Uses:** `DATA_PATH` (canonical dataset).
+No regime-enriched dataset or companion repo is needed.
+
+> **Note:** This pipeline lives *alongside* `experiments/regime_v3.py` and
+> does **not** replace it.  Both can be run independently.
+
+---
+
 ### 8. Extended validation
 
 Validates dataset integrity, signal parity, performance, and regime isolation.
@@ -432,6 +516,62 @@ python validation/validate_pipeline_extended.py \
 
 Both `--data` and `--data-regime` are **required**.  `--reference` is optional
 (hash parity checks are skipped when omitted).
+
+---
+
+## Repository directory structure
+
+The repo root contains only **pipeline-critical** scripts:
+
+| Script / Entry-point                 | Purpose                                       |
+| ------------------------------------ | --------------------------------------------- |
+| `run_pipeline.py`                    | Simple pipeline orchestrator                  |
+| `run_pipeline_strict.py`             | Strict deterministic pipeline orchestrator    |
+| `run_regime_v3.py`                   | Launcher for `experiments/regime_v3`          |
+| `run_regime_filter_pipeline.py`      | Launcher for `experiments/regime_filter_pipeline` |
+| `build_fx_sentiment_dataset.py`      | Build canonical dataset from raw inputs       |
+| `build_sentiment_feature_contract.py`| Feature contract builder                      |
+| `attach_regimes_to_h1_dataset.py`    | Attach D1 regime labels to H1 dataset         |
+| `config.py`                          | Centralised pipeline configuration            |
+
+Standalone analysis and investigation scripts (JPY effect validation,
+one-off walk-forward analyses, pair-quality audits, etc.) live in
+**`analysis/`**:
+
+```
+analysis/
+  analyze_by_pair_group.py
+  analyze_cross_pair_persistence.py
+  analyze_jpy_cluster_permutation.py
+  analyze_outliers.py
+  analyze_pair_quality.py
+  analyze_persistence.py
+  analyze_regime_signal_interaction.py
+  analyze_thresholds.py
+  analyze_trend_alignment.py
+  analyze_trend_behavior.py
+  analyze_trend_strength_results.py
+  discover_behavioral_signal.py
+  evaluate_regime_holdout.py
+  evaluate_signal_regime_aware.py
+  experiment_regime_v2_sweep.py
+  portfolio_behavioral_signal.py
+  validate_jpy_effect_preregistered.py
+  validate_jpy_effect_time_split.py
+  validate_jpy_effect_walkforward.py
+  validate_pipeline_extended.py
+  walk_forward_jpy_hypothesis.py
+  walk_forward_jpy_regime_signal.py
+  walk_forward_regime_v2.py
+```
+
+These scripts are **not part of the canonical pipeline** and are not
+invoked by `run_pipeline_strict.py` or any other orchestrator.  They
+can be run directly for ad-hoc analysis:
+
+```bash
+python analysis/analyze_pair_quality.py --data data/output/master_research_dataset.csv
+```
 
 ---
 
