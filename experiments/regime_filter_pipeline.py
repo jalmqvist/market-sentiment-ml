@@ -115,11 +115,19 @@ MIN_REGIME_N: int = 100
 
 #: Minimum training Sharpe ratio for a regime to be selected.
 #: Kept for backward compatibility; no longer used by the default selection
-#: logic which uses top-k ranking instead of a hard Sharpe threshold.
+#: logic which uses candidate_k/final_k ranking instead of a hard Sharpe threshold.
 MIN_REGIME_SHARPE: float = 0.05
 
-#: Number of top regimes (by training Sharpe) to select per fold.
-TOP_K: int = 5
+#: Size of the initial candidate pool: top regimes by Sharpe to consider
+#: before applying test-side stability filters.
+CANDIDATE_K: int = 15
+
+#: Number of regimes to keep after iterating through the candidate pool and
+#: applying test-side stability filters.
+FINAL_K: int = 5
+
+#: Kept for backward compatibility; maps to FINAL_K.
+TOP_K: int = FINAL_K
 
 #: Minimum fraction of total test signals a regime must cover to survive.
 MIN_TEST_COVERAGE: float = 0.05
@@ -129,7 +137,7 @@ MIN_TEST_N: int = 50
 
 #: Minimum |train mean| required to apply follow/fade direction logic.
 #: Below this threshold, signals are kept unmodified (multiplier = +1).
-DIRECTION_THRESHOLD: float = 0.0002
+DIRECTION_THRESHOLD: float = 0.0005
 
 #: When True, invert returns for regimes whose training mean return is negative
 #: (fade the crowd); when False, always use the raw return sign.
@@ -137,6 +145,11 @@ WITH_DIRECTION: bool = True
 
 #: Number of top regimes to log per fold.
 TOP_N_LOG: int = 5
+
+#: Minimum number of prior walk-forward folds in which a regime must have
+#: appeared as a candidate (n >= min_n) before it is eligible for selection.
+#: Set to 0 to disable persistence filtering.
+MIN_PERSISTENCE_FOLDS: int = 2
 
 #: Sentiment intensity bins for ``sent_regime``.
 SENT_BINS: list[float] = [0.0, 50.0, 70.0, float("inf")]
@@ -389,12 +402,14 @@ def regime_filter_walk_forward(
     target_col: str = TARGET_COL,
     year_col: str = "year",
     min_n: int = MIN_REGIME_N,
-    top_k: int = TOP_K,
+    candidate_k: int = CANDIDATE_K,
+    final_k: int = FINAL_K,
     min_test_coverage: float = MIN_TEST_COVERAGE,
     min_test_n: int = MIN_TEST_N,
     with_direction: bool = WITH_DIRECTION,
     direction_threshold: float = DIRECTION_THRESHOLD,
     top_n_log: int = TOP_N_LOG,
+    min_persistence_folds: int = MIN_PERSISTENCE_FOLDS,
 ) -> pd.DataFrame:
     """Regime-filter walk-forward: select regimes from train, apply to test.
 
@@ -406,10 +421,15 @@ def regime_filter_walk_forward(
     3. Apply regime feature building to both ``train_df`` and ``test_df``
        using those training-derived cut points.
     4. Compute per-regime return statistics on ``train_df`` only.
-    5. Among regimes with ``n >= min_n``, rank by Sharpe and select top-k.
-    6. Apply test-side stability filters: drop regimes with
-       ``n_test < min_test_n`` or ``coverage_test < min_test_coverage``.
-    7. Filter ``test_df`` to surviving regimes.
+    5. Apply persistence filter: require each regime to have appeared as a
+       candidate (n >= min_n) in at least ``min_persistence_folds`` prior
+       walk-forward folds.
+    6. Sort surviving candidates by training Sharpe (descending).  Iterate
+       through the top ``candidate_k`` entries; keep the first ``final_k``
+       that pass the test-side stability filters (n_test >= min_test_n and
+       coverage_test >= min_test_coverage).  Filters are applied inside the
+       selection loop — no separate post-hoc filtering step.
+    7. Filter ``test_df`` to selected regimes.
     8. Optionally apply direction logic per regime: follow/fade only when
        ``abs(train_mean) >= direction_threshold``; otherwise keep raw sign.
     9. Compute and log fold-level metrics + coverage.
@@ -425,17 +445,25 @@ def regime_filter_walk_forward(
         target_col: Forward-return column (default ``ret_48b``).
         year_col: Column containing calendar year (default ``"year"``).
         min_n: Minimum training observations per regime (default 100).
-        top_k: Number of top regimes (by Sharpe) to select per fold
-            (default 5).
+        candidate_k: Maximum number of top regimes (by Sharpe) to consider
+            when iterating through the selection loop (default 15).
+        final_k: Maximum number of regimes to keep after test-side filters
+            inside the selection loop (default 5).
         min_test_coverage: Minimum fraction of test signals a regime must
-            cover to survive the test stability filter (default 0.05).
-        min_test_n: Minimum raw count of test signals per regime (default 50).
+            cover to pass the in-loop stability filter (default 0.05).
+        min_test_n: Minimum raw count of test signals per regime to pass
+            the in-loop stability filter (default 50).
         with_direction: If ``True``, apply follow/fade direction logic for
             regimes where ``abs(train_mean) >= direction_threshold``.
         direction_threshold: Minimum |train mean| to activate follow/fade
-            logic (default 0.0002).  Below this threshold the signal is
+            logic (default 0.0005).  Below this threshold the signal is
             kept unmodified.
-        top_n_log: Number of top regimes to log per fold by training Sharpe.
+        top_n_log: Number of top selected regimes to log per fold, by
+            training Sharpe.
+        min_persistence_folds: Minimum number of prior walk-forward folds
+            in which a regime must have been a candidate (n >= min_n) before
+            it is eligible for selection in the current fold (default 2).
+            Set to 0 to disable persistence filtering.
 
     Returns:
         DataFrame ``fold_df`` with schema
@@ -460,6 +488,9 @@ def regime_filter_walk_forward(
 
     fold_rows: list[dict[str, Any]] = []
 
+    # Track how many prior walk-forward folds each regime was a candidate in.
+    regime_seen_count: dict[str, int] = {}
+
     for i in range(2, len(years)):
         test_year = years[i]
         train_df = df[df[year_col] < test_year]
@@ -472,43 +503,69 @@ def regime_filter_walk_forward(
         train_labeled = _build_regime_key(train_df, cuts)
         test_labeled = _build_regime_key(test_df, cuts)
 
+        # Number of all unique regime keys (any n) in training data.
+        n_unique_train_regimes = int(
+            train_labeled["regime_key"].dropna().nunique()
+        )
+
         # --- Step 3: regime stats (train only, all n>=min_n candidates) ---
         regime_stats = _compute_regime_stats(
             train_labeled,
             target_col=target_col,
             min_n=min_n,
         )
-        n_candidates = len(regime_stats)
+        n_after_min_n = len(regime_stats)
 
-        # --- Step 4: top-k selection by training Sharpe ---
+        # --- Step 4: persistence filter ---
+        if min_persistence_folds > 0:
+            persistent_stats = {
+                k: v
+                for k, v in regime_stats.items()
+                if regime_seen_count.get(k, 0) >= min_persistence_folds
+            }
+        else:
+            persistent_stats = dict(regime_stats)
+
+        # Sort all persistent candidates by training Sharpe (descending).
         sorted_candidates = sorted(
-            regime_stats.items(),
+            persistent_stats.items(),
             key=lambda kv: kv[1]["sharpe"],
             reverse=True,
         )
-        selected_stats: dict[str, dict[str, float]] = dict(sorted_candidates[:top_k])
-        selected_regimes = set(selected_stats.keys())
-        n_selected = len(selected_regimes)
 
-        # --- Step 5: test-set stability filters (counts only, no returns) ---
+        # --- Step 5: test-valid rows (used for stability checks inside loop) ---
         test_valid = test_labeled.dropna(subset=[target_col])
         n_total_test = len(test_valid)
+
+        # Coverage if all n>=min_n regimes were selected (pre-filter baseline).
+        min_n_regimes = set(regime_stats.keys())
         coverage_before = (
-            len(test_valid[test_valid["regime_key"].isin(selected_regimes)])
+            len(test_valid[test_valid["regime_key"].isin(min_n_regimes)])
             / n_total_test
             if n_total_test > 0
             else 0.0
         )
 
-        surviving_stats: dict[str, dict[str, float]] = {}
-        for regime_label, rstats in selected_stats.items():
+        # --- Step 6: selection loop — test filter applied inside ---
+        selected_stats: dict[str, dict[str, float]] = {}
+        n_checked = 0
+        for regime_label, rstats in sorted_candidates:
+            if len(selected_stats) >= final_k:
+                break
+            if n_checked >= candidate_k:
+                break
+            n_checked += 1
+
             n_test_regime = int(
                 (test_valid["regime_key"] == regime_label).sum()
             )
-            cov_test = n_test_regime / n_total_test if n_total_test > 0 else 0.0
+            cov_test = (
+                n_test_regime / n_total_test if n_total_test > 0 else 0.0
+            )
+
             if n_test_regime < min_test_n:
                 logger.debug(
-                    "  STABILITY FILTER [year=%d] | regime=%s dropped "
+                    "  SELECTION LOOP [year=%d] | regime=%s skipped "
                     "(n_test=%d < min_test_n=%d)",
                     test_year,
                     regime_label,
@@ -518,7 +575,7 @@ def regime_filter_walk_forward(
                 continue
             if cov_test < min_test_coverage:
                 logger.debug(
-                    "  STABILITY FILTER [year=%d] | regime=%s dropped "
+                    "  SELECTION LOOP [year=%d] | regime=%s skipped "
                     "(coverage_test=%.3f < min_test_coverage=%.3f)",
                     test_year,
                     regime_label,
@@ -526,34 +583,36 @@ def regime_filter_walk_forward(
                     min_test_coverage,
                 )
                 continue
-            surviving_stats[regime_label] = rstats
 
-        surviving_regimes = set(surviving_stats.keys())
-        n_surviving = len(surviving_regimes)
+            selected_stats[regime_label] = rstats
 
-        # --- Step 6: apply filter to test set ---
+        surviving_regimes = set(selected_stats.keys())
+        n_final_selected = len(surviving_regimes)
+
+        # --- Step 7: apply filter to test set ---
         test_filtered = test_valid[test_valid["regime_key"].isin(surviving_regimes)]
         n_filtered = len(test_filtered)
-        coverage = n_filtered / n_total_test if n_total_test > 0 else 0.0
+        coverage_after = n_filtered / n_total_test if n_total_test > 0 else 0.0
 
         # --- Per-fold logging ---
         logger.info(
             "REGIME FILTER PIPELINE [year=%d]"
-            " | candidates=%d | selected(top-%d)=%d | surviving=%d"
+            " | n_candidate_regimes=%d | n_after_min_n=%d"
+            " | n_checked_in_selection=%d | n_final_selected=%d"
             " | coverage_before=%.1f%% | coverage_after=%.1f%% (%d/%d signals)",
             test_year,
-            n_candidates,
-            top_k,
-            n_selected,
-            n_surviving,
+            n_unique_train_regimes,
+            n_after_min_n,
+            n_checked,
+            n_final_selected,
             coverage_before * 100,
-            coverage * 100,
+            coverage_after * 100,
             n_filtered,
             n_total_test,
         )
 
         top_regimes_sorted = sorted(
-            surviving_stats.items(),
+            selected_stats.items(),
             key=lambda kv: kv[1]["sharpe"],
             reverse=True,
         )[:top_n_log]
@@ -567,6 +626,12 @@ def regime_filter_walk_forward(
                 rstats["sharpe"],
             )
 
+        # --- Update persistence tracker for future folds ---
+        for regime_label in regime_stats:
+            regime_seen_count[regime_label] = (
+                regime_seen_count.get(regime_label, 0) + 1
+            )
+
         if n_filtered < 2:
             logger.warning(
                 "REGIME FILTER PIPELINE: year=%d skipped "
@@ -576,10 +641,10 @@ def regime_filter_walk_forward(
             )
             continue
 
-        # --- Step 7: optional direction logic ---
-        if with_direction and surviving_stats:
+        # --- Step 8: optional direction logic ---
+        if with_direction and selected_stats:
             direction_map: dict[str, float] = {}
-            for r, s in surviving_stats.items():
+            for r, s in selected_stats.items():
                 if abs(s["mean"]) >= direction_threshold:
                     direction_map[r] = 1.0 if s["mean"] > 0 else -1.0
                 else:
@@ -594,7 +659,7 @@ def regime_filter_walk_forward(
         else:
             returns_arr = test_filtered[target_col].values
 
-        # --- Step 8: fold metrics ---
+        # --- Step 9: fold metrics ---
         m = _fold_metrics(returns_arr)
 
         fold_rows.append(
@@ -604,7 +669,7 @@ def regime_filter_walk_forward(
                 "mean": m["mean"],
                 "sharpe": m["sharpe"],
                 "hit_rate": m["hit_rate"],
-                "coverage": coverage,
+                "coverage": coverage_after,
             }
         )
 
@@ -616,15 +681,16 @@ def regime_filter_walk_forward(
             m["mean"],
             m["sharpe"] if not np.isnan(m["sharpe"]) else float("nan"),
             m["hit_rate"] if not np.isnan(m["hit_rate"]) else float("nan"),
-            coverage * 100,
+            coverage_after * 100,
         )
 
     if not fold_rows:
         logger.warning(
             "REGIME FILTER PIPELINE: no valid folds produced "
-            "(min_n=%d, top_k=%d)",
+            "(min_n=%d, candidate_k=%d, final_k=%d)",
             min_n,
-            top_k,
+            candidate_k,
+            final_k,
         )
         return pd.DataFrame(columns=_COLS)
 
@@ -763,11 +829,35 @@ def main(argv: list[str] | None = None) -> None:
         help="Minimum training observations per regime for selection.",
     )
     p.add_argument(
-        "--top-k",
+        "--candidate-k",
         type=int,
-        default=TOP_K,
+        default=CANDIDATE_K,
         metavar="K",
-        help="Number of top regimes (by training Sharpe) to select per fold.",
+        help=(
+            "Size of the initial candidate pool: maximum number of top regimes "
+            "(by training Sharpe) to iterate through in the selection loop."
+        ),
+    )
+    p.add_argument(
+        "--final-k",
+        type=int,
+        default=FINAL_K,
+        metavar="K",
+        help=(
+            "Maximum number of regimes to keep after applying test-side "
+            "stability filters inside the selection loop."
+        ),
+    )
+    p.add_argument(
+        "--min-persistence-folds",
+        type=int,
+        default=MIN_PERSISTENCE_FOLDS,
+        metavar="N",
+        help=(
+            "Minimum number of prior walk-forward folds in which a regime must "
+            "have appeared as a candidate (n >= min_n) before it is eligible "
+            "for selection.  Set to 0 to disable persistence filtering."
+        ),
     )
     p.add_argument(
         "--min-test-coverage",
@@ -835,26 +925,31 @@ def main(argv: list[str] | None = None) -> None:
 
     logger.info(
         "=== REGIME FILTER PIPELINE ==="
-        " | min_n=%d | top_k=%d | min_test_coverage=%.2f"
-        " | min_test_n=%d | direction_threshold=%.4f | with_direction=%s",
+        " | min_n=%d | candidate_k=%d | final_k=%d | min_test_coverage=%.2f"
+        " | min_test_n=%d | direction_threshold=%.4f | with_direction=%s"
+        " | min_persistence_folds=%d",
         args.min_n,
-        args.top_k,
+        args.candidate_k,
+        args.final_k,
         args.min_test_coverage,
         args.min_test_n,
         args.direction_threshold,
         args.with_direction,
+        args.min_persistence_folds,
     )
 
     fold_df = regime_filter_walk_forward(
         df,
         target_col=TARGET_COL,
         min_n=args.min_n,
-        top_k=args.top_k,
+        candidate_k=args.candidate_k,
+        final_k=args.final_k,
         min_test_coverage=args.min_test_coverage,
         min_test_n=args.min_test_n,
         with_direction=args.with_direction,
         direction_threshold=args.direction_threshold,
         top_n_log=args.top_n_log,
+        min_persistence_folds=args.min_persistence_folds,
     )
 
     log_regime_filter_fold_results(fold_df)

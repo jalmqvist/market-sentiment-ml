@@ -20,9 +20,12 @@ Pipeline steps
    * ``sent_regime`` – fixed-threshold bin of ``abs_sentiment``
 
 4. Walk-forward regime selection (train only): filter regimes with
-   ``n >= min_n``, rank by Sharpe, keep top-k (default 5).
-5. Apply test-set stability filters: drop regimes with
-   ``n_test < min_test_n`` or ``coverage_test < min_test_coverage``.
+   ``n >= min_n``, rank by Sharpe.  Iterate through top ``candidate_k``
+   regimes; apply test-side stability filters inside the loop; keep up
+   to ``final_k`` that pass (default 5).
+5. Test-side stability filters applied **inside** the selection loop:
+   drop regimes with ``n_test < min_test_n`` or
+   ``coverage_test < min_test_coverage``.
 6. Apply regime filter to the test set.
 7. Optional direction logic: follow/fade only if ``|train_mean| >= direction_threshold``.
 8. Compute per-fold metrics (mean return, Sharpe, hit rate, coverage).
@@ -46,12 +49,17 @@ Usage::
     # Custom thresholds
     python run_regime_filter_pipeline.py \\
         --data data/output/master_research_dataset.csv \\
-        --min-n 150 --top-k 8 --min-test-coverage 0.03 --min-test-n 30
+        --min-n 150 --candidate-k 20 --final-k 8 --min-test-coverage 0.03 --min-test-n 30
 
     # Disable direction logic
     python run_regime_filter_pipeline.py \\
         --data data/output/master_research_dataset.csv \\
         --no-direction
+
+    # Disable persistence filtering
+    python run_regime_filter_pipeline.py \\
+        --data data/output/master_research_dataset.csv \\
+        --min-persistence-folds 0
 """
 
 from __future__ import annotations
@@ -140,13 +148,37 @@ def main(argv=None) -> None:
         ),
     )
     p.add_argument(
-        "--top-k",
+        "--candidate-k",
         type=int,
         default=None,
         metavar="K",
         help=(
-            "Number of top regimes (by training Sharpe) to select per fold.  "
-            "Defaults to the module-level TOP_K constant (5)."
+            "Size of the initial candidate pool: maximum number of top regimes "
+            "(by training Sharpe) to iterate through in the selection loop.  "
+            "Defaults to the module-level CANDIDATE_K constant (15)."
+        ),
+    )
+    p.add_argument(
+        "--final-k",
+        type=int,
+        default=None,
+        metavar="K",
+        help=(
+            "Maximum number of regimes to keep after applying test-side "
+            "stability filters inside the selection loop.  "
+            "Defaults to the module-level FINAL_K constant (5)."
+        ),
+    )
+    p.add_argument(
+        "--min-persistence-folds",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Minimum number of prior walk-forward folds in which a regime must "
+            "have appeared as a candidate (n >= min_n) before it is eligible "
+            "for selection.  Set to 0 to disable persistence filtering.  "
+            "Defaults to the module-level MIN_PERSISTENCE_FOLDS constant (2)."
         ),
     )
     p.add_argument(
@@ -213,12 +245,14 @@ def main(argv=None) -> None:
 
     # Import after logging is configured so module-level loggers pick up handlers.
     from experiments.regime_filter_pipeline import (  # noqa: PLC0415
+        CANDIDATE_K,
         DIRECTION_THRESHOLD,
+        FINAL_K,
+        MIN_PERSISTENCE_FOLDS,
         MIN_REGIME_N,
         MIN_TEST_COVERAGE,
         MIN_TEST_N,
         TARGET_COL,
-        TOP_K,
         TOP_N_LOG,
         build_features,
         compute_pooled_summary,
@@ -231,7 +265,8 @@ def main(argv=None) -> None:
 
     # Resolve CLI overrides against module-level defaults.
     min_n = args.min_n if args.min_n is not None else MIN_REGIME_N
-    top_k = args.top_k if args.top_k is not None else TOP_K
+    candidate_k = args.candidate_k if args.candidate_k is not None else CANDIDATE_K
+    final_k = args.final_k if args.final_k is not None else FINAL_K
     min_test_coverage = (
         args.min_test_coverage
         if args.min_test_coverage is not None
@@ -242,6 +277,11 @@ def main(argv=None) -> None:
         args.direction_threshold
         if args.direction_threshold is not None
         else DIRECTION_THRESHOLD
+    )
+    min_persistence_folds = (
+        args.min_persistence_folds
+        if args.min_persistence_folds is not None
+        else MIN_PERSISTENCE_FOLDS
     )
     # args.with_direction is always a bool (store_true/store_false with default=True),
     # so we use it directly without a fallback check.
@@ -262,26 +302,31 @@ def main(argv=None) -> None:
     _log = _logging.getLogger(__name__)
     _log.info(
         "=== REGIME FILTER PIPELINE ==="
-        " | min_n=%d | top_k=%d | min_test_coverage=%.2f"
-        " | min_test_n=%d | direction_threshold=%.4f | with_direction=%s",
+        " | min_n=%d | candidate_k=%d | final_k=%d | min_test_coverage=%.2f"
+        " | min_test_n=%d | direction_threshold=%.4f | with_direction=%s"
+        " | min_persistence_folds=%d",
         min_n,
-        top_k,
+        candidate_k,
+        final_k,
         min_test_coverage,
         min_test_n,
         direction_threshold,
         with_direction,
+        min_persistence_folds,
     )
 
     fold_df = regime_filter_walk_forward(
         df,
         target_col=TARGET_COL,
         min_n=min_n,
-        top_k=top_k,
+        candidate_k=candidate_k,
+        final_k=final_k,
         min_test_coverage=min_test_coverage,
         min_test_n=min_test_n,
         with_direction=with_direction,
         direction_threshold=direction_threshold,
         top_n_log=top_n_log,
+        min_persistence_folds=min_persistence_folds,
     )
 
     log_regime_filter_fold_results(fold_df)
