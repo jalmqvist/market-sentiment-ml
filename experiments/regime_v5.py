@@ -37,7 +37,7 @@ filtering, thresholding, or discrete regime selection:
        saturation_z    = zscore_train_then_apply(abs_sentiment)
 
        behavior_score_raw = 0.5 * persistence_z + 0.5 * saturation_z
-       behavior_score     = np.tanh(behavior_score_raw)   # clipped to (-1, 1)
+       behavior_score     = np.tanh(behavior_score_raw)   # output in (-1, 1)
 
 4. **Final position**::
 
@@ -323,8 +323,7 @@ def _apply_behavior_score(
             saturation_z = (raw - p["mean"]) / p["std"]
 
     behavior_score_raw = 0.5 * persistence_z + 0.5 * saturation_z
-    behavior_score = np.tanh(behavior_score_raw)
-    return np.clip(behavior_score, -1.0, 1.0)
+    return np.tanh(behavior_score_raw)
 
 
 # ---------------------------------------------------------------------------
