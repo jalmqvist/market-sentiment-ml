@@ -235,13 +235,15 @@ TOP_N_REGIMES: int = 5
 #: Minimum full-dataset Sharpe threshold for a regime to pass the
 #: auto-selection filter in ``select_top_regimes``.
 #: Override via CLI ``--min-regime-sharpe``.
-MIN_REGIME_SHARPE: float = 0.02
+#: Set to 0.0 to include more regimes initially and avoid over-filtering.
+MIN_REGIME_SHARPE: float = 0.0
 
 #: Minimum positive-year ratio (fraction of walk-forward years with
 #: Sharpe > 0) for a regime to pass the stability filter in both
 #: ``select_top_regimes`` and ``classify_regime_direction``.
 #: Override via CLI ``--min-stability``.
-MIN_STABILITY_RATIO: float = 0.55
+#: Set to 0.50 to include more regimes initially and avoid over-filtering.
+MIN_STABILITY_RATIO: float = 0.50
 
 #: Default weight threshold for regime-based signal weighting.
 #: Regimes whose absolute weight falls below this value are treated as
@@ -2089,32 +2091,48 @@ def filtered_regime_baseline(
 
 def filtered_regime_walk_forward(
     df: pd.DataFrame,
-    top_regimes: list[str] | None = None,
     *,
     target_col: str = TARGET_COL,
     regime_col: str = "crowding_regime",
     year_col: str = "year",
     min_n: int = MIN_CROWDING_REGIME_OBS,
+    top_n: int = TOP_N_REGIMES,
+    min_sharpe: float = MIN_REGIME_SHARPE,
+    min_stability: float = MIN_STABILITY_RATIO,
 ) -> pd.DataFrame:
     """Walk-forward validation of filtered-regime performance (no model).
 
-    For each test year (starting from the third unique year), applies the same
-    regime filter and computes aggregate metrics on the filtered test-year
-    slice.  No refitting is done; the filter list is fixed (``top_regimes``).
+    For each test year (starting from the third unique year), regime selection
+    is performed **strictly on training data only** (all years prior to the
+    test year).  No information from the test period enters the regime filter.
+
+    Per-fold steps:
+
+    1. Compute ``crowding_regime_baseline`` on the training slice.
+    2. Compute ``crowding_regime_walk_forward`` on the training slice to obtain
+       per-year regime statistics, then aggregate to a stability summary via
+       ``compute_regime_stability_summary``.
+    3. Run ``select_top_regimes`` using only training-derived summaries.
+    4. Apply the resulting filter to the test-year slice only.
 
     Guardrails:
-    * Regime filter applied identically across all years (no look-ahead).
+    * Regime selection re-run each fold from training data (no forward bias).
     * Years where the filtered test set has fewer than ``min_n`` rows are
       skipped and logged at WARNING level.
 
     Args:
         df: Full dataset (after ``build_behavioural_regimes``).
-        top_regimes: Regime labels to include.  Defaults to ``TOP_REGIMES``.
         target_col: Forward-return column (default ``ret_48b``).
         regime_col: Column containing regime labels (default
             ``"crowding_regime"``).
         year_col: Column containing calendar year (default ``"year"``).
         min_n: Minimum filtered rows required per test year.
+        top_n: Maximum number of top regimes to select per fold (default
+            ``TOP_N_REGIMES``).
+        min_sharpe: Minimum training Sharpe required for regime selection
+            (default ``MIN_REGIME_SHARPE``).
+        min_stability: Minimum positive-year ratio required for regime
+            selection (default ``MIN_STABILITY_RATIO``).
 
     Returns:
         DataFrame with schema
@@ -2122,9 +2140,6 @@ def filtered_regime_walk_forward(
         This is the ``filtered_wf`` output artifact.
     """
     _COLS = ["year", "n", "mean", "sharpe", "hit_rate"]
-
-    if top_regimes is None:
-        top_regimes = TOP_REGIMES
 
     if regime_col not in df.columns:
         logger.warning(
@@ -2144,10 +2159,39 @@ def filtered_regime_walk_forward(
 
     for i in range(2, len(years)):
         test_year = years[i]
+        train_df = df[df[year_col] < test_year]
         test_all = df[df[year_col] == test_year].dropna(subset=[target_col])
 
-        # Apply regime filter (no refitting — same list across all years).
-        test_filtered = test_all[test_all[regime_col].isin(top_regimes)]
+        # --- Training-only regime selection (strictly causal) ---
+        crowding_summary_train = crowding_regime_baseline(train_df)
+        crowding_wf_train = crowding_regime_walk_forward(train_df)
+        stability_train = compute_regime_stability_summary(crowding_wf_train)
+
+        top_regimes_fold = select_top_regimes(
+            crowding_summary_train,
+            stability_train,
+            top_n=top_n,
+            min_sharpe=min_sharpe,
+            min_stability=min_stability,
+        )
+
+        # --- Coverage diagnostics for this fold ---
+        n_total_test = len(test_all)
+        n_filtered_test = int(test_all[regime_col].isin(top_regimes_fold).sum())
+        coverage_pct = 100.0 * n_filtered_test / n_total_test if n_total_test > 0 else 0.0
+
+        logger.info(
+            "WALK-FORWARD FILTERED [year=%d] | top_regimes=%s"
+            " | coverage=%.1f%% (%d/%d signals)",
+            test_year,
+            top_regimes_fold,
+            coverage_pct,
+            n_filtered_test,
+            n_total_test,
+        )
+
+        # Apply training-only regime filter to test slice.
+        test_filtered = test_all[test_all[regime_col].isin(top_regimes_fold)]
 
         if len(test_filtered) < min_n:
             logger.warning(
@@ -2532,37 +2576,52 @@ def regime_direction_performance(
 
 def regime_direction_walk_forward(
     df: pd.DataFrame,
-    contrarian_regimes: list[str] | None = None,
-    trend_regimes: list[str] | None = None,
     *,
     target_col: str = TARGET_COL,
     regime_col: str = "crowding_regime",
     sentiment_col: str = "net_sentiment",
     year_col: str = "year",
     min_n: int = MIN_CROWDING_REGIME_OBS,
+    top_n: int = TOP_N_REGIMES,
+    min_sharpe: float = MIN_REGIME_SHARPE,
+    min_stability: float = MIN_STABILITY_RATIO,
 ) -> pd.DataFrame:
     """Walk-forward validation of the regime-direction signal (no model).
 
-    For each test year (starting from the third unique year), applies the
-    same fixed regime-direction mapping and computes per-year OOS metrics.
-    No refitting of regime lists is performed.
+    For each test year (starting from the third unique year), regime selection
+    and direction classification are performed **strictly on training data
+    only** (all years prior to the test year).  No information from the test
+    period enters the regime filter or direction assignment.
+
+    Per-fold steps:
+
+    1. Compute ``crowding_regime_baseline`` on the training slice.
+    2. Compute ``crowding_regime_walk_forward`` on the training slice, then
+       aggregate to a stability summary via ``compute_regime_stability_summary``.
+    3. Run ``select_top_regimes`` and ``classify_regime_direction`` using
+       only training-derived summaries.
+    4. Apply regime direction signal to the test-year slice only.
 
     Guardrails:
-    * Regime and direction mapping is applied identically across all years.
+    * Regime and direction classification re-run each fold from training data
+      (no forward bias).
     * Years where the active test set has fewer than ``min_n`` rows are
       skipped and logged at WARNING level.
 
     Args:
         df: Full dataset (after ``build_behavioural_regimes``).
-        contrarian_regimes: Regime labels for contrarian direction.
-            Defaults to ``CONTRARIAN_REGIMES``.
-        trend_regimes: Regime labels for trend-following direction.
-            Defaults to ``TREND_REGIMES``.
         target_col: Forward-return column (default ``ret_48b``).
         regime_col: Column containing crowding regime labels.
         sentiment_col: Column containing signed sentiment values.
         year_col: Column containing calendar year.
         min_n: Minimum active rows required per test year.
+        top_n: Maximum number of top regimes to select per fold (default
+            ``TOP_N_REGIMES``).
+        min_sharpe: Minimum training Sharpe required for regime selection
+            (default ``MIN_REGIME_SHARPE``).
+        min_stability: Minimum positive-year ratio required for regime
+            selection and direction classification (default
+            ``MIN_STABILITY_RATIO``).
 
     Returns:
         DataFrame with schema
@@ -2570,11 +2629,6 @@ def regime_direction_walk_forward(
         This is the ``regime_direction_wf`` output artifact.
     """
     _COLS = ["year", "n", "mean", "sharpe", "hit_rate"]
-
-    if contrarian_regimes is None:
-        contrarian_regimes = CONTRARIAN_REGIMES
-    if trend_regimes is None:
-        trend_regimes = TREND_REGIMES
 
     if regime_col not in df.columns:
         logger.warning(
@@ -2594,6 +2648,7 @@ def regime_direction_walk_forward(
 
     for i in range(2, len(years)):
         test_year = years[i]
+        train_df = df[df[year_col] < test_year]
         test_all = df[df[year_col] == test_year].dropna(subset=[target_col])
 
         if test_all.empty:
@@ -2603,15 +2658,53 @@ def regime_direction_walk_forward(
             )
             continue
 
-        # Apply regime-direction signal to the test slice.
+        # --- Training-only regime selection and direction (strictly causal) ---
+        crowding_summary_train = crowding_regime_baseline(train_df)
+        crowding_wf_train = crowding_regime_walk_forward(train_df)
+        stability_train = compute_regime_stability_summary(crowding_wf_train)
+
+        top_regimes_fold = select_top_regimes(
+            crowding_summary_train,
+            stability_train,
+            top_n=top_n,
+            min_sharpe=min_sharpe,
+            min_stability=min_stability,
+        )
+        contrarian_fold, trend_fold = classify_regime_direction(
+            stability_train, min_stability=min_stability
+        )
+
+        # --- Apply regime-direction signal to the test slice ---
         test_dir = apply_regime_direction_signal(
             test_all,
-            contrarian_regimes,
-            trend_regimes,
+            contrarian_fold,
+            trend_fold,
             regime_col=regime_col,
             sentiment_col=sentiment_col,
         )
         active = test_dir[test_dir["is_active"]]
+
+        # --- Per-fold diagnostics ---
+        n_total_test = len(test_all)
+        n_active_signals = len(active)
+        coverage_pct = 100.0 * n_active_signals / n_total_test if n_total_test > 0 else 0.0
+
+        logger.info(
+            "REGIME DIRECTION WALK-FORWARD [year=%d]"
+            " | top_regimes=%s"
+            " | contrarian=%s"
+            " | trend=%s"
+            " | coverage=%.1f%% (%d/%d)"
+            " | active_signals=%d",
+            test_year,
+            top_regimes_fold,
+            contrarian_fold,
+            trend_fold,
+            coverage_pct,
+            n_active_signals,
+            n_total_test,
+            n_active_signals,
+        )
 
         if len(active) < min_n:
             logger.warning(
@@ -3035,8 +3128,6 @@ def regime_weighted_performance(
 
 def regime_weighted_walk_forward(
     df: pd.DataFrame,
-    contrarian_regimes: list[str] | None = None,
-    trend_regimes: list[str] | None = None,
     *,
     target_col: str = TARGET_COL,
     regime_col: str = "crowding_regime",
@@ -3045,28 +3136,37 @@ def regime_weighted_walk_forward(
     min_n: int = MIN_CROWDING_REGIME_OBS,
     weight_threshold: float = WEIGHT_THRESHOLD,
     normalize_weights: bool = NORMALIZE_WEIGHTS,
+    top_n: int = TOP_N_REGIMES,
+    min_sharpe: float = MIN_REGIME_SHARPE,
+    min_stability: float = MIN_STABILITY_RATIO,
 ) -> pd.DataFrame:
     """Walk-forward validation of the regime-weighted signal (no model).
 
-    For each test year (starting from the third unique year):
+    For each test year (starting from the third unique year), regime selection,
+    direction classification, and regime Sharpe weights are all computed
+    **strictly on training data only** (all years prior to the test year).
+    No test-period information enters any part of signal construction.
 
-    1. Compute ``regime_sharpe_map`` on the **training slice** (all years
-       prior to the test year).  No test data is used to derive weights.
-    2. Convert to weights via ``convert_sharpe_to_weight``.
-    3. Apply weighted signal to the **test slice**.
-    4. Compute per-year performance metrics.
+    Per-fold steps:
+
+    1. Compute ``crowding_regime_baseline`` on the training slice.
+    2. Compute ``crowding_regime_walk_forward`` on the training slice, then
+       aggregate to a stability summary via ``compute_regime_stability_summary``.
+    3. Run ``select_top_regimes`` and ``classify_regime_direction`` from
+       training-derived summaries only.
+    4. Compute ``regime_sharpe_map`` from training data using the
+       training-derived direction lists.
+    5. Convert to weights via ``convert_sharpe_to_weight``.
+    6. Apply weighted signal to the test slice only.
 
     Guardrails:
-    * Regime Sharpe map is computed on training data only (leakage-free).
+    * Regime selection, direction, and weight map are computed on training data
+      only (leakage-free).
     * Years where the active weighted test set has fewer than ``min_n`` rows
       are skipped and logged at WARNING level.
 
     Args:
         df: Full dataset (after ``build_behavioural_regimes``).
-        contrarian_regimes: Regime labels for contrarian direction.
-            Defaults to ``CONTRARIAN_REGIMES``.
-        trend_regimes: Regime labels for trend-following direction.
-            Defaults to ``TREND_REGIMES``.
         target_col: Forward-return column (default ``ret_48b``).
         regime_col: Column containing crowding regime labels.
         sentiment_col: Column containing signed sentiment values.
@@ -3076,6 +3176,13 @@ def regime_weighted_walk_forward(
             are excluded from active signals.
         normalize_weights: If ``True``, normalize weights by
             ``max_abs_sharpe``.  Defaults to ``NORMALIZE_WEIGHTS``.
+        top_n: Maximum number of top regimes to select per fold (default
+            ``TOP_N_REGIMES``).
+        min_sharpe: Minimum training Sharpe required for regime selection
+            (default ``MIN_REGIME_SHARPE``).
+        min_stability: Minimum positive-year ratio required for regime
+            selection and direction classification (default
+            ``MIN_STABILITY_RATIO``).
 
     Returns:
         DataFrame with schema
@@ -3083,11 +3190,6 @@ def regime_weighted_walk_forward(
         This is the ``regime_weighted_wf`` output artifact.
     """
     _COLS = ["year", "n", "mean", "sharpe", "hit_rate"]
-
-    if contrarian_regimes is None:
-        contrarian_regimes = CONTRARIAN_REGIMES
-    if trend_regimes is None:
-        trend_regimes = TREND_REGIMES
 
     if regime_col not in df.columns:
         logger.warning(
@@ -3107,9 +3209,7 @@ def regime_weighted_walk_forward(
 
     for i in range(2, len(years)):
         test_year = years[i]
-        train_years = years[:i]
-
-        train_all = df[df[year_col].isin(train_years)].dropna(subset=[target_col])
+        train_all = df[df[year_col] < test_year].dropna(subset=[target_col])
         test_all = df[df[year_col] == test_year].dropna(subset=[target_col])
 
         if test_all.empty:
@@ -3119,11 +3219,28 @@ def regime_weighted_walk_forward(
             )
             continue
 
+        # --- Training-only regime selection and direction (strictly causal) ---
+        train_df = df[df[year_col] < test_year]
+        crowding_summary_train = crowding_regime_baseline(train_df)
+        crowding_wf_train = crowding_regime_walk_forward(train_df)
+        stability_train = compute_regime_stability_summary(crowding_wf_train)
+
+        top_regimes_fold = select_top_regimes(
+            crowding_summary_train,
+            stability_train,
+            top_n=top_n,
+            min_sharpe=min_sharpe,
+            min_stability=min_stability,
+        )
+        contrarian_fold, trend_fold = classify_regime_direction(
+            stability_train, min_stability=min_stability
+        )
+
         # Compute regime Sharpe map on training data only (leakage-free).
         sharpe_map = compute_regime_sharpe_map(
             train_all,
-            contrarian_regimes,
-            trend_regimes,
+            contrarian_fold,
+            trend_fold,
             target_col=target_col,
             regime_col=regime_col,
             sentiment_col=sentiment_col,
@@ -3134,13 +3251,35 @@ def regime_weighted_walk_forward(
         test_weighted = apply_regime_weighted_signal(
             test_all,
             weight_map,
-            contrarian_regimes,
-            trend_regimes,
+            contrarian_fold,
+            trend_fold,
             regime_col=regime_col,
             sentiment_col=sentiment_col,
             weight_threshold=weight_threshold,
         )
         active = test_weighted[test_weighted["is_active_weighted"]]
+
+        # --- Per-fold diagnostics ---
+        n_total_test = len(test_all)
+        n_active_signals = len(active)
+        coverage_pct = 100.0 * n_active_signals / n_total_test if n_total_test > 0 else 0.0
+
+        logger.info(
+            "REGIME WEIGHTED WALK-FORWARD [year=%d]"
+            " | top_regimes=%s"
+            " | contrarian=%s"
+            " | trend=%s"
+            " | coverage=%.1f%% (%d/%d)"
+            " | active_signals=%d",
+            test_year,
+            top_regimes_fold,
+            contrarian_fold,
+            trend_fold,
+            coverage_pct,
+            n_active_signals,
+            n_total_test,
+            n_active_signals,
+        )
 
         if len(active) < min_n:
             logger.warning(
@@ -3933,7 +4072,9 @@ def main(argv=None) -> None:
 
     # ------------------------------------------------------------------
     # Step 4c-iii: AUTO-SELECT top regimes and direction from discovery
-    #              outputs (data-driven; replaces hardcoded constants).
+    #              outputs (FULL-DATASET; for diagnostics and reporting only).
+    #              Walk-forward functions compute these from training data
+    #              per fold — no forward bias in OOS evaluation.
     # ------------------------------------------------------------------
     top_regimes = select_top_regimes(crowding_summary, regime_stability)
     contrarian_regimes, trend_regimes = classify_regime_direction(regime_stability)
@@ -3984,10 +4125,11 @@ def main(argv=None) -> None:
     log_filtered_performance(filtered_perf)
 
     # ------------------------------------------------------------------
-    # Step 4h: WALK-FORWARD FILTERED PERFORMANCE — per-year OOS metrics
-    #          on filtered signals (no refitting of regime list)
+    # Step 4h: WALK-FORWARD FILTERED PERFORMANCE — per-year OOS metrics;
+    #          regime selection computed from training data per fold
+    #          (strictly causal, no forward bias).
     # ------------------------------------------------------------------
-    filtered_wf = filtered_regime_walk_forward(df, top_regimes)
+    filtered_wf = filtered_regime_walk_forward(df)
     log_filtered_wf(filtered_wf)
 
     # ------------------------------------------------------------------
@@ -4015,9 +4157,11 @@ def main(argv=None) -> None:
     log_regime_direction_performance(dir_perf)
 
     # ------------------------------------------------------------------
-    # Step 4k: WALK-FORWARD FILTER + DIRECTION — per-year OOS metrics
+    # Step 4k: WALK-FORWARD FILTER + DIRECTION — per-year OOS metrics;
+    #          regime selection and direction computed from training data
+    #          per fold (strictly causal, no forward bias).
     # ------------------------------------------------------------------
-    dir_wf = regime_direction_walk_forward(df, contrarian_regimes, trend_regimes)
+    dir_wf = regime_direction_walk_forward(df)
     log_regime_direction_wf(dir_wf)
 
     # ------------------------------------------------------------------
@@ -4042,12 +4186,11 @@ def main(argv=None) -> None:
 
     # ------------------------------------------------------------------
     # Step 4m: WALK-FORWARD FILTER + DIRECTION + WEIGHTING — per-year
-    #          OOS metrics; regime Sharpe map computed from training slice
-    #          only per fold (leakage-free).
+    #          OOS metrics; regime selection, direction, and Sharpe map
+    #          all computed from training data per fold (strictly causal,
+    #          no forward bias).
     # ------------------------------------------------------------------
-    weighted_wf = regime_weighted_walk_forward(
-        df, contrarian_regimes, trend_regimes
-    )
+    weighted_wf = regime_weighted_walk_forward(df)
     log_regime_weighted_wf(weighted_wf)
 
     # ------------------------------------------------------------------
