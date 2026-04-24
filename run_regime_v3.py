@@ -312,7 +312,9 @@ def main(argv=None) -> None:
 
     # ------------------------------------------------------------------
     # Step 4c-iii: AUTO-SELECT top regimes and direction from discovery
-    #              outputs (data-driven; replaces hardcoded constants).
+    #              outputs (FULL-DATASET; for diagnostics and reporting only).
+    #              Walk-forward functions compute these from training data
+    #              per fold — no forward bias in OOS evaluation.
     # ------------------------------------------------------------------
     top_regimes = select_top_regimes(
         crowding_summary,
@@ -380,10 +382,16 @@ def main(argv=None) -> None:
     log_filtered_performance(filtered_perf)
 
     # ------------------------------------------------------------------
-    # Step 4h: WALK-FORWARD FILTERED PERFORMANCE — per-year OOS metrics
-    #          on filtered signals (no refitting of regime list)
+    # Step 4h: WALK-FORWARD FILTERED PERFORMANCE — per-year OOS metrics;
+    #          regime selection computed from training data per fold
+    #          (strictly causal, no forward bias).
     # ------------------------------------------------------------------
-    filtered_wf_results = filtered_regime_walk_forward(df, top_regimes)
+    filtered_wf_results = filtered_regime_walk_forward(
+        df,
+        top_n=top_n_regimes,
+        min_sharpe=min_regime_sharpe,
+        min_stability=min_stability,
+    )
     log_filtered_wf(filtered_wf_results)
 
     # ------------------------------------------------------------------
@@ -413,10 +421,16 @@ def main(argv=None) -> None:
     log_regime_direction_performance(dir_perf)
 
     # ------------------------------------------------------------------
-    # Step 4k: WALK-FORWARD FILTER + DIRECTION — per-year OOS metrics
-    #          for the direction-signal strategy (no refitting)
+    # Step 4k: WALK-FORWARD FILTER + DIRECTION — per-year OOS metrics;
+    #          regime selection and direction computed from training data
+    #          per fold (strictly causal, no forward bias).
     # ------------------------------------------------------------------
-    dir_wf = regime_direction_walk_forward(df, contrarian_regimes, trend_regimes)
+    dir_wf = regime_direction_walk_forward(
+        df,
+        top_n=top_n_regimes,
+        min_sharpe=min_regime_sharpe,
+        min_stability=min_stability,
+    )
     log_regime_direction_wf(dir_wf)
 
     # ------------------------------------------------------------------
@@ -448,15 +462,17 @@ def main(argv=None) -> None:
 
     # ------------------------------------------------------------------
     # Step 4m: WALK-FORWARD FILTER + DIRECTION + WEIGHTING — per-year
-    #          OOS metrics; regime Sharpe map computed from training slice
-    #          only per fold (leakage-free).
+    #          OOS metrics; regime selection, direction, and Sharpe map
+    #          all computed from training data per fold (strictly causal,
+    #          no forward bias).
     # ------------------------------------------------------------------
     weighted_wf = regime_weighted_walk_forward(
         df,
-        contrarian_regimes,
-        trend_regimes,
         weight_threshold=weight_threshold,
         normalize_weights=normalize_weights,
+        top_n=top_n_regimes,
+        min_sharpe=min_regime_sharpe,
+        min_stability=min_stability,
     )
     log_regime_weighted_wf(weighted_wf)
 
