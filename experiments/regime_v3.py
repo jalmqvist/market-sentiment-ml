@@ -2694,8 +2694,7 @@ def regime_direction_walk_forward(
             " | top_regimes=%s"
             " | contrarian=%s"
             " | trend=%s"
-            " | coverage=%.1f%% (%d/%d)"
-            " | active_signals=%d",
+            " | coverage=%.1f%% (%d/%d)",
             test_year,
             top_regimes_fold,
             contrarian_fold,
@@ -2703,7 +2702,6 @@ def regime_direction_walk_forward(
             coverage_pct,
             n_active_signals,
             n_total_test,
-            n_active_signals,
         )
 
         if len(active) < min_n:
@@ -3269,8 +3267,7 @@ def regime_weighted_walk_forward(
             " | top_regimes=%s"
             " | contrarian=%s"
             " | trend=%s"
-            " | coverage=%.1f%% (%d/%d)"
-            " | active_signals=%d",
+            " | coverage=%.1f%% (%d/%d)",
             test_year,
             top_regimes_fold,
             contrarian_fold,
@@ -3278,7 +3275,6 @@ def regime_weighted_walk_forward(
             coverage_pct,
             n_active_signals,
             n_total_test,
-            n_active_signals,
         )
 
         if len(active) < min_n:
