@@ -29,10 +29,10 @@ Pipeline steps
 
 Usage::
 
-    # Log to stdout only (default)
+    # Log to auto-created timestamped file (default)
     python run_regime_filter_pipeline.py --data data/output/master_research_dataset.csv
 
-    # Log to stdout + file
+    # Log to a specific file
     python run_regime_filter_pipeline.py \\
         --data data/output/master_research_dataset.csv \\
         --log-file logs/regime_filter.log
@@ -56,8 +56,8 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import datetime
 import logging
-import sys
 from pathlib import Path
 
 import config as cfg
@@ -67,12 +67,16 @@ _LOG_DATE_FMT = "%Y-%m-%dT%H:%M:%S"
 
 
 def _setup_logging(level: str, log_file: str | None = None) -> None:
-    """Configure root logger with a stdout handler and an optional file handler.
+    """Configure root logger with a file handler only (no stdout).
+
+    If *log_file* is None, a timestamped file is created automatically in
+    ``logs/``.  The parent directory is created if it does not exist.
 
     Args:
         level: Log level string (DEBUG, INFO, WARNING, ERROR).
-        log_file: Optional path to a log file.  The parent directory is
-            created automatically if it does not exist.
+        log_file: Optional explicit path to a log file.  When omitted, a
+            file named ``regime_filter_pipeline_YYYYMMDD_HHMMSS.log`` is
+            created inside ``logs/``.
     """
     numeric_level = getattr(logging, level.upper(), logging.INFO)
     formatter = logging.Formatter(_LOG_FORMAT, datefmt=_LOG_DATE_FMT)
@@ -80,19 +84,20 @@ def _setup_logging(level: str, log_file: str | None = None) -> None:
     root = logging.getLogger()
     root.setLevel(numeric_level)
 
-    stdout_handler = logging.StreamHandler(sys.stdout)
-    stdout_handler.setLevel(numeric_level)
-    stdout_handler.setFormatter(formatter)
-    root.addHandler(stdout_handler)
-
-    if log_file:
+    if log_file is None:
+        logs_dir = Path("logs")
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_path = logs_dir / f"regime_filter_pipeline_{timestamp}.log"
+    else:
         log_path = Path(log_file)
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        file_handler = logging.FileHandler(log_path, encoding="utf-8")
-        file_handler.setLevel(numeric_level)
-        file_handler.setFormatter(formatter)
-        root.addHandler(file_handler)
-        logging.getLogger(__name__).info("File logging enabled: %s", log_path)
+
+    file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    file_handler.setLevel(numeric_level)
+    file_handler.setFormatter(formatter)
+    root.addHandler(file_handler)
+    logging.getLogger(__name__).info("File logging enabled: %s", log_path)
 
 
 def main(argv=None) -> None:
@@ -119,8 +124,8 @@ def main(argv=None) -> None:
         default=None,
         metavar="PATH",
         help=(
-            "Optional path to a log file.  When provided, log messages are "
-            "written to both stdout and this file."
+            "Optional explicit log file path.  When omitted, a timestamped "
+            "file is created automatically in logs/."
         ),
     )
     p.add_argument(
