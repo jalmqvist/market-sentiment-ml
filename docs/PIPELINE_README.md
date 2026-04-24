@@ -28,6 +28,7 @@ build_dataset  →  [attach_regimes]  →  discovery  →  portfolio  →  [regi
 | Signal V2 × Regime Filter       | `experiments/regime_v4_signal_filter.py`         | `DATA_PATH` (canonical)          | Optional     |
 | Regime V5 (blended signal)      | `experiments/regime_v5.py`                       | `DATA_PATH` (canonical)          | Optional     |
 | Regime V6 (filtered + blended)  | `experiments/regime_v6.py`                       | `DATA_PATH` (canonical)          | Optional     |
+| Regime V7 (event-based)         | `experiments/regime_v7.py`                       | `DATA_PATH` (canonical)          | Optional     |
 | Validation                      | `validation/validate_pipeline_extended.py`       | both datasets                    | Automatic    |
 
 > **Important:** `--data` is the ONLY accepted dataset argument for all stage
@@ -75,6 +76,7 @@ Canonical dataset
 | Signal × regime (hybrid) | **Production candidate**  | `experiments/regime_v4_signal_filter.py` |
 | Continuous blending      | Signal V2 × regime × behavior | `experiments/regime_v5.py`          |
 | Filtered + blended       | Filter threshold + continuous weighting | `experiments/regime_v6.py`    |
+| Event-based signal       | Discrete event detection + Signal V2 | `experiments/regime_v7.py`       |
 
 ---
 
@@ -146,6 +148,28 @@ The project currently supports three distinct ways of using regimes:
 - **Safety fallback**: if all positions are zero (all filtered), reverts to
   V5 continuous weighting using all eligible regimes
 - Runner: `python experiments/regime_v6.py --data <path> [--min-n 100] [--filter-sharpe 0.05] [--window 96]`
+
+---
+
+#### 7. Event-based signal pipeline (Regime V7)
+
+- Replaces regime-based averaging with **discrete event detection**
+- Three event types, each a boolean mask validated on training data only:
+
+  * **SATURATION_EVENT** – `abs_sentiment > 70` AND `extreme_streak_70 >= streak_threshold`
+    AND `abs(trend_strength_48b) > trend_threshold`
+  * **DIVERGENCE_EVENT** – `abs(divergence) > divergence_threshold`
+  * **EXHAUSTION_EVENT** – `extreme_streak_70 >= streak_threshold`
+    AND `abs(trend_strength_48b) <= trend_threshold`
+
+- **Train phase**: compute n, mean, Sharpe, hit rate per event on training data;
+  keep events where `n >= min_n` AND `sharpe >= min_sharpe`; store direction
+  (sign of mean return)
+- **Test phase**: if a validated event fires → `position = tanh(signal_v2_raw) * direction`;
+  if multiple fire → highest train-set Sharpe wins; if none → `position = 0`
+- **Coverage** = fraction of test rows where `abs(position) > 0`
+- No forward leakage: all thresholds and event directions set on train only
+- Runner: `python run_regime_v7.py --data <path> [--min-n 50] [--min-sharpe 0.02] [--streak-threshold 3] [--trend-threshold 0.5] [--divergence-threshold 1.0]`
 
 ---
 
