@@ -26,6 +26,7 @@ build_dataset  →  [attach_regimes]  →  discovery  →  portfolio  →  [regi
 | Regime filter pipeline          | `experiments/regime_filter_pipeline.py`          | `DATA_PATH` (canonical)          | Optional     |
 | Regime V4 (weighted)            | `experiments/regime_v4.py`                       | `DATA_PATH` (canonical)          | Optional     |
 | Signal V2 × Regime Filter       | `experiments/regime_v4_signal_filter.py`         | `DATA_PATH` (canonical)          | Optional     |
+| Regime V5 (blended signal)      | `experiments/regime_v5.py`                       | `DATA_PATH` (canonical)          | Optional     |
 | Validation                      | `validation/validate_pipeline_extended.py`       | both datasets                    | Automatic    |
 
 > **Important:** `--data` is the ONLY accepted dataset argument for all stage
@@ -71,6 +72,7 @@ Canonical dataset
 | Regime filter (binary)   | Model-free filtering      | `experiments/regime_filter_pipeline.py`  |
 | Regime weighting         | Continuous signal scaling | `experiments/regime_v4.py`               |
 | Signal × regime (hybrid) | **Production candidate**  | `experiments/regime_v4_signal_filter.py` |
+| Continuous blending      | Signal V2 × regime × behavior | `experiments/regime_v5.py`          |
 
 ---
 
@@ -110,6 +112,20 @@ The project currently supports three distinct ways of using regimes:
 - Optional direction adjustment
 - Best empirical performance so far
 - Signal V2 → regime filter → (optional direction) → final signal
+
+---
+
+#### 5. Continuous signal blending (Regime V5)
+
+- Multiplicative blending of three continuous layers — no filtering or
+  discrete selection
+- **Base signal**: Signal V2 raw composite passed through `tanh`
+- **Regime score**: 4-component regime key → train-only Sharpe →
+  `tanh(sharpe / std_sharpe)`
+- **Behavioral score**: `tanh(0.5 * zscore(extreme_streak_70) + 0.5 * zscore(abs_sentiment))`
+  — z-score parameters derived from training data only
+- Final position: `base_signal × regime_score × behavior_score`
+- Runner: `run_regime_v5.py --data <path> [--min-n 100] [--window 96]`
 
 ---
 
