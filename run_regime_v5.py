@@ -183,7 +183,7 @@ def main(argv=None) -> None:
 
     require_columns(
         df,
-        [TARGET_COL, "signal_v2_raw", "year"],
+        [TARGET_COL, "year"],
         context="run_regime_v5",
     )
     _log.info("Dataset ready: %d rows", len(df))
