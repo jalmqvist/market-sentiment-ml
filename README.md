@@ -1,370 +1,357 @@
-# FX Retail Sentiment Research Pipeline
+# FX Retail Sentiment Research & Signal Pipeline
 
-A research pipeline for combining multi-year retail FX sentiment snapshots with hourly FX market data, producing a clean event-level dataset for signal testing and downstream ML workflows.
+A quantitative research and signal engineering pipeline for extracting **conditional alpha from retail FX sentiment**.
 
-------
+---
 
 ## Executive summary
 
-This project builds and validates a research pipeline for testing whether **retail FX sentiment** contains predictive information.
+This project investigates whether retail FX sentiment contains predictive information — and more importantly:
 
-It demonstrates an end-to-end quantitative workflow:
+> **When it becomes predictive**
 
-- large-scale data ingestion and normalization
-- timestamp alignment across heterogeneous sources
-- feature engineering and target construction
-- data-quality diagnostics and filtering
-- structured signal validation (permutation, holdout, walk-forward)
+The final outcome is not just a research conclusion, but a working system:
 
-------
+> **A regime-conditioned trading pipeline that improves signal quality by filtering for favorable market + behavioral conditions**
 
-## Main result (updated)
+---
 
-After correcting methodological biases (notably overlapping signals) and enforcing strict walk-forward validation:
+## Main result (current)
 
-> **A weak but consistent behavioral signal exists — conditional on trend context**
+After extensive validation, debiasing, and multiple model iterations:
 
-Specifically:
+> **Retail sentiment contains no unconditional edge — but a measurable, conditional edge exists**
 
-> **Crowd extremes are most exploitable when they occur late in a trend (contrarian alignment)**
+Using regime filtering:
 
-Key properties:
+- **Baseline signal (always-on)** → Sharpe ≈ 0.01
+- **Regime-filtered signal** → Sharpe ≈ **0.04–0.05**
+- Coverage ≈ **10% of opportunities**
+- Hit rate ≈ **52–53%**
 
-- not explained by volatility or macro regime
-- not driven by a single pair (multi-pair effect)
-- stronger at longer horizons (48 bars)
-- structurally **contrarian to price trend**
-
-------
-
-## Evolution of findings
-
-### Phase 1 — Initial discovery (invalidated)
-
-Earlier versions suggested:
-
-- strong JPY-specific effects
-- regime dependence (volatility, trend, macro)
-
-These were later shown to be artifacts caused by:
-
-- overlapping signals
-- in-sample bias
-- improper walk-forward validation
-
-------
-
-### Phase 2 — Corrected validation
-
-After enforcing:
-
-- non-overlapping signals
-- true walk-forward evaluation
-- regime holdout testing
-
-Results:
-
-- price-based regimes **do not explain the signal**
-- most apparent structure disappears
-- aggregate performance ≈ noise
-
-This was initially interpreted as a **negative result**
-
-------
-
-### Phase 3 — Behavioral re-framing (current)
-
-Shifting from price regimes → **crowd behavior**
-
-Led to discovery of a new structure:
-
-> **Signal strength depends on interaction between crowd extremes and trend position**
-
-Empirical result:
-
-| Condition                      | Performance |
-| ------------------------------ | ----------- |
-| Trend-aligned                  | weak        |
-| Mixed                          | moderate    |
-| **Contrarian (against trend)** | strongest   |
-
-------
+---
 
 ## Core insight
 
-> **Retail crowd extremes are most exploitable when they occur late in an existing trend**
+> **Retail crowd behavior is only exploitable under specific market conditions**
 
-Interpretation:
+In particular:
 
-- crowd joins trends late
-- positioning becomes saturated
-- reversal risk increases
-- contrarian trades capture unwind
+> **Crowd extremes become predictive when they occur within certain trend and volatility contexts**
 
-------
+This transforms the problem from:
 
-## What the pipeline does
+- ❌ “Is sentiment predictive?”
 
-The pipeline transforms raw sentiment snapshots and FX price data into a clean research dataset:
+to:
 
-- aggregates multi-year sentiment snapshots
-- parses timestamps and aligns timezones
-- normalizes pair naming across sources
-- merges sentiment to hourly price bars using forward alignment
-- computes trading-bar forward returns
-- constructs contrarian return targets
-- builds persistence and behavioral features
+- ✅ “When is sentiment predictive?”
 
-It produces:
+---
 
-- a research dataset (`master_research_dataset_core.csv`)
-- a feature contract (`sentiment_features_h1_v1`)
+## Evolution of the project
 
-------
+### Phase 1 — False discovery (invalidated)
+
+Initial findings suggested:
+
+- strong pair-specific effects (JPY)
+- regime dependence
+- large Sharpe ratios
+
+These were invalidated due to:
+
+- overlapping signals
+- in-sample bias
+- flawed validation
+
+---
+
+### Phase 2 — Strict validation (negative result)
+
+After enforcing:
+
+- non-overlapping samples
+- walk-forward validation
+- holdout testing
+
+Result:
+
+> **No unconditional signal**
+
+---
+
+### Phase 3 — Behavioral insight
+
+Shift from price regimes → **crowd behavior**
+
+Discovery:
+
+> Signal depends on interaction between **sentiment extremes and trend context**
+
+---
+
+### Phase 4 — Regime discovery (Regime V3)
+
+Introduced:
+
+- regime definitions (volatility × trend × sentiment)
+- interaction features
+- walk-forward modeling (Ridge, LightGBM)
+
+Result:
+
+> Weak predictive power, but **clear regime-dependent structure**
+
+---
+
+### Phase 5 — Regime filtering (Regime V4 — current)
+
+Key breakthrough:
+
+> Use regimes **not to predict**, but to **filter trades**
+
+Pipeline:
+
+1. Discover regimes on training data
+2. Select regimes with:
+   - sufficient sample size
+   - positive Sharpe
+3. Apply filter to test data
+4. (Optional) apply directional logic
+
+Result:
+
+> **Significant improvement in signal quality via selective execution**
+
+---
+
+## System architecture
+
+### Layer 1 — Base signal (Signal V2)
+
+- Derived from sentiment features
+- Uses price-based momentum (causal, no leakage)
+- Always-on baseline
+
+---
+
+### Layer 2 — Regime filter (Regime V4)
+
+Defines regimes using:
+
+| Feature          | Method           |
+| ---------------- | ---------------- |
+| Volatility       | Quantile buckets |
+| Trend direction  | Sign of trend    |
+| Trend strength   | Quantiles        |
+| Sentiment regime | Fixed bins       |
+
+Each observation is mapped to a **regime key**.
+
+---
+
+### Layer 3 — Regime selection
+
+Per walk-forward fold:
+
+- compute regime statistics on training data
+- select regimes satisfying:
+  - minimum sample size
+  - minimum Sharpe
+  - persistence across folds
+
+---
+
+### Layer 4 — Signal execution
+
+Only trade when:
+
+- observation belongs to selected regime
+
+Optional:
+
+- follow or fade based on regime direction
+
+---
 
 ## Key findings
 
 ### 1. No unconditional edge
 
-- raw sentiment thresholds are weak
-- aggregate performance ≈ noise
+- Raw sentiment ≈ noise
 
-------
+---
 
-### 2. No price-regime dependency
+### 2. Conditional edge exists
 
-The following do **not** produce stable effects:
+- Appears only under specific regimes
+- Requires filtering
 
-- volatility regimes
-- trend strength
-- macro periods
-- trend alignment (in isolation)
+---
 
-------
+### 3. Regime filtering improves Sharpe
 
-### 3. Behavioral conditioning matters
+- ~4× improvement vs baseline
+- reduces coverage significantly
 
-Signal strength emerges when conditioning on:
+---
 
-- crowd persistence
+### 4. Trade-off: quality vs capacity
+
+| Metric   | Baseline | Filtered |
+| -------- | -------- | -------- |
+| Sharpe   | ~0.01    | ~0.05    |
+| Coverage | 100%     | ~10%     |
+| Hit rate | ~50%     | ~52–53%  |
+
+---
+
+### 5. Instability remains
+
+- performance varies across years
+- some regimes degrade or disappear
+
+This is expected for behavioral signals.
+
+---
+
+## Validation methodology
+
+Strict validation throughout:
+
+- walk-forward evaluation
+- expanding window training
+- no forward-looking features
+- regime selection using **training data only**
+- out-of-sample performance tracking
+
+---
+
+## Current limitations
+
+- regime instability across time
+- low coverage (capacity constraints)
+- sensitivity to thresholds (min_n, Sharpe)
+- early-period cold start (no regimes available)
+
+---
+
+## Research directions
+
+### 1. Regime stabilization
+
+- persistence constraints
+- smoothing regime definitions
+
+---
+
+### 2. Signal + regime interaction
+
+- thresholding base signal
+- combining strength + regime filter
+
+---
+
+### 3. Portfolio construction
+
+- cross-pair aggregation
+- regime-aware weighting
+
+---
+
+### 4. Behavioral modeling
+
 - crowd saturation
-- trend context
+- positioning pressure
+- trend exhaustion
 
-------
-
-### 4. Cross-pair consistency
-
-- signal exists across multiple JPY crosses
-- not driven by a single pair
-- remains after removing top contributors
-
-------
-
-### 5. Horizon dependency
-
-- weak at short horizons
-- stronger at longer horizons (48 bars)
-
-------
-
-## Validation status
-
-The signal has been tested using:
-
-- pair-level filtering
-- subgroup analysis
-- permutation testing
-- time-based holdout
-- strict walk-forward validation
-
-### Result
-
-> **A small but consistent edge survives — conditional on behavioral context**
-
-------
-
-## Current interpretation
-
-The evidence suggests:
-
-- retail traders are not uniformly wrong
-- crowd behavior becomes exploitable under specific conditions
-- price-based regimes are insufficient
-
-The signal is driven by:
-
-- crowd saturation
-- late positioning
-- behavioral feedback loops
-
-------
-
-## Research direction: Regime v2 (behavioral regimes)
-
-Focus shifts toward modeling **crowd state**:
-
-Planned features:
-
-- crowd persistence
-- sentiment acceleration
-- crowd saturation
-- trapped positioning (loss regimes)
-
-Goal:
-
-> identify when sentiment becomes predictive based on **behavioral context**
-
-------
-
-## Portfolio construction (current)
-
-A prototype portfolio has been validated:
-
-- multi-pair aggregation
-- survivor selection (per-pair validation)
-- walk-forward + holdout consistency
-
-Findings:
-
-- diversification improves stability
-- contrarian filtering improves Sharpe but reduces capacity
-- hybrid approaches likely optimal
-
-------
+---
 
 ## Running the project
 
-### 1. Build dataset
+### Build dataset
 
 ```bash
 python build_fx_sentiment_dataset.py
 ```
 
-### 2. Run validation / analysis
+------
 
-```bash
-python walk_forward_regime_v2.py
-python discover_behavioral_signal.py
-python portfolio_behavioral_signal.py
+### Signal pipeline
+
+```
+python run_signal_v2.py
 ```
 
 ------
 
-## Output artifact contract
+### Regime-filtered pipeline (recommended)
 
-Key outputs:
+```
+python run_regime_v4_signal_filter.py \
+  --data data/output/master_research_dataset.csv
+```
 
-- `data/output/master_research_dataset_core.csv`
-- `data/output/DATASET_MANIFEST.json`
-- `data/output/features/sentiment_features_h1_v1.parquet`
+------
+
+### Example variations
+
+```
+# With direction logic
+python run_regime_v4_signal_filter.py --with-direction
+
+# Stricter regime selection
+python run_regime_v4_signal_filter.py --min-n 150 --min-sharpe 0.1
+
+# Signal thresholding
+python run_regime_v4_signal_filter.py --threshold 0.5
+```
+
+------
+
+## Output schema (core)
+
+Per fold:
+
+```
+["year", "n", "mean", "sharpe", "hit_rate", "coverage"]
+```
 
 ------
 
 ## Project structure
 
-(Current structure — subject to refactor)
-
 ```
-build → analyze → validate → portfolio
+build → signal → regime → filter → evaluate
 ```
 
-A future refactor will standardize:
-
-- pipeline modules
-- shared utilities
-- configuration management
-
-Current file structure:
-
-```
-.
-├── analyze_by_pair_group.py
-├── analyze_cross_pair_persistence.py
-├── analyze_jpy_cluster_permutation.py
-├── analyze_outliers.py
-├── analyze_pair_quality.py
-├── analyze_persistence.py
-├── analyze_regime_signal_interaction.py
-├── analyze_thresholds.py
-├── analyze_trend_alignment.py
-├── analyze_trend_behavior.py
-├── analyze_trend_strength_results.py
-├── attach_regimes_to_h1_dataset.py
-├── build_fx_sentiment_dataset.py
-├── build_sentiment_feature_contract.py
-├── data
-│   ├── input
-│   │   ├── fx
-│   │   └── sentiment
-│   ├── output
-│   │   ├── analysis/
-│   │   ├── DATASET_MANIFEST.json
-│   │   ├── features
-│   │   │   ├── SENTIMENT_FEATURE_MANIFEST_h1_v1.json
-│   │   │   └── sentiment_features_h1_v1.parquet
-│   │   ├── master_research_dataset_core.csv
-│   │   ├── master_research_dataset.csv
-│   │   ├── master_research_dataset_extended.csv
-│   │   ├── master_research_dataset_with_regime.csv
-│   │   └── pair_coverage_summary.csv
-│   └── sample
-│       ├── fx
-│       └── sentiment
-├── docs
-│   ├── images
-│   │   ├── hv_vs_lv_signal_jpy.png
-│   │   ├── signal_vs_risk_jpy.png
-│   │   ├── trend_strength_jpy.png
-│   │   └── yearly_signal_jpy.png
-│   └── SENTIMENT_FEATURE_SCHEMA.md
-├── DATA_AVAILABILITY.md
-├── discover_behavioral_signal.py
-├── evaluate_regime_holdout.py
-├── evaluate_signal_regime_aware.py
-├── experiment_regime_v2_sweep.py
-├── INPUT_SCHEMA.md
-├── JPY_BEHAVIORAL_HYPOTHESIS.md
-├── LICENSE
-├── OUTPUT_SCHEMA.md
-├── portfolio_behavioral_signal.py
-├── PRE_REGISTERED_JPY_EFFECT_TEST.md
-├── PROJECT_DESCRIPTION.md
-├── README.md
-├── validate_jpy_effect_preregistered.py
-├── validate_jpy_effect_time_split.py
-├── validate_jpy_effect_walkforward.py
-├── walk_forward_jpy_hypothesis.py
-├── walk_forward_jpy_regime_signal.py
-└── walk_forward_regime_v2.py
-```
-
-Note: `data/input/` and `data/output/` are **expected local directories** and are not distributed with the repository.
+- `signal_v2.py` → base signal
+- `regime_v3.py` → regime discovery
+- `regime_filter_pipeline.py` → filtering
+- `regime_v4_signal_filter.py` → combined pipeline
 
 ------
 
-## License and data availability
+## Final takeaway
 
-This repository is distributed under a **non-commercial, source-available license** for the original code and repository-authored documentation.
+This project demonstrates:
 
-- Personal, educational, academic, and non-commercial research use is allowed
-- Commercial use, resale, sublicensing, and inclusion in paid products or services is not allowed without prior written permission
+> **Alpha is not static — it is conditional**
 
-### Data availability
+Retail sentiment is not broadly predictive.
 
-Raw broker-exported FX price data, raw sentiment scrape files, and full derived datasets are **not distributed** in this repository due to licensing and redistribution uncertainty.
+But:
 
-The repository contains the code and documentation needed to reproduce the pipeline using data that you have the right to access and use locally.
+> **Under the right conditions, it becomes exploitable**
 
 ------
 
-## Final note
+## Meta insight
 
-This repository documents both:
+The most important result is methodological:
 
-- **invalidated hypotheses (important)**
-- **validated behavioral insight (current)**
+> Fixing validation did not destroy the signal —
+>  it revealed **where it actually lives**
 
-It demonstrates:
-
-> how correcting methodology can transform a "false signal" into a **real, conditional edge**
-
+---

@@ -34,6 +34,111 @@ build_dataset  →  [attach_regimes]  →  discovery  →  portfolio  →  [regi
 
 ---
 
+## System architecture (Signal × Regime pipelines)
+
+The current research pipeline extends beyond discovery and portfolio construction.
+It includes a **modular signal + regime conditioning system** that determines *when*
+to trade.
+
+### High-level flow
+
+Canonical dataset
+ ↓
+ Signal V2 (base signal)
+ ↓
+ Regime construction (vol × trend × sentiment)
+ ↓
+ Train-only regime evaluation (walk-forward)
+ ↓
+ Regime selection (Sharpe + persistence filters)
+ ↓
+ Signal conditioning
+ ├─ Filter (binary)
+ ├─ Direction (follow / fade)
+ └─ Weighting (continuous, optional)
+ ↓
+ Final trading signal
+
+---
+
+### Component mapping to code
+
+| Layer                    | Component                 | Script                                   |
+| ------------------------ | ------------------------- | ---------------------------------------- |
+| Data                     | Canonical dataset         | `pipeline/build_dataset.py`              |
+| Signal                   | Base signal (Signal V2)   | `experiments/signal_v2.py`               |
+| Regime discovery         | Feature interactions / ML | `experiments/regime_v3.py`               |
+| Regime filter (binary)   | Model-free filtering      | `experiments/regime_filter_pipeline.py`  |
+| Regime weighting         | Continuous signal scaling | `experiments/regime_v4.py`               |
+| Signal × regime (hybrid) | **Production candidate**  | `experiments/regime_v4_signal_filter.py` |
+
+---
+
+### Three regime paradigms
+
+The project currently supports three distinct ways of using regimes:
+
+#### 1. Regime as model input (Regime V3)
+
+- Uses LightGBM
+- Regimes act as features
+- Output: predicted returns
+- features → model → prediction
+
+---
+
+#### 2. Regime as filter (Regime Filter Pipeline)
+
+- No model
+- Trade only selected regimes
+- regime ∈ selected → trade
+- else → skip
+
+---
+
+#### 3. Regime as weighting function (Regime V4)
+
+- Continuous scaling of signal
+- All observations receive a position
+- position = base_signal × regime_weight
+
+---
+
+#### 4. Signal × Regime (V4 Signal Filter — current best)
+
+- Combines Signal V2 with regime filtering
+- Optional direction adjustment
+- Best empirical performance so far
+- Signal V2 → regime filter → (optional direction) → final signal
+
+---
+
+### Key principle
+
+> **All regime decisions are made using training data only (strict walk-forward)**
+
+This guarantees:
+
+- no forward-looking bias
+- realistic out-of-sample performance
+- reproducibility across folds
+
+---
+
+### Why this matters
+
+The pipeline evolved from:
+
+Find signal → test signal
+
+to:
+
+Find signal → identify conditions → trade only under those conditions
+
+This shift is the core reason for performance improvement.
+
+---
+
 ## Config variables that control paths
 
 All paths are defined in **`config.py`**.  Stage scripts do **not** fall back
