@@ -29,6 +29,7 @@ build_dataset  →  [attach_regimes]  →  discovery  →  portfolio  →  [regi
 | Regime V5 (blended signal)      | `experiments/regime_v5.py`                       | `DATA_PATH` (canonical)          | Optional     |
 | Regime V6 (filtered + blended)  | `experiments/regime_v6.py`                       | `DATA_PATH` (canonical)          | Optional     |
 | Regime V7 (event-based)         | `experiments/regime_v7.py`                       | `DATA_PATH` (canonical)          | Optional     |
+| Regime V7.2 (interaction scores)| `experiments/regime_v7_2.py`                     | `DATA_PATH` (canonical)          | Optional     |
 | Validation                      | `validation/validate_pipeline_extended.py`       | both datasets                    | Automatic    |
 
 > **Important:** `--data` is the ONLY accepted dataset argument for all stage
@@ -77,6 +78,7 @@ Canonical dataset
 | Continuous blending      | Signal V2 × regime × behavior | `experiments/regime_v5.py`          |
 | Filtered + blended       | Filter threshold + continuous weighting | `experiments/regime_v6.py`    |
 | Event-based signal       | Discrete event detection + Signal V2 | `experiments/regime_v7.py`       |
+| Interaction scoring      | Multiplicative event scores + row normalisation | `experiments/regime_v7_2.py` |
 
 ---
 
@@ -170,6 +172,31 @@ The project currently supports three distinct ways of using regimes:
 - **Coverage** = fraction of test rows where `abs(position) > 0`
 - No forward leakage: all thresholds and event directions set on train only
 - Runner: `python run_regime_v7.py --data <path> [--min-n 50] [--min-sharpe 0.02] [--streak-threshold 3] [--trend-threshold 0.5] [--divergence-threshold 1.0]`
+
+---
+
+#### 8. Interaction-based scoring pipeline (Regime V7.2)
+
+- Upgrades V7.1 by replacing **additive** score definitions with **multiplicative interactions**
+  to correctly model nonlinear behavioural effects
+- Three interaction-based continuous scores per row (z-scores fitted on the training
+  split only):
+
+  * **SATURATION_SCORE**  = `tanh(z(abs_sentiment) × z(extreme_streak_70) × z(trend_strength_48b))`
+  * **DIVERGENCE_SCORE**  = `tanh(z(divergence) × z(abs_sentiment))`
+  * **EXHAUSTION_SCORE**  = `tanh(z(extreme_streak_70) × (−z(trend_strength_48b)))`
+
+- **Row-wise normalisation**: `norm = sum(abs(scores)) + 1e-6`; `scores = scores / norm`
+- **Selection**: `best_idx = argmax(|scores|)`; `best_score = scores[best_idx]`
+- **Train phase**: evaluate each score type — `mean(score × ret_48b)`, Sharpe, correlation;
+  logged for diagnostics, no hard filter applied
+- **Test phase**: if `|best_score| < score_threshold` → `position = 0`;
+  otherwise `position = tanh(signal_v2_raw) * sign(best_score)`
+  (or `* best_score` with `--use-score-weighting`)
+- **Coverage** = fraction of test rows where `abs(position) > 0`
+- Per-fold logging: per-score stats, score-type selection frequency, score magnitude distribution
+- No forward leakage: all z-score stats derived from training data only
+- Runner: `python run_regime_v7_2.py --data <path> [--min-n 50] [--score-threshold 0.3] [--use-score-weighting]`
 
 ---
 
