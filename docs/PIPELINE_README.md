@@ -27,6 +27,7 @@ build_dataset  →  [attach_regimes]  →  discovery  →  portfolio  →  [regi
 | Regime V4 (weighted)            | `experiments/regime_v4.py`                       | `DATA_PATH` (canonical)          | Optional     |
 | Signal V2 × Regime Filter       | `experiments/regime_v4_signal_filter.py`         | `DATA_PATH` (canonical)          | Optional     |
 | Regime V5 (blended signal)      | `experiments/regime_v5.py`                       | `DATA_PATH` (canonical)          | Optional     |
+| Regime V6 (filtered + blended)  | `experiments/regime_v6.py`                       | `DATA_PATH` (canonical)          | Optional     |
 | Validation                      | `validation/validate_pipeline_extended.py`       | both datasets                    | Automatic    |
 
 > **Important:** `--data` is the ONLY accepted dataset argument for all stage
@@ -73,6 +74,7 @@ Canonical dataset
 | Regime weighting         | Continuous signal scaling | `experiments/regime_v4.py`               |
 | Signal × regime (hybrid) | **Production candidate**  | `experiments/regime_v4_signal_filter.py` |
 | Continuous blending      | Signal V2 × regime × behavior | `experiments/regime_v5.py`          |
+| Filtered + blended       | Filter threshold + continuous weighting | `experiments/regime_v6.py`    |
 
 ---
 
@@ -126,6 +128,24 @@ The project currently supports three distinct ways of using regimes:
   — z-score parameters derived from training data only
 - Final position: `base_signal × regime_score × behavior_score`
 - Runner: `run_regime_v5.py --data <path> [--min-n 100] [--window 96]`
+
+---
+
+#### 6. Filtered + continuous signal blending (Regime V6)
+
+- Combines regime filtering (V4) with continuous weighting (V5)
+- **Base signal**: Signal V2 raw composite passed through `tanh`
+- **Eligible regimes**: ``n >= min_n`` (same as V4/V5)
+- **Selected regimes**: eligible regimes with ``sharpe >= filter_sharpe``
+  (default 0.05) — regimes below the threshold receive zero regime score
+- **Regime score**: weight map built from *selected* regimes only:
+  `tanh(sharpe / std_sharpe_selected)`; filtered-out regimes → 0
+- **Behavioral score**: identical to V5
+- Final position: `base_signal × regime_score × behavior_score`
+- **Coverage** reflects filtering: `mean(abs(position) > 1e-12)`
+- **Safety fallback**: if all positions are zero (all filtered), reverts to
+  V5 continuous weighting using all eligible regimes
+- Runner: `python experiments/regime_v6.py --data <path> [--min-n 100] [--filter-sharpe 0.05] [--window 96]`
 
 ---
 
