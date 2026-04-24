@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime
 import logging
 import subprocess
 import sys
@@ -11,11 +12,31 @@ import config as cfg
 log = logging.getLogger(__name__)
 
 
-def _configure_logging(level: str) -> None:
-    logging.basicConfig(
-        level=getattr(logging, level.upper(), logging.INFO),
-        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-    )
+def _configure_logging(level: str) -> Path:
+    """Configure logging to a timestamped file in logs/.
+
+    Writes only to the log file (no stdout) so that automated runs stay quiet.
+    Returns the resolved path of the log file.
+    """
+    log_level = getattr(logging, level.upper(), logging.INFO)
+    fmt = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+    formatter = logging.Formatter(fmt)
+
+    logs_dir = Path("logs")
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_path = logs_dir / f"pipeline_{timestamp}.log"
+
+    root = logging.getLogger()
+    root.setLevel(log_level)
+
+    file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    file_handler.setLevel(log_level)
+    file_handler.setFormatter(formatter)
+    root.addHandler(file_handler)
+
+    root.info("Pipeline log file: %s", log_path)
+    return log_path
 
 
 def _run(cmd: list[str]) -> None:

@@ -15,8 +15,8 @@ Rules:
 - After all pipeline stages, validate_pipeline_extended.py is executed.
 
 Logging:
-- All runs write logs to both stdout and a timestamped file:
-    logs/pipeline_YYYYMMDD_HHMMSS.log
+- All runs write logs to a timestamped file only (no stdout):
+    logs/pipeline_strict_YYYYMMDD_HHMMSS.log
 - All subprocess output (stdout + stderr) is captured and logged.
 - Deterministic fingerprints (dataset hash, discovery artifact hash) are
   logged at the end of each run.
@@ -67,8 +67,9 @@ log = logging.getLogger("run_pipeline_strict")
 # ---------------------------------------------------------------------------
 
 def _configure_logging(level: str) -> logging.FileHandler:
-    """Configure logging to stdout AND a timestamped file.
+    """Configure logging to a timestamped file only (no stdout).
 
+    Writes only to the log file so that automated runs stay quiet.
     Returns the FileHandler so callers can retrieve the log file path.
     """
     log_level = getattr(logging, level.upper(), logging.INFO)
@@ -78,17 +79,11 @@ def _configure_logging(level: str) -> logging.FileHandler:
     root = logging.getLogger()
     root.setLevel(log_level)
 
-    # stdout handler
-    stream_handler = logging.StreamHandler(sys.stdout)
-    stream_handler.setLevel(log_level)
-    stream_handler.setFormatter(formatter)
-    root.addHandler(stream_handler)
-
-    # file handler — logs/pipeline_YYYYMMDD_HHMMSS.log
+    # file handler — logs/pipeline_strict_YYYYMMDD_HHMMSS.log
     logs_dir = Path("logs")
     logs_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = logs_dir / f"pipeline_{timestamp}.log"
+    log_file = logs_dir / f"pipeline_strict_{timestamp}.log"
     file_handler = logging.FileHandler(log_file, encoding="utf-8")
     file_handler.setLevel(log_level)
     file_handler.setFormatter(formatter)
