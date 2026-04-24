@@ -1,11 +1,13 @@
 """
 experiments/signal_v2.py
 ========================
-Signal V2: sentiment divergence, shock, and exhaustion.
+Signal V2.1: sentiment divergence, shock, and exhaustion.
 
 Builds a composite signal from three components:
 
-* **Divergence**  – sentiment z-score minus price-momentum z-score
+* **Divergence**  – sentiment z-score minus **causal** price-momentum z-score
+  (price momentum is the 48-bar cumulative past return ``mom_48b``, computed
+  from ``price.pct_change()``, never from forward returns)
 * **Shock**       – z-score of raw sentiment change
 * **Exhaustion**  – sum of z-scored absolute sentiment and z-scored side streak
 
@@ -70,6 +72,7 @@ DEFAULT_WINDOW: int = 96
 TARGET_COL: str = "ret_48b"
 
 _REQUIRED_INPUT_COLS: list[str] = [
+    "price",
     "net_sentiment",
     TARGET_COL,
     "sentiment_change",
@@ -200,7 +203,20 @@ def build_features(df: pd.DataFrame, window: int = DEFAULT_WINDOW) -> pd.DataFra
         grp = grp.copy()
 
         grp["sentiment_z"] = rolling_zscore(grp["net_sentiment"], window)
-        grp["price_mom_z"] = rolling_zscore(grp[TARGET_COL], window)
+
+        grp["ret_1b"] = grp["price"].pct_change()
+        grp["mom_48b"] = (
+            grp["ret_1b"]
+            .rolling(48, min_periods=48)
+            .sum()
+        )
+        logger.debug(
+            "mom_48b stats: mean=%.6f std=%.6f",
+            grp["mom_48b"].mean(),
+            grp["mom_48b"].std(),
+        )
+
+        grp["price_mom_z"] = rolling_zscore(grp["mom_48b"], window)
         grp["divergence"] = grp["sentiment_z"] - grp["price_mom_z"]
         grp["shock"] = rolling_zscore(grp["sentiment_change"], window)
         grp["exhaustion"] = (
