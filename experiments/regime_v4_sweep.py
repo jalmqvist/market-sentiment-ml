@@ -170,7 +170,8 @@ def _aggregate_fold_metrics(fold_df: pd.DataFrame) -> dict[str, float]:
     mean_sharpe = float(sharpes.mean()) if len(sharpes) > 0 else float("nan")
     std_sharpe = float(sharpes.std()) if len(sharpes) > 1 else float("nan")
     mean_coverage = float(fold_df["coverage"].mean())
-    mean_hit_rate = float(fold_df["hit_rate"].dropna().mean()) if fold_df["hit_rate"].notna().any() else float("nan")
+    hit_rates = fold_df["hit_rate"].dropna()
+    mean_hit_rate = float(hit_rates.mean()) if len(hit_rates) > 0 else float("nan")
     mean_n_selected = float(fold_df["n_selected_regimes"].mean())
     n_folds = int(len(fold_df))
 
@@ -313,9 +314,9 @@ def run_sweep(
         cap_adj = metrics["capacity_adj_sharpe"]
         logger.info(
             "  → sharpe=%.4f | coverage=%.4f | cap_adj=%.4f",
-            metrics["mean_sharpe"] if not math.isnan(metrics["mean_sharpe"]) else float("nan"),
-            metrics["mean_coverage"] if not math.isnan(metrics["mean_coverage"]) else float("nan"),
-            cap_adj if not math.isnan(cap_adj) else float("nan"),
+            metrics["mean_sharpe"],
+            metrics["mean_coverage"],
+            cap_adj,
         )
 
         row: dict[str, Any] = {
@@ -402,8 +403,8 @@ def log_sweep_summary(results_df: pd.DataFrame) -> None:
             row["threshold"],
             row["with_direction"],
             row["capacity_adj_sharpe"],
-            row["mean_sharpe"] if not math.isnan(float(row["mean_sharpe"])) else float("nan"),
-            row["mean_coverage"] if not math.isnan(float(row["mean_coverage"])) else float("nan"),
+            row["mean_sharpe"],
+            row["mean_coverage"],
         )
 
     _fmt_row("Best   ", best)
