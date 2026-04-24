@@ -94,6 +94,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import datetime
 import logging
 import sys
 from pathlib import Path
@@ -885,8 +886,6 @@ def main(argv: list[str] | None = None) -> None:
     args = p.parse_args(argv)
 
     # Configure basic logging so this module is usable standalone
-    import datetime  # noqa: PLC0415
-
     numeric_level = getattr(logging, args.log_level.upper(), logging.INFO)
     fmt = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
     date_fmt = "%Y-%m-%dT%H:%M:%S"

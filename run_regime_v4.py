@@ -187,9 +187,7 @@ def main(argv=None) -> None:
     min_n = args.min_n if args.min_n is not None else MIN_REGIME_N
     top_n_log = args.top_n_log if args.top_n_log is not None else TOP_N_LOG
 
-    import logging as _logging  # noqa: PLC0415
-
-    _log = _logging.getLogger(__name__)
+    _log = logging.getLogger(__name__)
     _log.info(
         "=== REGIME V4 ==="
         " | min_n=%d | normalize_weights=%s",
