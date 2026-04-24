@@ -485,10 +485,11 @@ def regime_v6_walk_forward(
         eligible_regimes: dict[str, dict[str, float]] = dict(regime_stats)
 
         # selected = eligible regimes that also pass the Sharpe threshold
+        # Explicitly exclude NaN Sharpe values to avoid silent failures.
         selected_regimes: dict[str, dict[str, float]] = {
             k: v
             for k, v in eligible_regimes.items()
-            if v["sharpe"] >= filter_sharpe
+            if not np.isnan(v["sharpe"]) and v["sharpe"] >= filter_sharpe
         }
 
         zeros = np.zeros(len(test_labeled))
@@ -602,7 +603,8 @@ def regime_v6_walk_forward(
         # ------------------------------------------------------------------
         if np.all(np.abs(position) < 1e-12):
             logger.warning(
-                "All filtered out — fallback to continuous regime weighting"
+                "All filtered out [year=%d] — fallback to continuous regime weighting",
+                test_year,
             )
 
             # Recompute using ALL eligible regimes (no filter)
