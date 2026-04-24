@@ -654,15 +654,22 @@ grp["divergence"] = grp["sentiment_z"] - grp["price_mom_z"]
 `ret_48b` (the forward return) is **never** used inside `build_features`; it
 is only used as the PnL target in `_fold_metrics`.
 
-#### Additional required column
+#### Column mapping: `price_end` → `price`
 
-Because `mom_48b` is derived from the `price` column, `price` is now a
-required input column (previously it was not required by `signal_v2`).
+The canonical dataset stores the closing price as `price_end`, not `price`.
+Signal V2.1 internally requires a `price` column (to compute `mom_48b`).
 
-| Column    | Role                                                  |
-| --------- | ----------------------------------------------------- |
-| `price`   | Closing price used to compute `ret_1b` and `mom_48b`  |
-| `ret_48b` | Forward return — PnL target only, **not** a feature   |
+The `main()` function in `experiments/signal_v2.py` automatically maps
+`price_end` → `price` right after loading the dataset.  **You do not need to
+add a `price` column to any dataset file on disk.**
+
+| Dataset column | Signal V2 column | Role                                                 |
+| -------------- | ---------------- | ---------------------------------------------------- |
+| `price_end`    | `price`          | Closing price used to compute `ret_1b` and `mom_48b` |
+| `ret_48b`      | `ret_48b`        | Forward return — PnL target only, **not** a feature  |
+
+The mapping raises a `ValueError` if neither `price` nor `price_end` is
+present in the loaded DataFrame.
 
 #### Running
 

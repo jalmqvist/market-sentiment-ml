@@ -191,6 +191,12 @@ def build_features(df: pd.DataFrame, window: int = DEFAULT_WINDOW) -> pd.DataFra
     Raises:
         ValueError: If required columns are missing.
     """
+    if "price" not in df.columns:
+        raise ValueError(
+            "Missing required column 'price'. "
+            "Expected caller to map 'price_end' → 'price'."
+        )
+
     missing = [c for c in _REQUIRED_INPUT_COLS if c not in df.columns]
     if missing:
         raise ValueError(f"build_features: missing required columns: {missing}")
@@ -469,6 +475,19 @@ def main(argv=None) -> None:
     )
 
     df = load_data(args.data)
+
+    # PR #30: Signal V2 uses causal price momentum (pct_change on price).
+    # Dataset provides 'price_end', so we map it to 'price' here.
+    if "price" not in df.columns:
+        if "price_end" in df.columns:
+            _log.info("Mapping 'price_end' → 'price' for Signal V2 compatibility")
+            df = df.rename(columns={"price_end": "price"})
+        else:
+            raise ValueError(
+                "Signal V2 requires a 'price' column. "
+                "No 'price' or 'price_end' column found in dataset."
+            )
+
     df = build_features(df, window=args.window)
 
     _log.info("Features built: %d rows remaining after NaN drop", len(df))
