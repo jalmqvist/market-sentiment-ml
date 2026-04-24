@@ -626,6 +626,62 @@ No regime-enriched dataset or companion repo is needed.
 
 ---
 
+### 7e. Signal V2.1 (causal price-momentum divergence)
+
+`experiments/signal_v2.py` implements a composite sentiment-divergence signal
+(referred to as **Signal V2.1** from this version onward).
+
+#### Key change from V2.0
+
+The divergence feature previously used `ret_48b` (a **forward** return) to
+compute `price_mom_z`.  This introduced future leakage.  The corrected version
+uses a **causal, past-only** 48-bar cumulative return (`mom_48b`):
+
+```python
+# 1. Per-bar return from closing price
+grp["ret_1b"] = grp["price"].pct_change()
+
+# 2. Causal 48-bar momentum (past only, no lookahead)
+grp["mom_48b"] = grp["ret_1b"].rolling(48, min_periods=48).sum()
+
+# 3. Z-score price momentum using the rolling window
+grp["price_mom_z"] = rolling_zscore(grp["mom_48b"], window)
+
+# 4. Divergence (unchanged)
+grp["divergence"] = grp["sentiment_z"] - grp["price_mom_z"]
+```
+
+`ret_48b` (the forward return) is **never** used inside `build_features`; it
+is only used as the PnL target in `_fold_metrics`.
+
+#### Additional required column
+
+Because `mom_48b` is derived from the `price` column, `price` is now a
+required input column (previously it was not required by `signal_v2`).
+
+| Column    | Role                                                  |
+| --------- | ----------------------------------------------------- |
+| `price`   | Closing price used to compute `ret_1b` and `mom_48b`  |
+| `ret_48b` | Forward return — PnL target only, **not** a feature   |
+
+#### Running
+
+```bash
+python run_signal_v2.py \
+  --data data/output/master_research_dataset.csv
+
+# With a custom window and threshold:
+python run_signal_v2.py \
+  --data      data/output/master_research_dataset.csv \
+  --window    96 \
+  --threshold 0.5 \
+  --log-level DEBUG
+```
+
+`--data` is **required**.  **Uses:** `DATA_PATH` (canonical dataset).
+
+---
+
 ### 8. Extended validation
 
 Validates dataset integrity, signal parity, performance, and regime isolation.
