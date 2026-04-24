@@ -7,16 +7,15 @@ Regime-filter pipeline: use discrete regime features to FILTER trades
 Unlike ``regime_v3``, which conditions a LightGBM model on regimes, this
 pipeline is purely rule-based:
 
-1. **Regime feature building** – four causal, discrete features are created:
+1. **Regime feature building** – three causal, discrete features are created:
 
-   * ``vol_regime``         – tertile of ``vol_24b``        (low / mid / high).
-   * ``trend_dir``          – sign of ``trend_strength_48b`` (down / flat / up).
-   * ``trend_strength_bin`` – tertile of ``|trend_strength_48b|`` (weak / mid / strong).
-   * ``sent_regime``        – fixed-threshold bin of ``abs_sentiment``
-                              (low [0–50) / mid [50–70) / high [70+]).
+   * ``vol_regime``  – tertile of ``vol_24b``         (low / mid / high).
+   * ``trend_dir``   – sign of ``trend_strength_48b`` (down / flat / up).
+   * ``sent_regime`` – fixed-threshold bin of ``abs_sentiment``
+                        (low [0–50) / mid [50–70) / high [70+]).
 
-   These four features are combined into a single string ``regime_key``
-   (e.g. ``"vol_low__trend_up__ts_mid__sent_high"``).
+   These three features are combined into a single string ``regime_key``
+   (e.g. ``"vol_low__trend_up__sent_high"``).
 
 2. **Walk-forward evaluation (strict, no leakage)** – expanding window:
 
@@ -25,51 +24,60 @@ pipeline is purely rule-based:
    * ``train_df = df[df.year < test_year]``
    * ``test_df  = df[df.year == test_year]``
 
-   Quantile cut points for ``vol_regime`` and ``trend_strength_bin`` are
-   derived **from training data only** per fold.
+   Quantile cut points for ``vol_regime`` are derived **from training data
+   only** per fold.
 
 3. **Regime statistics (train only)** – group ``train_df`` by ``regime_key``
    and compute: ``n``, ``mean`` return, ``std``, ``sharpe = mean / std``.
 
-4. **Regime selection** – keep only regimes satisfying:
+4. **Regime selection** – among regimes with ``n >= min_n``, rank by
+   training Sharpe descending and keep the top ``top_k`` (default 5).
 
-   * ``n >= min_n``         (default 100)
-   * ``sharpe >= min_sharpe`` (default 0.05)
+5. **Test-set stability filters** – after selecting top-k regimes from
+   training data, drop any regime where (in the test set):
 
-   Both thresholds are configurable via CLI or function arguments.
+   * ``n_test_regime < min_test_n``                    (default 50)
+   * ``n_test_regime / total_test_signals < min_test_coverage`` (default 0.05)
 
-5. **Apply filter to test set** – keep only rows where
-   ``regime_key ∈ selected_regimes``.
+   These filters use only counts (no return information) so they introduce
+   no lookahead bias.
 
-6. **Optional direction logic** – for each selected regime:
+6. **Apply filter to test set** – keep only rows where
+   ``regime_key ∈ surviving_regimes``.
 
-   * ``train mean > 0`` → follow (``effective_return = +return``)
-   * ``train mean < 0`` → fade  (``effective_return = −return``)
+7. **Optional direction logic** – for each surviving regime:
 
-7. **Metrics per fold** – mean return, Sharpe, hit rate, coverage
+   * If ``abs(train_mean) >= direction_threshold`` (default 0.0002):
+
+     * ``train mean > 0`` → follow (``effective_return = +return``)
+     * ``train mean < 0`` → fade  (``effective_return = −return``)
+
+   * Otherwise, keep signals unmodified (multiplier = +1).
+
+8. **Metrics per fold** – mean return, Sharpe, hit rate, coverage
    (fraction of test signals kept).
 
-8. **Logging** – uses the existing ``logging`` system; no ``print`` calls.
-   Per-fold log: n_regimes_selected, coverage %, top regimes by Sharpe,
-   and fold performance.
+9. **Logging** – uses the existing ``logging`` system; no ``print`` calls.
+   Per-fold log: n_candidate_regimes, n_selected (top-k), n_surviving
+   (after test filters), coverage before and after filtering.
 
-9. **Output schema** – consistent with the rest of the pipeline:
+10. **Output schema** – consistent with the rest of the pipeline:
 
-   * ``fold_df``  – ``["year", "n", "mean", "sharpe", "hit_rate", "coverage"]``
-   * ``pooled``   – ``{"n_folds", "mean_return", "mean_sharpe",
-                       "mean_hit_rate", "mean_coverage"}``
+    * ``fold_df``  – ``["year", "n", "mean", "sharpe", "hit_rate", "coverage"]``
+    * ``pooled``   – ``{"n_folds", "mean_return", "mean_sharpe",
+                        "mean_hit_rate", "mean_coverage"}``
 
-No model predictions are used.  No forward-looking information is
+No model predictions are used.  No forward-looking return information is
 introduced — regime selection is re-computed per fold from training data.
 
 Usage::
 
-    python -m experiments.regime_filter_pipeline \\
+    python -m experiments.regime_filter_pipeline \
         --data data/output/master_research_dataset.csv
 
-    python experiments/regime_filter_pipeline.py \\
-        --data data/output/master_research_dataset.csv \\
-        --min-n 100 --min-sharpe 0.05 --with-direction \\
+    python experiments/regime_filter_pipeline.py \
+        --data data/output/master_research_dataset.csv \
+        --min-n 100 --top-k 5 --with-direction \
         --log-level INFO
 """
 
@@ -106,7 +114,22 @@ TARGET_COL: str = "ret_48b"
 MIN_REGIME_N: int = 100
 
 #: Minimum training Sharpe ratio for a regime to be selected.
+#: Kept for backward compatibility; no longer used by the default selection
+#: logic which uses top-k ranking instead of a hard Sharpe threshold.
 MIN_REGIME_SHARPE: float = 0.05
+
+#: Number of top regimes (by training Sharpe) to select per fold.
+TOP_K: int = 5
+
+#: Minimum fraction of total test signals a regime must cover to survive.
+MIN_TEST_COVERAGE: float = 0.05
+
+#: Minimum raw count of test signals a regime must have to survive.
+MIN_TEST_N: int = 50
+
+#: Minimum |train mean| required to apply follow/fade direction logic.
+#: Below this threshold, signals are kept unmodified (multiplier = +1).
+DIRECTION_THRESHOLD: float = 0.0002
 
 #: When True, invert returns for regimes whose training mean return is negative
 #: (fade the crowd); when False, always use the raw return sign.
@@ -125,22 +148,20 @@ SENT_LABELS: list[str] = ["sent_low", "sent_mid", "sent_high"]
 # ---------------------------------------------------------------------------
 
 def _compute_train_cuts(train_df: pd.DataFrame) -> dict[str, np.ndarray]:
-    """Compute quantile cut points for *vol_regime* and *trend_strength_bin*.
+    """Compute quantile cut points for *vol_regime*.
 
-    Both are computed from **training data only** to avoid lookahead bias.
+    Computed from **training data only** to avoid lookahead bias.
     The returned cut-point arrays are passed to :func:`_build_regime_key`
     to discretize both the training slice (for regime statistics) and the
     test slice (for filtering).
 
     Args:
-        train_df: Training-period DataFrame.  Must contain ``vol_24b``
-            and/or ``trend_strength_48b`` for their respective cuts to
-            be computed.
+        train_df: Training-period DataFrame.  Must contain ``vol_24b``.
 
     Returns:
-        Dict with keys ``"vol"`` and/or ``"ts"`` mapping to 1-D NumPy
-        arrays of bin edges (including ``−∞`` and ``+∞`` sentinels set by
-        the caller).  Missing columns produce no entry for that key.
+        Dict with key ``"vol"`` mapping to a 1-D NumPy array of bin edges
+        (including ``−∞`` and ``+∞`` sentinels set by the caller).
+        An empty dict is returned when the column is missing or too small.
     """
     cuts: dict[str, np.ndarray] = {}
 
@@ -153,37 +174,23 @@ def _compute_train_cuts(train_df: pd.DataFrame) -> dict[str, np.ndarray]:
             except ValueError:
                 logger.debug("_compute_train_cuts: vol qcut failed; skipping vol_regime")
 
-    if "trend_strength_48b" in train_df.columns:
-        valid_ts = train_df["trend_strength_48b"].dropna().abs()
-        if len(valid_ts) >= 3:
-            try:
-                _, ts_bins = pd.qcut(valid_ts, q=3, retbins=True, duplicates="drop")
-                cuts["ts"] = ts_bins
-            except ValueError:
-                logger.debug(
-                    "_compute_train_cuts: trend_strength qcut failed; "
-                    "skipping trend_strength_bin"
-                )
-
     return cuts
 
 
 def _build_regime_key(df: pd.DataFrame, cuts: dict[str, np.ndarray]) -> pd.DataFrame:
     """Add regime feature columns and a combined ``regime_key`` to *df*.
 
-    Adds four causal discrete features (all computed from past data):
+    Adds three causal discrete features (all computed from past data):
 
-    * ``vol_regime``         – tertile of ``vol_24b`` (low / mid / high).
-    * ``trend_dir``          – sign of ``trend_strength_48b``
-                               (trend_down / trend_flat / trend_up).
-    * ``trend_strength_bin`` – tertile of ``|trend_strength_48b|``
-                               (ts_weak / ts_mid / ts_strong).
-    * ``sent_regime``        – fixed-threshold bin of ``abs_sentiment``
-                               (sent_low / sent_mid / sent_high).
+    * ``vol_regime``  – tertile of ``vol_24b`` (low / mid / high).
+    * ``trend_dir``   – sign of ``trend_strength_48b``
+                        (trend_down / trend_flat / trend_up).
+    * ``sent_regime`` – fixed-threshold bin of ``abs_sentiment``
+                        (sent_low / sent_mid / sent_high).
 
-    All four are combined into ``regime_key``.  Rows where *any* constituent
-    feature is ``NaN`` receive ``NaN`` in ``regime_key`` and are excluded
-    from downstream analysis.
+    All three are combined into ``regime_key``.  Rows where *any*
+    constituent feature is ``NaN`` receive ``NaN`` in ``regime_key``
+    and are excluded from downstream analysis.
 
     Args:
         df: Slice to label (train or test).
@@ -191,7 +198,7 @@ def _build_regime_key(df: pd.DataFrame, cuts: dict[str, np.ndarray]) -> pd.DataF
 
     Returns:
         Copy of *df* with columns ``vol_regime``, ``trend_dir``,
-        ``trend_strength_bin``, ``sent_regime``, and ``regime_key`` appended.
+        ``sent_regime``, and ``regime_key`` appended.
     """
     out = df.copy()
 
@@ -230,34 +237,6 @@ def _build_regime_key(df: pd.DataFrame, cuts: dict[str, np.ndarray]) -> pd.DataF
         out["trend_dir"] = np.nan
         logger.debug("_build_regime_key: trend_strength_48b missing; trend_dir=NaN")
 
-    # --- trend_strength_bin: tertile of |trend_strength_48b| ---
-    if "trend_strength_48b" in out.columns and "ts" in cuts:
-        abs_ts = out["trend_strength_48b"].abs()
-        bins = np.copy(cuts["ts"])
-        bins[0] = -np.inf
-        bins[-1] = np.inf
-        n_bins = len(bins) - 1
-        labels_ts = ["ts_weak", "ts_mid", "ts_strong"][:n_bins]
-        result = pd.cut(
-            abs_ts,
-            bins=bins,
-            labels=labels_ts,
-            include_lowest=True,
-        )
-        out["trend_strength_bin"] = result.astype(str)
-        out.loc[out["trend_strength_48b"].isna(), "trend_strength_bin"] = np.nan
-    else:
-        out["trend_strength_bin"] = np.nan
-        if "trend_strength_48b" not in out.columns:
-            logger.debug(
-                "_build_regime_key: trend_strength_48b missing; trend_strength_bin=NaN"
-            )
-        else:
-            logger.debug(
-                "_build_regime_key: trend_strength cut points missing; "
-                "trend_strength_bin=NaN"
-            )
-
     # --- sent_regime: fixed-threshold bins of abs_sentiment ---
     if "abs_sentiment" in out.columns:
         result = pd.cut(
@@ -273,19 +252,16 @@ def _build_regime_key(df: pd.DataFrame, cuts: dict[str, np.ndarray]) -> pd.DataF
         out["sent_regime"] = np.nan
         logger.debug("_build_regime_key: abs_sentiment missing; sent_regime=NaN")
 
-    # --- regime_key: concatenation of all four features ---
+    # --- regime_key: concatenation of all three features ---
     valid_mask = (
         out["vol_regime"].notna()
         & out["trend_dir"].notna()
-        & out["trend_strength_bin"].notna()
         & out["sent_regime"].notna()
     )
     combined = (
         out["vol_regime"].astype(str)
         + "__"
         + out["trend_dir"].astype(str)
-        + "__"
-        + out["trend_strength_bin"].astype(str)
         + "__"
         + out["sent_regime"].astype(str)
     )
@@ -310,25 +286,23 @@ def _compute_regime_stats(
     *,
     target_col: str = TARGET_COL,
     min_n: int = MIN_REGIME_N,
-    min_sharpe: float = MIN_REGIME_SHARPE,
 ) -> dict[str, dict[str, float]]:
     """Compute per-regime return statistics on training data only.
 
     Groups *train_df* by ``regime_key`` and computes ``n``, ``mean``,
-    ``std``, and ``sharpe = mean / std`` for each group.  Regimes that
-    fail the ``min_n`` or ``min_sharpe`` thresholds are excluded from the
-    returned mapping.
+    ``std``, and ``sharpe = mean / std`` for each group.  Only regimes
+    with ``n >= min_n`` are returned; no Sharpe threshold is applied here
+    (top-k selection happens in :func:`regime_filter_walk_forward`).
 
     Args:
         train_df: Training slice with ``regime_key`` and *target_col*.
         target_col: Forward-return column (default ``ret_48b``).
         min_n: Minimum observations required for a regime to be included.
-        min_sharpe: Minimum Sharpe ratio required for a regime to be selected.
 
     Returns:
         Dict mapping ``regime_key`` → stat dict
-        (``{"n", "mean", "std", "sharpe"}``).  Only regimes that pass
-        both thresholds are included.
+        (``{"n", "mean", "std", "sharpe"}``).  All regimes meeting the
+        ``min_n`` threshold are included, regardless of Sharpe.
     """
     if "regime_key" not in train_df.columns:
         logger.warning("_compute_regime_stats: regime_key not found in train data")
@@ -355,13 +329,10 @@ def _compute_regime_stats(
         mean = float(np.mean(returns))
         std = float(np.std(returns))
         sharpe = mean / std if std > 1e-10 else np.nan
-        if np.isnan(sharpe) or sharpe < min_sharpe:
+        if np.isnan(sharpe):
             logger.debug(
-                "_compute_regime_stats: regime=%s skipped "
-                "(sharpe=%.4f < min_sharpe=%.4f)",
+                "_compute_regime_stats: regime=%s skipped (sharpe=NaN, std=0)",
                 regime_label,
-                sharpe if not np.isnan(sharpe) else float("nan"),
-                min_sharpe,
             )
             continue
         stats[str(regime_label)] = {
@@ -372,10 +343,9 @@ def _compute_regime_stats(
         }
 
     logger.debug(
-        "_compute_regime_stats: %d regimes selected (min_n=%d, min_sharpe=%.4f)",
+        "_compute_regime_stats: %d candidate regimes (n>=%d)",
         len(stats),
         min_n,
-        min_sharpe,
     )
     return stats
 
@@ -419,8 +389,11 @@ def regime_filter_walk_forward(
     target_col: str = TARGET_COL,
     year_col: str = "year",
     min_n: int = MIN_REGIME_N,
-    min_sharpe: float = MIN_REGIME_SHARPE,
+    top_k: int = TOP_K,
+    min_test_coverage: float = MIN_TEST_COVERAGE,
+    min_test_n: int = MIN_TEST_N,
     with_direction: bool = WITH_DIRECTION,
+    direction_threshold: float = DIRECTION_THRESHOLD,
     top_n_log: int = TOP_N_LOG,
 ) -> pd.DataFrame:
     """Regime-filter walk-forward: select regimes from train, apply to test.
@@ -428,20 +401,22 @@ def regime_filter_walk_forward(
     Performs a strictly causal expanding-window walk-forward:
 
     1. For each test year (starting from the third unique year):
-    2. Compute quantile cut points for ``vol_regime`` and
-       ``trend_strength_bin`` from ``train_df`` (all years prior to
-       test year).
+    2. Compute quantile cut points for ``vol_regime`` from ``train_df``
+       (all years prior to test year).
     3. Apply regime feature building to both ``train_df`` and ``test_df``
        using those training-derived cut points.
     4. Compute per-regime return statistics on ``train_df`` only.
-    5. Select regimes: ``n >= min_n`` AND ``sharpe >= min_sharpe``.
-    6. Filter ``test_df`` to selected regimes.
-    7. Optionally apply direction logic per regime (follow if train mean > 0,
-       fade if train mean < 0).
-    8. Compute and log fold-level metrics + coverage.
+    5. Among regimes with ``n >= min_n``, rank by Sharpe and select top-k.
+    6. Apply test-side stability filters: drop regimes with
+       ``n_test < min_test_n`` or ``coverage_test < min_test_coverage``.
+    7. Filter ``test_df`` to surviving regimes.
+    8. Optionally apply direction logic per regime: follow/fade only when
+       ``abs(train_mean) >= direction_threshold``; otherwise keep raw sign.
+    9. Compute and log fold-level metrics + coverage.
 
-    No test-period information is ever used for regime selection or
-    direction classification.
+    No test-period return information is ever used for regime selection or
+    direction classification.  Test-side stability filters use only signal
+    counts, not return values.
 
     Args:
         df: Full dataset (after :func:`build_features`).  Must contain
@@ -450,9 +425,16 @@ def regime_filter_walk_forward(
         target_col: Forward-return column (default ``ret_48b``).
         year_col: Column containing calendar year (default ``"year"``).
         min_n: Minimum training observations per regime (default 100).
-        min_sharpe: Minimum training Sharpe per regime (default 0.05).
-        with_direction: If ``True``, invert returns for regimes whose
-            training mean is negative (fade the crowd).
+        top_k: Number of top regimes (by Sharpe) to select per fold
+            (default 5).
+        min_test_coverage: Minimum fraction of test signals a regime must
+            cover to survive the test stability filter (default 0.05).
+        min_test_n: Minimum raw count of test signals per regime (default 50).
+        with_direction: If ``True``, apply follow/fade direction logic for
+            regimes where ``abs(train_mean) >= direction_threshold``.
+        direction_threshold: Minimum |train mean| to activate follow/fade
+            logic (default 0.0002).  Below this threshold the signal is
+            kept unmodified.
         top_n_log: Number of top regimes to log per fold by training Sharpe.
 
     Returns:
@@ -490,42 +472,94 @@ def regime_filter_walk_forward(
         train_labeled = _build_regime_key(train_df, cuts)
         test_labeled = _build_regime_key(test_df, cuts)
 
-        # --- Step 3 & 4: regime stats + selection (train only) ---
+        # --- Step 3: regime stats (train only, all n>=min_n candidates) ---
         regime_stats = _compute_regime_stats(
             train_labeled,
             target_col=target_col,
             min_n=min_n,
-            min_sharpe=min_sharpe,
         )
-        selected_regimes = set(regime_stats.keys())
-        n_selected = len(selected_regimes)
+        n_candidates = len(regime_stats)
 
-        # --- Step 5: apply filter to test set ---
-        test_valid = test_labeled.dropna(subset=[target_col])
-        n_total_test = len(test_valid)
-        test_filtered = test_valid[test_valid["regime_key"].isin(selected_regimes)]
-        n_filtered = len(test_filtered)
-        coverage = n_filtered / n_total_test if n_total_test > 0 else 0.0
-
-        # --- Per-fold log: regimes selected, coverage, top regimes ---
-        top_regimes_sorted = sorted(
+        # --- Step 4: top-k selection by training Sharpe ---
+        sorted_candidates = sorted(
             regime_stats.items(),
             key=lambda kv: kv[1]["sharpe"],
             reverse=True,
-        )[:top_n_log]
+        )
+        selected_stats: dict[str, dict[str, float]] = dict(sorted_candidates[:top_k])
+        selected_regimes = set(selected_stats.keys())
+        n_selected = len(selected_regimes)
 
+        # --- Step 5: test-set stability filters (counts only, no returns) ---
+        test_valid = test_labeled.dropna(subset=[target_col])
+        n_total_test = len(test_valid)
+        coverage_before = (
+            len(test_valid[test_valid["regime_key"].isin(selected_regimes)])
+            / n_total_test
+            if n_total_test > 0
+            else 0.0
+        )
+
+        surviving_stats: dict[str, dict[str, float]] = {}
+        for regime_label, rstats in selected_stats.items():
+            n_test_regime = int(
+                (test_valid["regime_key"] == regime_label).sum()
+            )
+            cov_test = n_test_regime / n_total_test if n_total_test > 0 else 0.0
+            if n_test_regime < min_test_n:
+                logger.debug(
+                    "  STABILITY FILTER [year=%d] | regime=%s dropped "
+                    "(n_test=%d < min_test_n=%d)",
+                    test_year,
+                    regime_label,
+                    n_test_regime,
+                    min_test_n,
+                )
+                continue
+            if cov_test < min_test_coverage:
+                logger.debug(
+                    "  STABILITY FILTER [year=%d] | regime=%s dropped "
+                    "(coverage_test=%.3f < min_test_coverage=%.3f)",
+                    test_year,
+                    regime_label,
+                    cov_test,
+                    min_test_coverage,
+                )
+                continue
+            surviving_stats[regime_label] = rstats
+
+        surviving_regimes = set(surviving_stats.keys())
+        n_surviving = len(surviving_regimes)
+
+        # --- Step 6: apply filter to test set ---
+        test_filtered = test_valid[test_valid["regime_key"].isin(surviving_regimes)]
+        n_filtered = len(test_filtered)
+        coverage = n_filtered / n_total_test if n_total_test > 0 else 0.0
+
+        # --- Per-fold logging ---
         logger.info(
-            "REGIME FILTER PIPELINE [year=%d] | n_regimes_selected=%d"
-            " | coverage=%.1f%% (%d/%d signals)",
+            "REGIME FILTER PIPELINE [year=%d]"
+            " | candidates=%d | selected(top-%d)=%d | surviving=%d"
+            " | coverage_before=%.1f%% | coverage_after=%.1f%% (%d/%d signals)",
             test_year,
+            n_candidates,
+            top_k,
             n_selected,
+            n_surviving,
+            coverage_before * 100,
             coverage * 100,
             n_filtered,
             n_total_test,
         )
+
+        top_regimes_sorted = sorted(
+            surviving_stats.items(),
+            key=lambda kv: kv[1]["sharpe"],
+            reverse=True,
+        )[:top_n_log]
         for regime_label, rstats in top_regimes_sorted:
             logger.info(
-                "  TOP REGIME | regime=%-60s | n=%5d"
+                "  TOP REGIME | regime=%-50s | n=%5d"
                 " | mean=%+.6f | sharpe=%+.4f",
                 regime_label,
                 int(rstats["n"]),
@@ -536,30 +570,31 @@ def regime_filter_walk_forward(
         if n_filtered < 2:
             logger.warning(
                 "REGIME FILTER PIPELINE: year=%d skipped "
-                "(n_filtered=%d < 2 after regime filter)",
+                "(n_filtered=%d < 2 after stability filters)",
                 test_year,
                 n_filtered,
             )
             continue
 
-        # --- Step 6: optional direction logic ---
-        if with_direction and regime_stats:
-            direction_map = {
-                r: (1.0 if s["mean"] > 0 else -1.0)
-                for r, s in regime_stats.items()
-                if r in selected_regimes
-            }
+        # --- Step 7: optional direction logic ---
+        if with_direction and surviving_stats:
+            direction_map: dict[str, float] = {}
+            for r, s in surviving_stats.items():
+                if abs(s["mean"]) >= direction_threshold:
+                    direction_map[r] = 1.0 if s["mean"] > 0 else -1.0
+                else:
+                    # Train mean too weak to determine direction; keep raw sign.
+                    direction_map[r] = 1.0
             multiplier = test_filtered["regime_key"].map(direction_map).fillna(0.0)
-            # Any row whose regime_key is not in direction_map receives multiplier 0.0
-            # and is excluded from the return array.  This can occur for regimes
-            # that appear in selected_regimes but were dropped from direction_map
-            # due to the min_n guard; in practice it is an edge case.
             active_mask = multiplier != 0.0
-            returns_arr = (multiplier[active_mask] * test_filtered.loc[active_mask, target_col]).values
+            returns_arr = (
+                multiplier[active_mask]
+                * test_filtered.loc[active_mask, target_col]
+            ).values
         else:
             returns_arr = test_filtered[target_col].values
 
-        # --- Step 7: fold metrics ---
+        # --- Step 8: fold metrics ---
         m = _fold_metrics(returns_arr)
 
         fold_rows.append(
@@ -587,9 +622,9 @@ def regime_filter_walk_forward(
     if not fold_rows:
         logger.warning(
             "REGIME FILTER PIPELINE: no valid folds produced "
-            "(min_n=%d, min_sharpe=%.4f)",
+            "(min_n=%d, top_k=%d)",
             min_n,
-            min_sharpe,
+            top_k,
         )
         return pd.DataFrame(columns=_COLS)
 
@@ -728,11 +763,28 @@ def main(argv: list[str] | None = None) -> None:
         help="Minimum training observations per regime for selection.",
     )
     p.add_argument(
-        "--min-sharpe",
+        "--top-k",
+        type=int,
+        default=TOP_K,
+        metavar="K",
+        help="Number of top regimes (by training Sharpe) to select per fold.",
+    )
+    p.add_argument(
+        "--min-test-coverage",
         type=float,
-        default=MIN_REGIME_SHARPE,
-        metavar="SHARPE",
-        help="Minimum training Sharpe ratio per regime for selection.",
+        default=MIN_TEST_COVERAGE,
+        metavar="FRAC",
+        help=(
+            "Minimum fraction of test signals a regime must cover to survive "
+            "the test-set stability filter."
+        ),
+    )
+    p.add_argument(
+        "--min-test-n",
+        type=int,
+        default=MIN_TEST_N,
+        metavar="N",
+        help="Minimum raw count of test signals per regime to survive stability filter.",
     )
     p.add_argument(
         "--with-direction",
@@ -748,6 +800,16 @@ def main(argv: list[str] | None = None) -> None:
         dest="with_direction",
         action="store_false",
         help="Disable direction logic; use raw returns for all filtered regimes.",
+    )
+    p.add_argument(
+        "--direction-threshold",
+        type=float,
+        default=DIRECTION_THRESHOLD,
+        metavar="THRESH",
+        help=(
+            "Minimum |train mean| to activate follow/fade direction logic.  "
+            "Below this threshold signals are kept unmodified."
+        ),
     )
     p.add_argument(
         "--top-n-log",
@@ -773,9 +835,13 @@ def main(argv: list[str] | None = None) -> None:
 
     logger.info(
         "=== REGIME FILTER PIPELINE ==="
-        " | min_n=%d | min_sharpe=%.4f | with_direction=%s",
+        " | min_n=%d | top_k=%d | min_test_coverage=%.2f"
+        " | min_test_n=%d | direction_threshold=%.4f | with_direction=%s",
         args.min_n,
-        args.min_sharpe,
+        args.top_k,
+        args.min_test_coverage,
+        args.min_test_n,
+        args.direction_threshold,
         args.with_direction,
     )
 
@@ -783,8 +849,11 @@ def main(argv: list[str] | None = None) -> None:
         df,
         target_col=TARGET_COL,
         min_n=args.min_n,
-        min_sharpe=args.min_sharpe,
+        top_k=args.top_k,
+        min_test_coverage=args.min_test_coverage,
+        min_test_n=args.min_test_n,
         with_direction=args.with_direction,
+        direction_threshold=args.direction_threshold,
         top_n_log=args.top_n_log,
     )
 
