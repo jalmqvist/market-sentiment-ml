@@ -1,7 +1,7 @@
 """
 run_regime_v3.py
 ================
-Entry-point script for the Regime V3 conditional-performance experiment.
+Entry-point script for the Regime V3 regime-conditioned signal pipeline.
 
 Extends ``experiments.regime_v3`` with logging to *both* stdout and an
 optional log file.  All walk-forward and regime-metrics logic lives in
@@ -31,7 +31,10 @@ Pipeline steps
     weights derived from per-regime Sharpe on training data only (leakage-free
     in the walk-forward).  Configurable via ``--weight-threshold`` and
     ``--normalize-weights``.
-15. Model within regime — LightGBM walk-forward evaluated per regime.
+15. **Final signal summary** — consolidated printout of (A) discovery outputs
+    and (B) signal outputs (filtered, direction, weighted walk-forward).  This
+    is the authoritative reported summary and replaces the baseline model
+    walk-forward.
 
 Usage::
 
@@ -156,7 +159,6 @@ def main(argv=None) -> None:
         WEIGHT_THRESHOLD,
         apply_regime_filter,
         apply_regime_direction_signal,
-        apply_regime_weighted_signal,
         build_behavioural_regimes,
         build_features,
         build_regimes,
@@ -190,8 +192,7 @@ def main(argv=None) -> None:
         log_regime_wf,
         log_secondary_vol_filter,
         make_regime_weights_df,
-        print_regime_summary,
-        print_wf_summary,
+        print_final_signal_summary,
         regime_baseline,
         regime_direction_performance,
         regime_direction_walk_forward,
@@ -199,8 +200,6 @@ def main(argv=None) -> None:
         regime_weighted_performance,
         regime_weighted_walk_forward,
         secondary_vol_filter,
-        select_features,
-        walk_forward_ridge,
     )
 
     df = load_data(args.data)
@@ -371,24 +370,14 @@ def main(argv=None) -> None:
     log_regime_weighted_wf(weighted_wf)
 
     # ------------------------------------------------------------------
-    # Step 5: MODEL WITHIN REGIME (secondary) — LightGBM walk-forward
-    #         trained globally, evaluated per regime
+    # Final summary — regime-conditioned signal pipeline results.
+    # Clearly separates (A) discovery outputs and (B) signal outputs.
+    # This replaces the baseline model walk-forward as the authoritative
+    # reported summary.
     # ------------------------------------------------------------------
-    feature_cols = select_features(df)
-
-    if not feature_cols:
-        print("ERROR: No valid feature columns found in dataset. Exiting.")
-        sys.exit(1)
-
-    _logging.getLogger(__name__).info("=== MODEL WITHIN REGIME ===")
-
-    # Expanding-window LightGBM walk-forward with per-regime evaluation.
-    wf_results, regime_model_results = walk_forward_ridge(
-        df, feature_cols, regime_col="regime"
+    print_final_signal_summary(
+        full_perf, filtered_perf, filtered_wf_results, dir_wf, weighted_wf, coverage
     )
-
-    print_wf_summary(wf_results)
-    print_regime_summary(regime_model_results)
 
 
 if __name__ == "__main__":
