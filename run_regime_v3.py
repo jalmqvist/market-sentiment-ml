@@ -147,6 +147,37 @@ def main(argv=None) -> None:
             "tanh(sharpe/std_sharpe) scaling.  When set, weight = sharpe / max_abs_sharpe."
         ),
     )
+    p.add_argument(
+        "--top-n-regimes",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Number of top regimes to select automatically via select_top_regimes. "
+            "Defaults to the module-level TOP_N_REGIMES constant (5)."
+        ),
+    )
+    p.add_argument(
+        "--min-regime-sharpe",
+        type=float,
+        default=None,
+        metavar="SHARPE",
+        help=(
+            "Minimum full-dataset Sharpe for a regime to pass the auto-selection "
+            "filter.  Defaults to the module-level MIN_REGIME_SHARPE constant (0.02)."
+        ),
+    )
+    p.add_argument(
+        "--min-stability",
+        type=float,
+        default=None,
+        metavar="RATIO",
+        help=(
+            "Minimum positive-year ratio required for a regime to pass the "
+            "stability filter in auto-selection and direction classification. "
+            "Defaults to the module-level MIN_STABILITY_RATIO constant (0.55)."
+        ),
+    )
     args = p.parse_args(argv)
 
     _setup_logging(args.log_level, args.log_file)
@@ -155,7 +186,9 @@ def main(argv=None) -> None:
     # the handlers set above.
     from experiments.regime_v3 import (  # noqa: PLC0415
         TARGET_COL,
-        TOP_REGIMES,
+        TOP_N_REGIMES,
+        MIN_REGIME_SHARPE,
+        MIN_STABILITY_RATIO,
         WEIGHT_THRESHOLD,
         apply_regime_filter,
         apply_regime_direction_signal,
@@ -164,6 +197,7 @@ def main(argv=None) -> None:
         build_regimes,
         behavioural_regime_baseline,
         behavioural_regime_walk_forward,
+        classify_regime_direction,
         compute_coverage_summary,
         compute_regime_sharpe_map,
         compute_regime_stability_summary,
@@ -200,7 +234,15 @@ def main(argv=None) -> None:
         regime_weighted_performance,
         regime_weighted_walk_forward,
         secondary_vol_filter,
+        select_top_regimes,
     )
+
+    # Resolve CLI overrides against module-level defaults.
+    top_n_regimes = args.top_n_regimes if args.top_n_regimes is not None else TOP_N_REGIMES
+    min_regime_sharpe = args.min_regime_sharpe if args.min_regime_sharpe is not None else MIN_REGIME_SHARPE
+    min_stability = args.min_stability if args.min_stability is not None else MIN_STABILITY_RATIO
+    weight_threshold = args.weight_threshold if args.weight_threshold is not None else WEIGHT_THRESHOLD
+    normalize_weights = args.normalize_weights
 
     df = load_data(args.data)
 
@@ -269,6 +311,30 @@ def main(argv=None) -> None:
         )
 
     # ------------------------------------------------------------------
+    # Step 4c-iii: AUTO-SELECT top regimes and direction from discovery
+    #              outputs (data-driven; replaces hardcoded constants).
+    # ------------------------------------------------------------------
+    top_regimes = select_top_regimes(
+        crowding_summary,
+        regime_stability,
+        top_n=top_n_regimes,
+        min_sharpe=min_regime_sharpe,
+        min_stability=min_stability,
+    )
+    contrarian_regimes, trend_regimes = classify_regime_direction(
+        regime_stability, min_stability=min_stability
+    )
+    logging.getLogger(__name__).info(
+        "AUTO-SELECTION COMPLETE | top_regimes=%s", top_regimes
+    )
+    logging.getLogger(__name__).info(
+        "AUTO-SELECTION COMPLETE | contrarian_regimes=%s", contrarian_regimes
+    )
+    logging.getLogger(__name__).info(
+        "AUTO-SELECTION COMPLETE | trend_regimes=%s", trend_regimes
+    )
+
+    # ------------------------------------------------------------------
     # Step 4d: SECONDARY VOL FILTER — secondary conditioning on top
     #          crowding regimes (no combinatorial regime expansion)
     # ------------------------------------------------------------------
@@ -276,14 +342,23 @@ def main(argv=None) -> None:
     log_secondary_vol_filter(vol_filter_results)
 
     # ------------------------------------------------------------------
-    # Step 4e: REGIME FILTER — apply TOP_REGIMES filter to dataset
+    # Step 4e: REGIME FILTER — apply top_regimes filter to dataset
     #          (deterministic, leakage-free: computed before any target use)
     # ------------------------------------------------------------------
-    import logging as _logging  # noqa: PLC0415
-    _logging.getLogger(__name__).info(
-        "=== REGIME FILTER (TOP_REGIMES=%s) ===", TOP_REGIMES
+    n_before_filter = int(df[TARGET_COL].notna().sum())
+    logging.getLogger(__name__).info(
+        "=== REGIME FILTER (top_regimes=%s) === coverage before: %d signals",
+        top_regimes, n_before_filter,
     )
-    df = apply_regime_filter(df)
+    df = apply_regime_filter(df, top_regimes=top_regimes)
+    n_after_filter = int(df.loc[df["is_active"], TARGET_COL].notna().sum())
+    logging.getLogger(__name__).info(
+        "REGIME FILTER: coverage after = %d signals (%.1f%% of %d)",
+        n_after_filter,
+        100.0 * n_after_filter / n_before_filter if n_before_filter > 0 else 0.0,
+        n_before_filter,
+    )
+
     # ------------------------------------------------------------------
     # Step 4f: FULL DATASET PERFORMANCE — baseline metrics (unfiltered)
     # ------------------------------------------------------------------
@@ -293,20 +368,20 @@ def main(argv=None) -> None:
     # ------------------------------------------------------------------
     # Step 4g: FILTERED PERFORMANCE — metrics on regime-filtered signals
     # ------------------------------------------------------------------
-    filtered_perf = filtered_regime_baseline(df)
+    filtered_perf = filtered_regime_baseline(df, top_regimes)
     log_filtered_performance(filtered_perf)
 
     # ------------------------------------------------------------------
     # Step 4h: WALK-FORWARD FILTERED PERFORMANCE — per-year OOS metrics
     #          on filtered signals (no refitting of regime list)
     # ------------------------------------------------------------------
-    filtered_wf_results = filtered_regime_walk_forward(df)
+    filtered_wf_results = filtered_regime_walk_forward(df, top_regimes)
     log_filtered_wf(filtered_wf_results)
 
     # ------------------------------------------------------------------
     # Step 4i: COVERAGE SUMMARY — fraction of signals retained by filter
     # ------------------------------------------------------------------
-    coverage = compute_coverage_summary(df)
+    coverage = compute_coverage_summary(df, top_regimes)
     log_coverage_summary(coverage)
 
     # ------------------------------------------------------------------
@@ -314,7 +389,18 @@ def main(argv=None) -> None:
     #          (BASELINE (GLOBAL CONTRARIAN) and FILTER ONLY already
     #          logged above; this is the FILTER + DIRECTION (FINAL) step)
     # ------------------------------------------------------------------
-    df_direction = apply_regime_direction_signal(df)
+    df_direction = apply_regime_direction_signal(
+        df, contrarian_regimes, trend_regimes
+    )
+    n_active_signals = int((df_direction["signal"] != 0.0).sum())
+    logging.getLogger(__name__).info(
+        "FILTER + DIRECTION: %d active signals "
+        "(contrarian=%d, trend=%d, total=%d)",
+        n_active_signals,
+        int((df_direction["regime_direction"] == "contrarian").sum()),
+        int((df_direction["regime_direction"] == "trend").sum()),
+        len(df_direction),
+    )
     dir_perf = regime_direction_performance(df_direction)
     log_regime_direction_performance(dir_perf)
 
@@ -322,24 +408,18 @@ def main(argv=None) -> None:
     # Step 4k: WALK-FORWARD FILTER + DIRECTION — per-year OOS metrics
     #          for the direction-signal strategy (no refitting)
     # ------------------------------------------------------------------
-    dir_wf = regime_direction_walk_forward(df)
+    dir_wf = regime_direction_walk_forward(df, contrarian_regimes, trend_regimes)
     log_regime_direction_wf(dir_wf)
 
     # ------------------------------------------------------------------
     # Step 4l: FILTER + DIRECTION + WEIGHTING — continuous regime weights
     #          derived from training-only regime Sharpe.
-    #          Resolve weight_threshold from CLI arg or module default.
     # ------------------------------------------------------------------
-    weight_threshold = (
-        args.weight_threshold
-        if args.weight_threshold is not None
-        else WEIGHT_THRESHOLD
-    )
-    normalize_weights = args.normalize_weights
-
     # Full-dataset weighted performance (uses all data for Sharpe map;
     # the leakage-free version is evaluated in the walk-forward below).
-    sharpe_map_full = compute_regime_sharpe_map(df)
+    sharpe_map_full = compute_regime_sharpe_map(
+        df, contrarian_regimes, trend_regimes
+    )
     weight_map_full = convert_sharpe_to_weight(
         sharpe_map_full, normalize=normalize_weights
     )
@@ -348,12 +428,13 @@ def main(argv=None) -> None:
     )
     regime_weights_df = make_regime_weights_df(sharpe_map_full, weight_map_full)
     if not regime_weights_df.empty:
-        _logging.getLogger(__name__).info(
+        logging.getLogger(__name__).info(
             "REGIME WEIGHTS MAP (top rows):\n%s",
             regime_weights_df.head(10).to_string(index=False),
         )
     weighted_perf = regime_weighted_performance(
-        df, weight_map_full, weight_threshold=weight_threshold
+        df, weight_map_full, contrarian_regimes, trend_regimes,
+        weight_threshold=weight_threshold,
     )
     log_regime_weighted_performance(weighted_perf)
 
@@ -364,6 +445,8 @@ def main(argv=None) -> None:
     # ------------------------------------------------------------------
     weighted_wf = regime_weighted_walk_forward(
         df,
+        contrarian_regimes,
+        trend_regimes,
         weight_threshold=weight_threshold,
         normalize_weights=normalize_weights,
     )

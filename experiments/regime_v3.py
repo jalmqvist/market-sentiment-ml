@@ -228,6 +228,21 @@ CONTRARIAN_REGIMES: list[str] = []
 #: Update after inspecting crowding_regime_summary and regime_stability_summary.
 TREND_REGIMES: list[str] = []
 
+#: Default number of top regimes to select automatically via
+#: ``select_top_regimes``.  Override via CLI ``--top-n-regimes``.
+TOP_N_REGIMES: int = 5
+
+#: Minimum full-dataset Sharpe threshold for a regime to pass the
+#: auto-selection filter in ``select_top_regimes``.
+#: Override via CLI ``--min-regime-sharpe``.
+MIN_REGIME_SHARPE: float = 0.02
+
+#: Minimum positive-year ratio (fraction of walk-forward years with
+#: Sharpe > 0) for a regime to pass the stability filter in both
+#: ``select_top_regimes`` and ``classify_regime_direction``.
+#: Override via CLI ``--min-stability``.
+MIN_STABILITY_RATIO: float = 0.55
+
 #: Default weight threshold for regime-based signal weighting.
 #: Regimes whose absolute weight falls below this value are treated as
 #: inactive (``signal = 0``).  Override via CLI ``--weight-threshold``.
@@ -1689,6 +1704,223 @@ def log_secondary_vol_filter(vol_filter_df: pd.DataFrame) -> None:
             row.sharpe if not np.isnan(row.sharpe) else float("nan"),
             row.hit_rate if not np.isnan(row.hit_rate) else float("nan"),
         )
+
+
+# ---------------------------------------------------------------------------
+# AUTO-SELECTION — derive TOP_REGIMES and direction lists from discovery
+# ---------------------------------------------------------------------------
+
+def select_top_regimes(
+    crowding_summary: pd.DataFrame,
+    stability_summary: pd.DataFrame,
+    *,
+    top_n: int = TOP_N_REGIMES,
+    min_sharpe: float = MIN_REGIME_SHARPE,
+    min_stability: float = MIN_STABILITY_RATIO,
+    min_n: int = MIN_CROWDING_REGIME_OBS,
+) -> list[str]:
+    """Auto-select top crowding regimes from discovery outputs.
+
+    Applies a multi-criteria filter to ``crowding_summary`` (full-dataset
+    statistics) optionally augmented with walk-forward stability diagnostics
+    from ``stability_summary``, then returns the top *top_n* regime labels
+    sorted by Sharpe descending.
+
+    Selection criteria (in order):
+
+    1. **Minimum observations**: ``n >= min_n`` (from *crowding_summary*).
+    2. **Positive Sharpe threshold**: ``sharpe > min_sharpe`` (from
+       *crowding_summary*).
+    3. **Stability — positive year ratio**: ``positive_year_ratio >= min_stability``
+       (from *stability_summary*; rows with no walk-forward entry are dropped).
+    4. **Stability — Sharpe consistency**: ``std_sharpe < abs(mean_sharpe)``
+       (from *stability_summary*; rows where ``std_sharpe`` is ``NaN`` pass
+       this filter because consistency cannot be assessed with only one year).
+
+    Regimes that appear in *crowding_summary* but have no matching entry in
+    *stability_summary* (e.g. due to the walk-forward minimum observations
+    threshold) fail criteria 3 and are excluded.
+
+    Args:
+        crowding_summary: DataFrame returned by ``crowding_regime_baseline``
+            (schema ``["regime", "n", "mean", "std", "sharpe", "hit_rate"]``).
+        stability_summary: DataFrame returned by
+            ``compute_regime_stability_summary`` (schema
+            ``["regime", "n_total", "mean_sharpe", "std_sharpe",
+            "positive_year_ratio"]``).
+        top_n: Maximum number of regimes to return (default
+            ``TOP_N_REGIMES``).
+        min_sharpe: Minimum full-dataset Sharpe required (default
+            ``MIN_REGIME_SHARPE``).
+        min_stability: Minimum positive-year ratio required (default
+            ``MIN_STABILITY_RATIO``).
+        min_n: Minimum observation count required (default
+            ``MIN_CROWDING_REGIME_OBS``).
+
+    Returns:
+        Sorted list of up to *top_n* regime label strings.  Returns an empty
+        list when no regime passes all filters.
+    """
+    if crowding_summary.empty:
+        logger.warning("select_top_regimes: crowding_summary is empty; returning []")
+        return []
+
+    df = crowding_summary.copy()
+
+    # --- Filter 1: minimum observations ---
+    before_n = len(df)
+    df = df[df["n"] >= min_n]
+    logger.debug(
+        "select_top_regimes: n >= %d → %d / %d regimes pass",
+        min_n, len(df), before_n,
+    )
+
+    # --- Filter 2: Sharpe threshold ---
+    before_sharpe = len(df)
+    df = df[df["sharpe"] > min_sharpe]
+    logger.debug(
+        "select_top_regimes: sharpe > %.3f → %d / %d regimes pass",
+        min_sharpe, len(df), before_sharpe,
+    )
+
+    if df.empty:
+        logger.warning(
+            "select_top_regimes: no regimes pass n >= %d and sharpe > %.3f; "
+            "returning []",
+            min_n, min_sharpe,
+        )
+        return []
+
+    # --- Merge stability diagnostics ---
+    if not stability_summary.empty and "regime" in stability_summary.columns:
+        stab_cols = ["regime", "mean_sharpe", "std_sharpe", "positive_year_ratio"]
+        stab = stability_summary[stab_cols].copy()
+        df = df.merge(stab, on="regime", how="inner")  # inner: drop regimes with no WF data
+
+        before_stab = len(df)
+
+        # Filter 3: positive year ratio
+        df = df[df["positive_year_ratio"] >= min_stability]
+        logger.debug(
+            "select_top_regimes: positive_year_ratio >= %.2f → %d / %d regimes pass",
+            min_stability, len(df), before_stab,
+        )
+
+        # Filter 4: std_sharpe < abs(mean_sharpe)  (rows with NaN std pass)
+        before_std = len(df)
+        std_ok = (
+            df["std_sharpe"].isna()
+            | (df["std_sharpe"] < df["mean_sharpe"].abs())
+        )
+        df = df[std_ok]
+        logger.debug(
+            "select_top_regimes: std_sharpe < |mean_sharpe| → %d / %d regimes pass",
+            len(df), before_std,
+        )
+    else:
+        logger.warning(
+            "select_top_regimes: stability_summary is empty or missing 'regime' "
+            "column; skipping stability filters"
+        )
+
+    if df.empty:
+        logger.warning(
+            "select_top_regimes: no regimes pass all filters; returning []"
+        )
+        return []
+
+    # Sort by full-dataset Sharpe (most reliable estimate across all data)
+    # and take top N.
+    df = df.sort_values("sharpe", ascending=False)
+    top = df.head(top_n)["regime"].tolist()
+
+    logger.info(
+        "SELECTED TOP REGIMES (%d pass all filters, selecting top %d): %s",
+        len(df), top_n, top,
+    )
+    return top
+
+
+def classify_regime_direction(
+    regime_stability_summary: pd.DataFrame,
+    *,
+    min_stability: float = MIN_STABILITY_RATIO,
+) -> tuple[list[str], list[str]]:
+    """Classify crowding regimes as contrarian or trend-following.
+
+    Uses the walk-forward stability summary to assign a direction to each
+    regime:
+
+    * ``mean_sharpe < 0`` → **contrarian** (fade the crowd;
+      ``signal = -base_signal``).
+    * ``mean_sharpe > 0`` → **trend-following** (follow the crowd;
+      ``signal = +base_signal``).
+    * ``mean_sharpe == 0`` or below the stability threshold → skipped
+      (no direction assigned).
+
+    The classification is derived entirely from walk-forward out-of-sample
+    data (``compute_regime_stability_summary`` aggregates test-year metrics);
+    no target information from any future test period is used.
+
+    Args:
+        regime_stability_summary: DataFrame returned by
+            ``compute_regime_stability_summary`` (schema
+            ``["regime", "n_total", "mean_sharpe", "std_sharpe",
+            "positive_year_ratio"]``).
+        min_stability: Minimum ``positive_year_ratio`` required for a regime
+            to be classified.  Regimes whose ratio falls below this value
+            receive no direction (default ``MIN_STABILITY_RATIO``).
+
+    Returns:
+        Tuple ``(contrarian_list, trend_list)`` where each element is a list
+        of regime label strings.  Both lists are empty when no regimes meet
+        the stability threshold.
+    """
+    contrarian: list[str] = []
+    trend: list[str] = []
+
+    if regime_stability_summary.empty:
+        logger.warning(
+            "classify_regime_direction: stability_summary is empty; "
+            "returning ([], [])"
+        )
+        return contrarian, trend
+
+    required = {"regime", "mean_sharpe", "positive_year_ratio"}
+    missing = required - set(regime_stability_summary.columns)
+    if missing:
+        logger.warning(
+            "classify_regime_direction: missing columns %s; returning ([], [])",
+            sorted(missing),
+        )
+        return contrarian, trend
+
+    for row in regime_stability_summary.itertuples(index=False):
+        # Skip regimes below the stability threshold.
+        if (
+            not pd.isna(row.positive_year_ratio)
+            and row.positive_year_ratio < min_stability
+        ):
+            logger.debug(
+                "classify_regime_direction: regime=%s skipped "
+                "(positive_year_ratio=%.2f < %.2f)",
+                row.regime, row.positive_year_ratio, min_stability,
+            )
+            continue
+
+        if row.mean_sharpe < 0:
+            contrarian.append(str(row.regime))
+        elif row.mean_sharpe > 0:
+            trend.append(str(row.regime))
+        # mean_sharpe == 0: no direction assigned
+
+    logger.info(
+        "CONTRARIAN REGIMES (%d): %s", len(contrarian), contrarian
+    )
+    logger.info(
+        "TREND REGIMES (%d): %s", len(trend), trend
+    )
+    return contrarian, trend
 
 
 # ---------------------------------------------------------------------------
@@ -3692,6 +3924,13 @@ def main(argv=None) -> None:
     log_regime_stability_summary(regime_stability)
 
     # ------------------------------------------------------------------
+    # Step 4c-iii: AUTO-SELECT top regimes and direction from discovery
+    #              outputs (data-driven; replaces hardcoded constants).
+    # ------------------------------------------------------------------
+    top_regimes = select_top_regimes(crowding_summary, regime_stability)
+    contrarian_regimes, trend_regimes = classify_regime_direction(regime_stability)
+
+    # ------------------------------------------------------------------
     # Step 4d: SECONDARY VOL FILTER — secondary conditioning on top
     #          crowding regimes (no combinatorial regime expansion)
     # ------------------------------------------------------------------
@@ -3699,11 +3938,22 @@ def main(argv=None) -> None:
     log_secondary_vol_filter(vol_filter_results)
 
     # ------------------------------------------------------------------
-    # Step 4e: REGIME FILTER — apply TOP_REGIMES filter to dataset
+    # Step 4e: REGIME FILTER — apply top_regimes filter to dataset
     #          (deterministic, leakage-free)
     # ------------------------------------------------------------------
-    logger.info("=== REGIME FILTER (TOP_REGIMES=%s) ===", TOP_REGIMES)
-    df = apply_regime_filter(df)
+    n_before_filter = int(df[TARGET_COL].notna().sum())
+    logger.info(
+        "=== REGIME FILTER (top_regimes=%s) === coverage before: %d signals",
+        top_regimes, n_before_filter,
+    )
+    df = apply_regime_filter(df, top_regimes=top_regimes)
+    n_after_filter = int(df.loc[df["is_active"], TARGET_COL].notna().sum())
+    logger.info(
+        "REGIME FILTER: coverage after = %d signals (%.1f%% of %d)",
+        n_after_filter,
+        100.0 * n_after_filter / n_before_filter if n_before_filter > 0 else 0.0,
+        n_before_filter,
+    )
 
     # ------------------------------------------------------------------
     # Step 4f: FULL DATASET PERFORMANCE — baseline metrics (unfiltered)
@@ -3714,40 +3964,53 @@ def main(argv=None) -> None:
     # ------------------------------------------------------------------
     # Step 4g: FILTERED PERFORMANCE — metrics on regime-filtered signals
     # ------------------------------------------------------------------
-    filtered_perf = filtered_regime_baseline(df)
+    filtered_perf = filtered_regime_baseline(df, top_regimes)
     log_filtered_performance(filtered_perf)
 
     # ------------------------------------------------------------------
     # Step 4h: WALK-FORWARD FILTERED PERFORMANCE — per-year OOS metrics
     #          on filtered signals (no refitting of regime list)
     # ------------------------------------------------------------------
-    filtered_wf = filtered_regime_walk_forward(df)
+    filtered_wf = filtered_regime_walk_forward(df, top_regimes)
     log_filtered_wf(filtered_wf)
 
     # ------------------------------------------------------------------
     # Step 4i: COVERAGE SUMMARY — fraction of signals retained by filter
     # ------------------------------------------------------------------
-    coverage = compute_coverage_summary(df)
+    coverage = compute_coverage_summary(df, top_regimes)
     log_coverage_summary(coverage)
 
     # ------------------------------------------------------------------
     # Step 4j: FILTER + DIRECTION — regime-specific signal direction
     # ------------------------------------------------------------------
-    df_direction = apply_regime_direction_signal(df)
+    df_direction = apply_regime_direction_signal(
+        df, contrarian_regimes, trend_regimes
+    )
+    n_active_signals = int((df_direction["signal"] != 0.0).sum())
+    logger.info(
+        "FILTER + DIRECTION: %d active signals "
+        "(contrarian=%d, trend=%d, total=%d)",
+        n_active_signals,
+        int((df_direction["regime_direction"] == "contrarian").sum()),
+        int((df_direction["regime_direction"] == "trend").sum()),
+        len(df_direction),
+    )
     dir_perf = regime_direction_performance(df_direction)
     log_regime_direction_performance(dir_perf)
 
     # ------------------------------------------------------------------
     # Step 4k: WALK-FORWARD FILTER + DIRECTION — per-year OOS metrics
     # ------------------------------------------------------------------
-    dir_wf = regime_direction_walk_forward(df)
+    dir_wf = regime_direction_walk_forward(df, contrarian_regimes, trend_regimes)
     log_regime_direction_wf(dir_wf)
 
     # ------------------------------------------------------------------
     # Step 4l: FILTER + DIRECTION + WEIGHTING — continuous regime weights
     #          derived from training-only regime Sharpe (leakage-free).
     # ------------------------------------------------------------------
-    sharpe_map_full = compute_regime_sharpe_map(df)
+    sharpe_map_full = compute_regime_sharpe_map(
+        df, contrarian_regimes, trend_regimes
+    )
     weight_map_full = convert_sharpe_to_weight(sharpe_map_full)
     log_regime_weight_diagnostics(weight_map_full, sharpe_map_full)
     regime_weights_df = make_regime_weights_df(sharpe_map_full, weight_map_full)
@@ -3756,7 +4019,9 @@ def main(argv=None) -> None:
             "REGIME WEIGHTS MAP (top rows):\n%s",
             regime_weights_df.head(10).to_string(index=False),
         )
-    weighted_perf = regime_weighted_performance(df, weight_map_full)
+    weighted_perf = regime_weighted_performance(
+        df, weight_map_full, contrarian_regimes, trend_regimes
+    )
     log_regime_weighted_performance(weighted_perf)
 
     # ------------------------------------------------------------------
@@ -3764,7 +4029,9 @@ def main(argv=None) -> None:
     #          OOS metrics; regime Sharpe map computed from training slice
     #          only per fold (leakage-free).
     # ------------------------------------------------------------------
-    weighted_wf = regime_weighted_walk_forward(df)
+    weighted_wf = regime_weighted_walk_forward(
+        df, contrarian_regimes, trend_regimes
+    )
     log_regime_weighted_wf(weighted_wf)
 
     # ------------------------------------------------------------------
