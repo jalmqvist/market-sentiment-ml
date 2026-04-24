@@ -176,8 +176,8 @@ def main(argv=None) -> None:
     from experiments.regime_filter_pipeline import (  # noqa: PLC0415
         MIN_REGIME_N,
         MIN_REGIME_SHARPE,
+        TARGET_COL,
         TOP_N_LOG,
-        WITH_DIRECTION,
         build_features,
         compute_pooled_summary,
         load_data,
@@ -190,13 +190,13 @@ def main(argv=None) -> None:
     # Resolve CLI overrides against module-level defaults.
     min_n = args.min_n if args.min_n is not None else MIN_REGIME_N
     min_sharpe = args.min_sharpe if args.min_sharpe is not None else MIN_REGIME_SHARPE
-    with_direction = args.with_direction if args.with_direction is not None else WITH_DIRECTION
+    # args.with_direction is always a bool (store_true/store_false with default=True),
+    # so we use it directly without a fallback check.
+    with_direction = args.with_direction
     top_n_log = args.top_n_log if args.top_n_log is not None else TOP_N_LOG
 
     df = load_data(args.data)
     df = build_features(df)
-
-    from experiments.regime_filter_pipeline import TARGET_COL  # noqa: PLC0415
 
     require_columns(
         df,

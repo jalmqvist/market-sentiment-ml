@@ -252,6 +252,11 @@ def _build_regime_key(df: pd.DataFrame, cuts: dict[str, np.ndarray]) -> pd.DataF
             logger.debug(
                 "_build_regime_key: trend_strength_48b missing; trend_strength_bin=NaN"
             )
+        else:
+            logger.debug(
+                "_build_regime_key: trend_strength cut points missing; "
+                "trend_strength_bin=NaN"
+            )
 
     # --- sent_regime: fixed-threshold bins of abs_sentiment ---
     if "abs_sentiment" in out.columns:
@@ -545,7 +550,10 @@ def regime_filter_walk_forward(
                 if r in selected_regimes
             }
             multiplier = test_filtered["regime_key"].map(direction_map).fillna(0.0)
-            # Rows with unknown regime (shouldn't happen after filter but guard anyway)
+            # Any row whose regime_key is not in direction_map receives multiplier 0.0
+            # and is excluded from the return array.  This can occur for regimes
+            # that appear in selected_regimes but were dropped from direction_map
+            # due to the min_n guard; in practice it is an edge case.
             active_mask = multiplier != 0.0
             returns_arr = (multiplier[active_mask] * test_filtered.loc[active_mask, target_col]).values
         else:
