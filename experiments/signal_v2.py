@@ -492,12 +492,13 @@ def main(argv=None) -> None:
     _log.debug("price sample (first 5): %s", df["price"].head().tolist())
 
     # --- CLEAN: handle common string issues ---
-    if df["price"].dtype == "object" or "string" in str(df["price"].dtype):
+    if pd.api.types.is_string_dtype(df["price"]):
         df["price"] = (
             df["price"]
             .astype(str)
             .str.strip()
             .str.replace(",", "", regex=False)  # remove thousands separators
+            .replace(["nan", "None", "<NA>", ""], pd.NA)
         )
 
     # --- CONVERT ---
@@ -512,7 +513,7 @@ def main(argv=None) -> None:
     if n_null == total:
         raise ValueError(
             "All price values became NaN after conversion. "
-            "price_end is not a valid numeric price column. "
+            "The price column is not a valid numeric column. "
             "Inspect raw values in logs."
         )
 
