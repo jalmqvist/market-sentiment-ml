@@ -152,7 +152,41 @@ def main(argv=None) -> None:
     require_columns(df, _REQUIRED_COLS, context="run_regime_v8")
     _log.info("Dataset ready: %d rows", len(df))
 
-    fold_df = walk_forward(df, target_col=TARGET_COL)
+    CORE_FEATURES = [
+        "net_sentiment",
+        "abs_sentiment",
+        "extreme_streak_70",
+        "trend_strength_48b",
+    ]
+
+    OPTIONAL_FEATURES = [
+        "divergence",
+        "signal_v2_raw",
+    ]
+
+    available_features = [
+        col for col in CORE_FEATURES + OPTIONAL_FEATURES
+        if col in df.columns
+    ]
+
+    missing_optional = [
+        col for col in OPTIONAL_FEATURES
+        if col not in df.columns
+    ]
+
+    if missing_optional:
+        _log.warning("Missing optional features: %s", missing_optional)
+
+    if len(available_features) < 2:
+        raise ValueError("Not enough features available")
+
+    _log.info("Using features: %s", available_features)
+
+    fold_df = walk_forward(
+        df,
+        feature_cols=available_features,
+        target_col=TARGET_COL,
+    )
 
     log_fold_results(fold_df)
     summary = compute_pooled_summary(fold_df)
