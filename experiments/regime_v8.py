@@ -204,7 +204,8 @@ def load_data(path: str | Path) -> pd.DataFrame:
         FileNotFoundError: If *path* does not exist.
         ValueError: If required columns are missing after loading.
     """
-    df = read_csv(path, required_columns=["time"] + _REQUIRED_COLS)    df = parse_timestamps(df, "time", context="regime_v8.load_data")
+    df = read_csv(path, required_columns=["time"] + _REQUIRED_COLS)
+    df = parse_timestamps(df, "time", context="regime_v8.load_data")
     df["year"] = df["time"].dt.year
 
     logger.info(
