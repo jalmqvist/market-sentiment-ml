@@ -103,6 +103,19 @@ def _setup_logging(level: str, log_file: str | None = None) -> None:
     logging.getLogger(__name__).info("File logging enabled: %s", log_path)
 
 
+def _top_frac_arg(value: str) -> float:
+    """Argparse type for ``--top-frac``: validates the value is in (0, 1]."""
+    try:
+        frac = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"--top-frac must be a float, got: {value!r}")
+    if not (0 < frac <= 1):
+        raise argparse.ArgumentTypeError(
+            f"--top-frac must be in (0, 1], got: {frac}"
+        )
+    return frac
+
+
 def main(argv=None) -> None:
     p = argparse.ArgumentParser(
         description=(
@@ -135,7 +148,7 @@ def main(argv=None) -> None:
     )
     p.add_argument(
         "--top-frac",
-        type=float,
+        type=_top_frac_arg,
         default=0.2,
         metavar="FRAC",
         help=(

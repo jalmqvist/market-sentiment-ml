@@ -326,8 +326,6 @@ def walk_forward(
         position = np.where(score >= threshold, np.sign(pred), 0)
 
         coverage = float(np.mean(score >= threshold))
-        mean_score_selected = float(np.mean(score[score >= threshold])) if coverage > 0 else float("nan")
-        mean_score_full = float(np.mean(score))
 
         logger.info(
             "Selection: top_frac=%.2f | threshold=%.6f | coverage=%.2f%%",
@@ -335,11 +333,20 @@ def walk_forward(
             threshold,
             100 * coverage,
         )
-        logger.info(
-            "Mean |pred|: selected=%.6f | full=%.6f",
-            mean_score_selected,
-            mean_score_full,
-        )
+        if coverage > 0:
+            mean_score_selected = float(np.mean(score[score >= threshold]))
+            mean_score_full = float(np.mean(score))
+            logger.info(
+                "Mean |pred|: selected=%.6f | full=%.6f",
+                mean_score_selected,
+                mean_score_full,
+            )
+        else:
+            logger.warning(
+                "REGIME V8.1 [year=%d]: coverage=0; no positions taken, skipping fold",
+                test_year,
+            )
+            continue
 
         active_mask = position != 0
         pnl = position[active_mask] * y_test[active_mask]
@@ -504,6 +511,19 @@ def log_final_summary(
 # Module-level CLI (direct execution: python experiments/regime_v8.py)
 # ---------------------------------------------------------------------------
 
+def _top_frac_arg(value: str) -> float:
+    """Argparse type for ``--top-frac``: validates the value is in (0, 1]."""
+    try:
+        frac = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"--top-frac must be a float, got: {value!r}")
+    if not (0 < frac <= 1):
+        raise argparse.ArgumentTypeError(
+            f"--top-frac must be in (0, 1], got: {frac}"
+        )
+    return frac
+
+
 def main(argv: list[str] | None = None) -> None:
     """Run the Regime V8 model-based signal pipeline.
 
@@ -541,7 +561,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     p.add_argument(
         "--top-frac",
-        type=float,
+        type=_top_frac_arg,
         default=0.2,
         metavar="FRAC",
         help=(
