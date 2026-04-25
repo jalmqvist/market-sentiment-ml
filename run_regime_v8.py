@@ -1,7 +1,7 @@
 """
 run_regime_v8.py
 ================
-Entry-point script for the Regime V8.2 model-based signal pipeline.
+Entry-point script for the Regime V8.3 model-based signal pipeline.
 
 All feature loading, model training, walk-forward, and metrics logic lives in
 ``experiments/regime_v8.py``; this script is a thin launcher that configures
@@ -10,8 +10,9 @@ logging (file-only by default, no stdout) and delegates to
 
 Pipeline summary
 ----------------
-Regime V8.2 extends V8.1 with **continuous position sizing**.
-A LightGBM regressor is trained on six sentiment and market features to
+Regime V8.3 extends V8.2 with **interaction features** that expose conditional
+signal structure (sentiment extremes × trend context × persistence).
+A LightGBM regressor is trained on sentiment, market, and interaction features to
 predict ``ret_48b`` directly.  Predictions are normalised by their standard
 deviation and clipped to [-3, 3] to produce continuous positions.  Only the
 top ``top_frac`` of predictions (by absolute magnitude) are traded each fold;
@@ -19,7 +20,8 @@ the remainder are zeroed out.
 Performance is evaluated using a strict expanding-window walk-forward:
 
 * **Features**: ``net_sentiment``, ``abs_sentiment``, ``extreme_streak_70``,
-  ``trend_strength_48b``, ``divergence``, ``signal_v2_raw``
+  ``trend_strength_48b``, ``divergence``, ``signal_v2_raw``,
+  ``sent_x_trend``, ``extreme_x_trend``, ``streak_x_sent``, ``streak_x_trend``
 
 * **Walk-forward**: for each test year, the model is trained exclusively on
   all prior years (no forward leakage).
@@ -127,8 +129,8 @@ def _top_frac_arg(value: str) -> float:
 def main(argv=None) -> None:
     p = argparse.ArgumentParser(
         description=(
-            "Regime V8.2: model-based signal pipeline with continuous position sizing "
-            "and top-k filtering. "
+            "Regime V8.3: model-based signal pipeline with interaction features, "
+            "continuous position sizing, and top-k filtering. "
             "Trains LightGBM to predict ret_48b from sentiment and market "
             "features using walk-forward validation, normalises prediction "
             "magnitude into continuous positions, and trades only the top "
@@ -185,7 +187,7 @@ def main(argv=None) -> None:
     from utils.validation import require_columns  # noqa: PLC0415
 
     _log = logging.getLogger(__name__)
-    _log.info("=== REGIME V8.2 ===")
+    _log.info("=== REGIME V8.3 ===")
 
     df = load_data(args.data)
 
@@ -202,6 +204,10 @@ def main(argv=None) -> None:
     OPTIONAL_FEATURES = [
         "divergence",
         "signal_v2_raw",
+        "sent_x_trend",
+        "extreme_x_trend",
+        "streak_x_sent",
+        "streak_x_trend",
     ]
 
     available_features = [
