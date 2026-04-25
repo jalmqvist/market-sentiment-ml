@@ -1,7 +1,7 @@
 """
 experiments/regime_v8.py
 ========================
-MODEL-BASED signal pipeline for FX sentiment research — **Version 8.2**.
+MODEL-BASED signal pipeline for FX sentiment research — **Version 8.3**.
 
 Replaces handcrafted scoring with a learned alpha function: a LightGBM
 regressor trained to predict ``ret_48b`` from sentiment and market features.
@@ -11,6 +11,10 @@ reducing noise and improving Sharpe.
 V8.2 extends V8.1 with **continuous position sizing**: instead of binary
 sign-based positions, prediction magnitude is normalised and clipped to scale
 each position continuously, improving Sharpe and smoothing PnL.
+V8.3 extends V8.2 with **interaction features** that expose the conditional
+signal structure (sentiment extremes × trend context × persistence) so that
+LightGBM can learn it directly rather than approximating it from independent
+raw inputs.
 
 Pipeline overview
 -----------------
@@ -27,6 +31,10 @@ Pipeline overview
 
    * ``divergence``
    * ``signal_v2_raw``
+   * ``sent_x_trend``      – net_sentiment × trend_strength_48b
+   * ``extreme_x_trend``   – is_extreme × trend_strength_48b
+   * ``streak_x_sent``     – extreme_streak_70 × net_sentiment
+   * ``streak_x_trend``    – extreme_streak_70 × trend_strength_48b
 
 2. **Walk-forward** (expanding window, minimum 3 years):
 
@@ -40,7 +48,7 @@ Pipeline overview
 3. **Model** – LightGBM regressor trained on the train split to predict
    ``ret_48b`` directly.  Predictions on the test split drive positions.
 
-4. **Signal construction (V8.2)**::
+4. **Signal construction (V8.3)**::
 
        pred      = model.predict(X_test)
        pred_std  = std(pred)
@@ -126,6 +134,10 @@ CORE_FEATURES: list[str] = [
 OPTIONAL_FEATURES: list[str] = [
     "divergence",
     "signal_v2_raw",
+    "sent_x_trend",
+    "extreme_x_trend",
+    "streak_x_sent",
+    "streak_x_trend",
 ]
 
 #: Full candidate feature list (core + optional).
@@ -136,6 +148,9 @@ _REQUIRED_COLS: list[str] = [TARGET_COL] + CORE_FEATURES
 
 #: Output fold columns.
 _FOLD_COLS: list[str] = ["year", "n", "mean", "sharpe", "hit_rate", "ic"]
+
+#: Absolute-sentiment threshold above which a reading is flagged as extreme (V8.3).
+_EXTREME_SENTIMENT_THRESHOLD: int = 70
 
 _LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
 _LOG_DATE_FMT = "%Y-%m-%dT%H:%M:%S"
@@ -194,6 +209,58 @@ def _setup_logging(level: str, log_file: str | None = None) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Interaction feature engineering (V8.3)
+# ---------------------------------------------------------------------------
+
+def add_interaction_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute interaction features that expose conditional signal structure.
+
+    Creates four interaction feature columns (plus one intermediate) when their
+    source columns are available:
+
+    * ``sent_x_trend``    – net_sentiment × trend_strength_48b
+    * ``is_extreme``      – 1 when abs_sentiment >= 70, else 0 (intermediate; not in OPTIONAL_FEATURES)
+    * ``extreme_x_trend`` – is_extreme × trend_strength_48b
+    * ``streak_x_sent``   – extreme_streak_70 × net_sentiment
+    * ``streak_x_trend``  – extreme_streak_70 × trend_strength_48b
+
+    Infinite values are replaced with NaN so that downstream ``dropna`` in
+    the walk-forward step handles them cleanly.  No scaling is applied;
+    LightGBM handles the magnitudes natively.
+
+    Args:
+        df: Dataset (must already have a ``year`` column from :func:`load_data`).
+
+    Returns:
+        The same DataFrame with interaction columns added in-place.
+    """
+    has_net = "net_sentiment" in df.columns
+    has_abs = "abs_sentiment" in df.columns
+    has_streak = "extreme_streak_70" in df.columns
+    has_trend = "trend_strength_48b" in df.columns
+
+    if has_net and has_trend:
+        df["sent_x_trend"] = df["net_sentiment"] * df["trend_strength_48b"]
+        df["sent_x_trend"] = df["sent_x_trend"].replace([np.inf, -np.inf], np.nan)
+
+    if has_abs and has_trend:
+        df["is_extreme"] = (df["abs_sentiment"] >= _EXTREME_SENTIMENT_THRESHOLD).astype(int)
+        df["extreme_x_trend"] = df["is_extreme"] * df["trend_strength_48b"]
+        df["extreme_x_trend"] = df["extreme_x_trend"].replace([np.inf, -np.inf], np.nan)
+
+    if has_streak and has_net:
+        df["streak_x_sent"] = df["extreme_streak_70"] * df["net_sentiment"]
+        df["streak_x_sent"] = df["streak_x_sent"].replace([np.inf, -np.inf], np.nan)
+
+    if has_streak and has_trend:
+        df["streak_x_trend"] = df["extreme_streak_70"] * df["trend_strength_48b"]
+        df["streak_x_trend"] = df["streak_x_trend"].replace([np.inf, -np.inf], np.nan)
+
+    logger.info("Added interaction features")
+    return df
+
+
+# ---------------------------------------------------------------------------
 # Data loading
 # ---------------------------------------------------------------------------
 
@@ -226,6 +293,8 @@ def load_data(path: str | Path) -> pd.DataFrame:
         df["time"].min(),
         df["time"].max(),
     )
+
+    df = add_interaction_features(df)
     return df
 
 
@@ -241,7 +310,7 @@ def walk_forward(
     year_col: str = "year",
     top_frac: float = 0.2,
 ) -> pd.DataFrame:
-    """Regime-V8.2 walk-forward: LightGBM model-based signal pipeline with continuous position sizing.
+    """Regime-V8.3 walk-forward: LightGBM model-based signal pipeline with continuous position sizing.
 
     For each test year (from the third unique year onward):
 
@@ -311,7 +380,7 @@ def walk_forward(
         y_test = test_df[target_col].values.astype(float)
 
         logger.info(
-            "REGIME V8.2 [year=%d] | train_size=%d | test_size=%d",
+            "REGIME V8.3 [year=%d] | train_size=%d | test_size=%d",
             test_year,
             len(train_df),
             len(test_df),
@@ -330,13 +399,13 @@ def walk_forward(
 
         pred = model.predict(X_test)
 
-        # Normalise prediction strength and clip extremes (V8.2)
+        # Normalise prediction strength and clip extremes (V8.3)
         pred_std = np.std(pred)
         if pred_std > 1e-10:
             scaled_pred = pred / pred_std
         else:
             logger.warning(
-                "REGIME V8.2 [year=%d]: pred_std=%.2e near zero; "
+                "REGIME V8.3 [year=%d]: pred_std=%.2e near zero; "
                 "using unscaled predictions (clip will bound positions)",
                 test_year,
                 pred_std,
@@ -366,7 +435,7 @@ def walk_forward(
             )
         else:
             logger.warning(
-                "REGIME V8.2 [year=%d]: coverage=0; no positions taken, skipping fold",
+                "REGIME V8.3 [year=%d]: coverage=0; no positions taken, skipping fold",
                 test_year,
             )
             continue
@@ -383,7 +452,7 @@ def walk_forward(
         metrics = _fold_metrics(pnl, pred, y_test)
 
         logger.info(
-            "REGIME V8.2 FOLD | year=%d | n=%5d | mean=%+.6f"
+            "REGIME V8.3 FOLD | year=%d | n=%5d | mean=%+.6f"
             " | sharpe=%+.4f | hit_rate=%.4f | ic=%+.4f",
             test_year,
             metrics["n"],
@@ -396,7 +465,7 @@ def walk_forward(
         fold_rows.append({"year": int(test_year), **metrics})
 
     if not fold_rows:
-        logger.warning("REGIME V8.2: no valid folds produced")
+        logger.warning("REGIME V8.3: no valid folds produced")
         return pd.DataFrame(columns=_FOLD_COLS)
 
     return pd.DataFrame(fold_rows)[_FOLD_COLS].reset_index(drop=True)
@@ -483,9 +552,9 @@ def log_fold_results(fold_df: pd.DataFrame) -> None:
     Args:
         fold_df: DataFrame returned by :func:`walk_forward`.
     """
-    logger.info("=== REGIME V8.2 — PER-FOLD RESULTS ===")
+    logger.info("=== REGIME V8.3 — PER-FOLD RESULTS ===")
     if fold_df.empty:
-        logger.warning("REGIME V8.2: no fold results to display")
+        logger.warning("REGIME V8.3: no fold results to display")
         return
     for row in fold_df.itertuples(index=False):
         logger.info(
@@ -512,11 +581,11 @@ def log_final_summary(
     """
     sep = "=" * 70
     logger.info(sep)
-    logger.info("=== REGIME V8.2 — FINAL SUMMARY ===")
+    logger.info("=== REGIME V8.3 — FINAL SUMMARY ===")
     logger.info(sep)
 
     if fold_df.empty:
-        logger.warning("REGIME V8.2 SUMMARY: no results")
+        logger.warning("REGIME V8.3 SUMMARY: no results")
         return
 
     logger.info("Folds evaluated  : %d", summary["folds"])
@@ -561,7 +630,7 @@ def main(argv: list[str] | None = None) -> None:
     """
     p = argparse.ArgumentParser(
         description=(
-            "Regime V8.2: model-based signal pipeline with continuous position sizing "
+            "Regime V8.3: model-based signal pipeline with continuous position sizing "
             "and top-k filtering. "
             "Trains LightGBM to predict ret_48b from sentiment and market "
             "features using walk-forward validation, normalises prediction "
@@ -606,7 +675,7 @@ def main(argv: list[str] | None = None) -> None:
     _setup_logging(args.log_level, args.log_file)
 
     log = logging.getLogger(__name__)
-    log.info("=== REGIME V8.2 ===")
+    log.info("=== REGIME V8.3 ===")
 
     df = load_data(args.data)
     require_columns(df, _REQUIRED_COLS, context="regime_v8.main")

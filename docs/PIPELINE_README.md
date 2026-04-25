@@ -34,6 +34,7 @@ build_dataset  →  [attach_regimes]  →  discovery  →  portfolio  →  [regi
 | Regime V8 (model-based)         | `experiments/regime_v8.py`                       | `DATA_PATH` (canonical)          | Optional     |
 | Regime V8.1 (top-k selection)   | `experiments/regime_v8.py` (`--top-frac`)         | `DATA_PATH` (canonical)          | Optional     |
 | Regime V8.2 (continuous sizing) | `experiments/regime_v8.py` (`--top-frac`)         | `DATA_PATH` (canonical)          | Optional     |
+| Regime V8.3 (interaction features) | `experiments/regime_v8.py` (`--top-frac`)      | `DATA_PATH` (canonical)          | Optional     |
 | Validation                      | `validation/validate_pipeline_extended.py`       | both datasets                    | Automatic    |
 
 > **Important:** `--data` is the ONLY accepted dataset argument for all stage
@@ -87,6 +88,7 @@ Canonical dataset
 | Model-based signal       | LightGBM learns alpha function from features | `experiments/regime_v8.py`  |
 | Top-k signal selection   | Prediction ranking + top-frac filtering (V8.1) | `experiments/regime_v8.py` (`--top-frac`) |
 | Continuous position sizing | Normalised + clipped prediction magnitude as position size (V8.2) | `experiments/regime_v8.py` (`--top-frac`) |
+| Interaction features     | Sentiment × trend × persistence interaction terms (V8.3) | `experiments/regime_v8.py` (`--top-frac`) |
 
 ---
 
@@ -230,21 +232,29 @@ The project currently supports three distinct ways of using regimes:
 
 ---
 
-#### 10. Model-based signal pipeline (Regime V8 / V8.1 / V8.2)
+#### 10. Model-based signal pipeline (Regime V8 / V8.1 / V8.2 / V8.3)
 
 - Replaces handcrafted scoring entirely with a **learned alpha function**
-- A LightGBM regressor is trained end-to-end to predict `ret_48b` from six
-  sentiment and market features:
+- A LightGBM regressor is trained end-to-end to predict `ret_48b` from sentiment,
+  market, and interaction features:
   `net_sentiment`, `abs_sentiment`, `extreme_streak_70`,
-  `trend_strength_48b`, `divergence`, `signal_v2_raw`
+  `trend_strength_48b`, `divergence`, `signal_v2_raw`,
+  `sent_x_trend`, `extreme_x_trend`, `streak_x_sent`, `streak_x_trend`
 - **Walk-forward**: for each test year the model is re-trained from scratch on
   all prior years only (strict expanding window, minimum 3 years)
 - **V8 signal**: `position = sign(model.predict(X_test))`
 - **V8.1 signal**: `score = abs(pred); position = where(score >= quantile(score, 1-top_frac), sign(pred), 0)`
-- **V8.2 signal (current)**: predictions are normalised by their cross-sectional
+- **V8.2 signal**: predictions are normalised by their cross-sectional
   std and clipped to [-3, 3] to produce continuous position sizes;
   top-frac filter is retained:
   `scaled_pred = clip(pred / std(pred), -3, 3); position = where(score >= quantile(score, 1-top_frac), scaled_pred, 0)`
+- **V8.3 signal (current)**: same continuous sizing as V8.2, plus five interaction
+  features computed in `load_data` before feature selection:
+  `sent_x_trend = net_sentiment × trend_strength_48b`,
+  `is_extreme = (abs_sentiment >= 70)`,
+  `extreme_x_trend = is_extreme × trend_strength_48b`,
+  `streak_x_sent = extreme_streak_70 × net_sentiment`,
+  `streak_x_trend = extreme_streak_70 × trend_strength_48b`
 - **PnL per row**: `position × ret_48b`
 - **Metrics per fold**: n, mean return, Sharpe, hit_rate, IC
   (Spearman correlation between predictions and realized returns)
