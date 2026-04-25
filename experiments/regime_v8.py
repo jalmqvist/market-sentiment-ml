@@ -1,13 +1,16 @@
 """
 experiments/regime_v8.py
 ========================
-MODEL-BASED signal pipeline for FX sentiment research — **Version 8.1**.
+MODEL-BASED signal pipeline for FX sentiment research — **Version 8.2**.
 
 Replaces handcrafted scoring with a learned alpha function: a LightGBM
 regressor trained to predict ``ret_48b`` from sentiment and market features.
 V8.1 extends V8 with **prediction ranking and top-k selection**: only the
 strongest signals (by absolute prediction magnitude) are traded each fold,
 reducing noise and improving Sharpe.
+V8.2 extends V8.1 with **continuous position sizing**: instead of binary
+sign-based positions, prediction magnitude is normalised and clipped to scale
+each position continuously, improving Sharpe and smoothing PnL.
 
 Pipeline overview
 -----------------
@@ -37,12 +40,15 @@ Pipeline overview
 3. **Model** – LightGBM regressor trained on the train split to predict
    ``ret_48b`` directly.  Predictions on the test split drive positions.
 
-4. **Signal construction (V8.1)**::
+4. **Signal construction (V8.2)**::
 
        pred      = model.predict(X_test)
+       pred_std  = std(pred)
+       scaled_pred = pred / pred_std  if pred_std > 1e-10 else pred
+       scaled_pred = clip(scaled_pred, -3, 3)
        score     = abs(pred)
        threshold = quantile(score, 1 - top_frac)   # default top_frac=0.2
-       position  = where(score >= threshold, sign(pred), 0)
+       position  = where(score >= threshold, scaled_pred, 0)
        pnl       = position * ret_48b   # only non-zero positions included
 
 5. **Metrics** (per fold): n (traded), mean return, Sharpe, hit_rate, IC
@@ -62,6 +68,7 @@ Logging (per fold)
 * Train size / test size
 * Selection: top_frac, threshold, coverage
 * Mean |pred| selected vs full
+* Position stats: mean, std
 * Sharpe, hit rate, IC
 
 Usage::
@@ -234,15 +241,16 @@ def walk_forward(
     year_col: str = "year",
     top_frac: float = 0.2,
 ) -> pd.DataFrame:
-    """Regime-V8.1 walk-forward: LightGBM model-based signal pipeline with top-k filtering.
+    """Regime-V8.2 walk-forward: LightGBM model-based signal pipeline with continuous position sizing.
 
     For each test year (from the third unique year onward):
 
     1. Split into train / test by year (expanding window).
     2. Drop rows with NaN in any feature or target column.
     3. Train a LightGBM regressor on the train split to predict *target_col*.
-    4. Predict on the test split; rank by absolute prediction magnitude and
-       take positions only for the top ``top_frac`` fraction of signals.
+    4. Predict on the test split; normalise and clip predictions to produce
+       continuous positions, then zero out the bottom ``(1 - top_frac)``
+       fraction by absolute prediction magnitude.
     5. Compute fold-level metrics using only traded (non-zero) positions.
 
     No test-period information enters model training.
@@ -303,7 +311,7 @@ def walk_forward(
         y_test = test_df[target_col].values.astype(float)
 
         logger.info(
-            "REGIME V8.1 [year=%d] | train_size=%d | test_size=%d",
+            "REGIME V8.2 [year=%d] | train_size=%d | test_size=%d",
             test_year,
             len(train_df),
             len(test_df),
@@ -321,9 +329,18 @@ def walk_forward(
         model.fit(X_train, y_train)
 
         pred = model.predict(X_test)
+
+        # Normalise prediction strength and clip extremes (V8.2)
+        pred_std = np.std(pred)
+        if pred_std > 1e-10:
+            scaled_pred = pred / pred_std
+        else:
+            scaled_pred = pred
+        scaled_pred = np.clip(scaled_pred, -3, 3)
+
         score = np.abs(pred)
         threshold = np.quantile(score, 1 - top_frac)
-        position = np.where(score >= threshold, np.sign(pred), 0)
+        position = np.where(score >= threshold, scaled_pred, 0)
 
         coverage = float(np.mean(score >= threshold))
 
@@ -343,10 +360,16 @@ def walk_forward(
             )
         else:
             logger.warning(
-                "REGIME V8.1 [year=%d]: coverage=0; no positions taken, skipping fold",
+                "REGIME V8.2 [year=%d]: coverage=0; no positions taken, skipping fold",
                 test_year,
             )
             continue
+
+        logger.info(
+            "Position stats: mean=%.4f | std=%.4f",
+            np.mean(position),
+            np.std(position),
+        )
 
         active_mask = position != 0
         pnl = position[active_mask] * y_test[active_mask]
@@ -354,7 +377,7 @@ def walk_forward(
         metrics = _fold_metrics(pnl, pred, y_test)
 
         logger.info(
-            "REGIME V8.1 FOLD | year=%d | n=%5d | mean=%+.6f"
+            "REGIME V8.2 FOLD | year=%d | n=%5d | mean=%+.6f"
             " | sharpe=%+.4f | hit_rate=%.4f | ic=%+.4f",
             test_year,
             metrics["n"],
@@ -367,7 +390,7 @@ def walk_forward(
         fold_rows.append({"year": int(test_year), **metrics})
 
     if not fold_rows:
-        logger.warning("REGIME V8.1: no valid folds produced")
+        logger.warning("REGIME V8.2: no valid folds produced")
         return pd.DataFrame(columns=_FOLD_COLS)
 
     return pd.DataFrame(fold_rows)[_FOLD_COLS].reset_index(drop=True)
@@ -454,9 +477,9 @@ def log_fold_results(fold_df: pd.DataFrame) -> None:
     Args:
         fold_df: DataFrame returned by :func:`walk_forward`.
     """
-    logger.info("=== REGIME V8.1 — PER-FOLD RESULTS ===")
+    logger.info("=== REGIME V8.2 — PER-FOLD RESULTS ===")
     if fold_df.empty:
-        logger.warning("REGIME V8.1: no fold results to display")
+        logger.warning("REGIME V8.2: no fold results to display")
         return
     for row in fold_df.itertuples(index=False):
         logger.info(
@@ -483,11 +506,11 @@ def log_final_summary(
     """
     sep = "=" * 70
     logger.info(sep)
-    logger.info("=== REGIME V8.1 — FINAL SUMMARY ===")
+    logger.info("=== REGIME V8.2 — FINAL SUMMARY ===")
     logger.info(sep)
 
     if fold_df.empty:
-        logger.warning("REGIME V8.1 SUMMARY: no results")
+        logger.warning("REGIME V8.2 SUMMARY: no results")
         return
 
     logger.info("Folds evaluated  : %d", summary["folds"])
@@ -532,9 +555,11 @@ def main(argv: list[str] | None = None) -> None:
     """
     p = argparse.ArgumentParser(
         description=(
-            "Regime V8.1: model-based signal pipeline with top-k filtering. "
+            "Regime V8.2: model-based signal pipeline with continuous position sizing "
+            "and top-k filtering. "
             "Trains LightGBM to predict ret_48b from sentiment and market "
-            "features using walk-forward validation, and trades only the top "
+            "features using walk-forward validation, normalises prediction "
+            "magnitude into continuous positions, and trades only the top "
             "top_frac of predictions ranked by absolute magnitude."
         ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -575,7 +600,7 @@ def main(argv: list[str] | None = None) -> None:
     _setup_logging(args.log_level, args.log_file)
 
     log = logging.getLogger(__name__)
-    log.info("=== REGIME V8.1 ===")
+    log.info("=== REGIME V8.2 ===")
 
     df = load_data(args.data)
     require_columns(df, _REQUIRED_COLS, context="regime_v8.main")

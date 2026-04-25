@@ -33,6 +33,7 @@ build_dataset  →  [attach_regimes]  →  discovery  →  portfolio  →  [regi
 | Regime V7.2 (interaction scores)| `experiments/regime_v7_2.py`                     | `DATA_PATH` (canonical)          | Optional     |
 | Regime V8 (model-based)         | `experiments/regime_v8.py`                       | `DATA_PATH` (canonical)          | Optional     |
 | Regime V8.1 (top-k selection)   | `experiments/regime_v8.py` (`--top-frac`)         | `DATA_PATH` (canonical)          | Optional     |
+| Regime V8.2 (continuous sizing) | `experiments/regime_v8.py` (`--top-frac`)         | `DATA_PATH` (canonical)          | Optional     |
 | Validation                      | `validation/validate_pipeline_extended.py`       | both datasets                    | Automatic    |
 
 > **Important:** `--data` is the ONLY accepted dataset argument for all stage
@@ -85,6 +86,7 @@ Canonical dataset
 | Interaction scoring      | Multiplicative event scores + row normalisation | `experiments/regime_v7_2.py` |
 | Model-based signal       | LightGBM learns alpha function from features | `experiments/regime_v8.py`  |
 | Top-k signal selection   | Prediction ranking + top-frac filtering (V8.1) | `experiments/regime_v8.py` (`--top-frac`) |
+| Continuous position sizing | Normalised + clipped prediction magnitude as position size (V8.2) | `experiments/regime_v8.py` (`--top-frac`) |
 
 ---
 
@@ -228,7 +230,7 @@ The project currently supports three distinct ways of using regimes:
 
 ---
 
-#### 10. Model-based signal pipeline (Regime V8)
+#### 10. Model-based signal pipeline (Regime V8 / V8.1 / V8.2)
 
 - Replaces handcrafted scoring entirely with a **learned alpha function**
 - A LightGBM regressor is trained end-to-end to predict `ret_48b` from six
@@ -237,14 +239,19 @@ The project currently supports three distinct ways of using regimes:
   `trend_strength_48b`, `divergence`, `signal_v2_raw`
 - **Walk-forward**: for each test year the model is re-trained from scratch on
   all prior years only (strict expanding window, minimum 3 years)
-- **Signal**: `position = sign(model.predict(X_test))`
+- **V8 signal**: `position = sign(model.predict(X_test))`
+- **V8.1 signal**: `score = abs(pred); position = where(score >= quantile(score, 1-top_frac), sign(pred), 0)`
+- **V8.2 signal (current)**: predictions are normalised by their cross-sectional
+  std and clipped to [-3, 3] to produce continuous position sizes;
+  top-frac filter is retained:
+  `scaled_pred = clip(pred / std(pred), -3, 3); position = where(score >= quantile(score, 1-top_frac), scaled_pred, 0)`
 - **PnL per row**: `position × ret_48b`
 - **Metrics per fold**: n, mean return, Sharpe, hit_rate, IC
   (Spearman correlation between predictions and realized returns)
 - No forward leakage: the model never sees any test-year data during training
 - Model: LightGBM (`n_estimators=200`, `learning_rate=0.05`,
   `subsample=0.8`, `colsample_bytree=0.8`, `random_state=42`)
-- Runner: `python run_regime_v8.py --data <path> [--log-level DEBUG]`
+- Runner: `python run_regime_v8.py --data <path> [--top-frac 0.2] [--log-level DEBUG]`
 
 ---
 
