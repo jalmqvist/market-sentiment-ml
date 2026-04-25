@@ -335,6 +335,12 @@ def walk_forward(
         if pred_std > 1e-10:
             scaled_pred = pred / pred_std
         else:
+            logger.warning(
+                "REGIME V8.2 [year=%d]: pred_std=%.2e near zero; "
+                "using unscaled predictions (clip will bound positions)",
+                test_year,
+                pred_std,
+            )
             scaled_pred = pred
         scaled_pred = np.clip(scaled_pred, -3, 3)
 
