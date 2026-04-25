@@ -29,7 +29,9 @@ build_dataset  →  [attach_regimes]  →  discovery  →  portfolio  →  [regi
 | Regime V5 (blended signal)      | `experiments/regime_v5.py`                       | `DATA_PATH` (canonical)          | Optional     |
 | Regime V6 (filtered + blended)  | `experiments/regime_v6.py`                       | `DATA_PATH` (canonical)          | Optional     |
 | Regime V7 (event-based)         | `experiments/regime_v7.py`                       | `DATA_PATH` (canonical)          | Optional     |
+| Regime V7.1 (continuous scores) | `experiments/regime_v7_1.py`                     | `DATA_PATH` (canonical)          | Optional     |
 | Regime V7.2 (interaction scores)| `experiments/regime_v7_2.py`                     | `DATA_PATH` (canonical)          | Optional     |
+| Regime V8 (model-based)         | `experiments/regime_v8.py`                       | `DATA_PATH` (canonical)          | Optional     |
 | Validation                      | `validation/validate_pipeline_extended.py`       | both datasets                    | Automatic    |
 
 > **Important:** `--data` is the ONLY accepted dataset argument for all stage
@@ -78,7 +80,9 @@ Canonical dataset
 | Continuous blending      | Signal V2 × regime × behavior | `experiments/regime_v5.py`          |
 | Filtered + blended       | Filter threshold + continuous weighting | `experiments/regime_v6.py`    |
 | Event-based signal       | Discrete event detection + Signal V2 | `experiments/regime_v7.py`       |
+| Continuous event scoring | Ranked continuous event scores + threshold | `experiments/regime_v7_1.py`  |
 | Interaction scoring      | Multiplicative event scores + row normalisation | `experiments/regime_v7_2.py` |
+| Model-based signal       | LightGBM learns alpha function from features | `experiments/regime_v8.py`  |
 
 ---
 
@@ -175,7 +179,29 @@ The project currently supports three distinct ways of using regimes:
 
 ---
 
-#### 8. Interaction-based scoring pipeline (Regime V7.2)
+#### 8. Continuous event scoring pipeline (Regime V7.1)
+
+- Upgrades V7 by replacing **boolean event masks** with **continuous event scores**,
+  allowing graded signal strength rather than binary fire/no-fire logic
+- Three continuous scores per row (z-scores fitted on the training split only):
+
+  * **SATURATION_SCORE**  = `tanh(z(abs_sentiment) + z(extreme_streak_70) + z(trend_strength_48b))`
+  * **DIVERGENCE_SCORE**  = `tanh(|z(divergence)|)`
+  * **EXHAUSTION_SCORE**  = `tanh(z(extreme_streak_70) − z(trend_strength_48b))`
+
+- **Selection**: the score with the greatest absolute magnitude is chosen per row
+- **Train phase**: compute `mean(score × ret_48b)`, Sharpe, and correlation per score
+  type; logged for diagnostics, no hard filter applied
+- **Test phase**: if `max(|scores|) < score_threshold` → `position = 0`;
+  otherwise `position = tanh(signal_v2_raw) * sign(best_score)`
+  (or `* best_score` with `--use-score-weighting`)
+- **Coverage** = fraction of test rows where `abs(position) > 0`
+- No forward leakage: all z-score normalization parameters derived from training data only
+- Runner: `python run_regime_v7_1.py --data <path> [--min-n 50] [--score-threshold 0.5] [--use-score-weighting]`
+
+---
+
+#### 9. Interaction-based scoring pipeline (Regime V7.2)
 
 - Upgrades V7.1 by replacing **additive** score definitions with **multiplicative interactions**
   to correctly model nonlinear behavioural effects
@@ -197,6 +223,26 @@ The project currently supports three distinct ways of using regimes:
 - Per-fold logging: per-score stats, score-type selection frequency, score magnitude distribution
 - No forward leakage: all z-score stats derived from training data only
 - Runner: `python run_regime_v7_2.py --data <path> [--min-n 50] [--score-threshold 0.3] [--use-score-weighting]`
+
+---
+
+#### 10. Model-based signal pipeline (Regime V8)
+
+- Replaces handcrafted scoring entirely with a **learned alpha function**
+- A LightGBM regressor is trained end-to-end to predict `ret_48b` from six
+  sentiment and market features:
+  `net_sentiment`, `abs_sentiment`, `extreme_streak_70`,
+  `trend_strength_48b`, `divergence`, `signal_v2_raw`
+- **Walk-forward**: for each test year the model is re-trained from scratch on
+  all prior years only (strict expanding window, minimum 3 years)
+- **Signal**: `position = sign(model.predict(X_test))`
+- **PnL per row**: `position × ret_48b`
+- **Metrics per fold**: n, mean return, Sharpe, hit_rate, IC
+  (Spearman correlation between predictions and realized returns)
+- No forward leakage: the model never sees any test-year data during training
+- Model: LightGBM (`n_estimators=200`, `learning_rate=0.05`,
+  `subsample=0.8`, `colsample_bytree=0.8`, `random_state=42`)
+- Runner: `python run_regime_v8.py --data <path> [--log-level DEBUG]`
 
 ---
 
