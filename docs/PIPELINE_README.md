@@ -35,6 +35,7 @@ build_dataset  →  [attach_regimes]  →  discovery  →  portfolio  →  [regi
 | Regime V8.1 (top-k selection)   | `experiments/regime_v8.py` (`--top-frac`)         | `DATA_PATH` (canonical)          | Optional     |
 | Regime V8.2 (continuous sizing) | `experiments/regime_v8.py` (`--top-frac`)         | `DATA_PATH` (canonical)          | Optional     |
 | Regime V8.3 (interaction features) | `experiments/regime_v8.py` (`--top-frac`)      | `DATA_PATH` (canonical)          | Optional     |
+| Regime V9 (event-based)         | `experiments/regime_v9.py`                       | `DATA_PATH` (canonical)          | Optional     |
 | Validation                      | `validation/validate_pipeline_extended.py`       | both datasets                    | Automatic    |
 
 > **Important:** `--data` is the ONLY accepted dataset argument for all stage
@@ -89,6 +90,7 @@ Canonical dataset
 | Top-k signal selection   | Prediction ranking + top-frac filtering (V8.1) | `experiments/regime_v8.py` (`--top-frac`) |
 | Continuous position sizing | Normalised + clipped prediction magnitude as position size (V8.2) | `experiments/regime_v8.py` (`--top-frac`) |
 | Interaction features     | Sentiment × trend × persistence interaction terms (V8.3) | `experiments/regime_v8.py` (`--top-frac`) |
+| Event-based signal (V9) | Event detection + contrarian scoring + train-only normalization | `experiments/regime_v9.py` |
 
 ---
 
@@ -262,6 +264,33 @@ The project currently supports three distinct ways of using regimes:
 - Model: LightGBM (`n_estimators=200`, `learning_rate=0.05`,
   `subsample=0.8`, `colsample_bytree=0.8`, `random_state=42`)
 - Runner: `python run_regime_v8.py --data <path> [--top-frac 0.2] [--log-level DEBUG]`
+
+---
+
+#### 11. Event-based signal pipeline (Regime V9)
+
+- Addresses V8's weak regression IC by switching from regression to **event detection + event scoring**
+- Signal is sparse by design: only high-conviction rows are ever traded
+- **Event flag**: a row is an event when ALL of:
+  * `abs_sentiment >= 70` (extreme reading)
+  * `extreme_streak_70 >= 2` (persistence of at least 2 bars)
+- **Event score** (raw, all rows)::
+
+      score = 0.5 * abs_sentiment
+            − 0.3 * (net_sentiment × trend_strength_48b)
+            + 0.2 * extreme_streak_70
+
+- **Score normalization**: z-score parameters (mean, std) fitted on **train split only**,
+  applied to test split — no forward leakage
+- **Contrarian position** (event rows only)::
+
+      base_direction = −sign(net_sentiment)    # fade extreme sentiment
+      position       = base_direction × score_normalized
+
+- **Walk-forward**: expanding window; minimum 2 prior years before first test year
+- **Metrics per fold**: `n_events`, `coverage` (events / total rows), `mean_score`, `Sharpe`, `hit_rate`
+- **Expected vs V8**: Sharpe ↑, hit_rate ↑, coverage ↓
+- Runner: `python run_regime_v9.py --data <path> [--log-level DEBUG]`
 
 ---
 
