@@ -36,6 +36,7 @@ build_dataset  →  [attach_regimes]  →  discovery  →  portfolio  →  [regi
 | Regime V8.2 (continuous sizing) | `experiments/regime_v8.py` (`--top-frac`)         | `DATA_PATH` (canonical)          | Optional     |
 | Regime V8.3 (interaction features) | `experiments/regime_v8.py` (`--top-frac`)      | `DATA_PATH` (canonical)          | Optional     |
 | Regime V9 (event-based)         | `experiments/regime_v9.py`                       | `DATA_PATH` (canonical)          | Optional     |
+| Regime V10 (event ranking)      | `experiments/regime_v10.py`                      | `DATA_PATH` (canonical)          | Optional     |
 | Validation                      | `validation/validate_pipeline_extended.py`       | both datasets                    | Automatic    |
 
 > **Important:** `--data` is the ONLY accepted dataset argument for all stage
@@ -91,6 +92,7 @@ Canonical dataset
 | Continuous position sizing | Normalised + clipped prediction magnitude as position size (V8.2) | `experiments/regime_v8.py` (`--top-frac`) |
 | Interaction features     | Sentiment × trend × persistence interaction terms (V8.3) | `experiments/regime_v8.py` (`--top-frac`) |
 | Event-based signal (V9) | Event detection + contrarian scoring + train-only normalization | `experiments/regime_v9.py` |
+| Event ranking + selection (V10) | Non-linear scoring + top-frac event selection + extended metrics | `experiments/regime_v10.py` |
 
 ---
 
@@ -291,6 +293,40 @@ The project currently supports three distinct ways of using regimes:
 - **Metrics per fold**: `n_events`, `coverage` (events / total rows), `mean_score`, `Sharpe`, `hit_rate`
 - **Expected vs V8**: Sharpe ↑, hit_rate ↑, coverage ↓
 - Runner: `python run_regime_v9.py --data <path> [--log-level DEBUG]`
+
+---
+
+#### 12. Event ranking + selection pipeline (Regime V10)
+
+- Structural upgrade of V9: treats events **unequally** by ranking and selecting only the highest-quality ones
+- Signal is even sparser than V9 by design: only the top fraction of events are traded per fold
+- **Event flag** (unchanged from V9): a row is an event when ALL of:
+  * `abs_sentiment >= 70` (extreme reading)
+  * `extreme_streak_70 >= 2` (persistence of at least 2 bars)
+- **Non-linear event score** (V10 upgrade)::
+
+      score_raw = (abs_sentiment / 100) ** 2
+                - 0.5 * abs(net_sentiment × trend_strength_48b)
+                + 0.3 * log1p(extreme_streak_70)
+
+  * Squaring makes extreme sentiment much more important
+  * `abs(...)` penalizes trend-aligned sentiment regardless of direction
+  * `log1p` adds diminishing returns for streak length
+
+- **Score normalization**: z-score parameters (mean, std) fitted on **train split only**,
+  applied to test split — no forward leakage
+- **Event ranking + selection**: within each test fold, events are ranked by normalized score
+  (descending); only the top `top_frac` fraction (default 20 %) receive non-zero positions
+- **Contrarian position** (selected events only)::
+
+      base_direction = −sign(net_sentiment)    # fade extreme sentiment
+      position       = base_direction × score_normalized
+
+- **Walk-forward**: expanding window; minimum 2 prior years before first test year
+- **Metrics per fold**: `n_total_events`, `n_selected_events`, `selection_ratio`,
+  `coverage` (selected / total rows), `mean_score`, `Sharpe`, `hit_rate`
+- **Expected vs V9**: Sharpe ↑, hit_rate ↑, coverage ↓, better fold stability
+- Runner: `python run_regime_v10.py --data <path> [--top-frac 0.2] [--log-level DEBUG]`
 
 ---
 
@@ -1148,10 +1184,18 @@ The repo root contains only **pipeline-critical** scripts:
 | `run_regime_filter_pipeline.py`         | Launcher for `experiments/regime_filter_pipeline` |
 | `run_regime_v4.py`                      | Launcher for `experiments/regime_v4`          |
 | `run_regime_v4_signal_filter.py`        | Launcher for `experiments/regime_v4_signal_filter` |
-| `build_fx_sentiment_dataset.py`         | Build canonical dataset from raw inputs       |
-| `build_sentiment_feature_contract.py`   | Feature contract builder                      |
 | `attach_regimes_to_h1_dataset.py`       | Attach D1 regime labels to H1 dataset         |
+| `run_regime_v10.py`                     | Launcher for `experiments/regime_v10`         |
 | `config.py`                             | Centralised pipeline configuration            |
+
+Utility and data-preparation scripts that are **not part of the canonical
+pipeline** live in **`scripts/`**:
+
+```
+scripts/
+  build_fx_sentiment_dataset.py      # older standalone dataset builder (superseded by pipeline/build_dataset.py)
+  build_sentiment_feature_contract.py # generates sentiment_features_h1_v1 feature contract artifacts
+```
 
 Standalone analysis and investigation scripts (JPY effect validation,
 one-off walk-forward analyses, pair-quality audits, etc.) live in
