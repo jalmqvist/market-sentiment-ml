@@ -1,7 +1,7 @@
 """
 run_regime_v8.py
 ================
-Entry-point script for the Regime V8 model-based signal pipeline.
+Entry-point script for the Regime V8.1 model-based signal pipeline.
 
 All feature loading, model training, walk-forward, and metrics logic lives in
 ``experiments/regime_v8.py``; this script is a thin launcher that configures
@@ -10,10 +10,11 @@ logging (file-only by default, no stdout) and delegates to
 
 Pipeline summary
 ----------------
-Regime V8 replaces handcrafted scoring with a **learned alpha function**.
+Regime V8.1 extends V8 with **prediction ranking and top-k selection**.
 A LightGBM regressor is trained on six sentiment and market features to
-predict ``ret_48b`` directly.  Positions are taken as ``sign(prediction)``,
-and performance is evaluated using a strict expanding-window walk-forward:
+predict ``ret_48b`` directly.  Only the top ``top_frac`` of predictions
+(by absolute magnitude) are traded each fold; the remainder are zeroed out.
+Performance is evaluated using a strict expanding-window walk-forward:
 
 * **Features**: ``net_sentiment``, ``abs_sentiment``, ``extreme_streak_70``,
   ``trend_strength_48b``, ``divergence``, ``signal_v2_raw``
@@ -21,10 +22,10 @@ and performance is evaluated using a strict expanding-window walk-forward:
 * **Walk-forward**: for each test year, the model is trained exclusively on
   all prior years (no forward leakage).
 
-* **Signal**: ``position = sign(model.predict(X_test))``
+* **Signal**: ``score = abs(pred); position = where(score >= quantile(score, 1-top_frac), sign(pred), 0)``
 
-* **Metrics per fold**: n, mean return, Sharpe, hit_rate, IC (Spearman
-  correlation between predictions and realized returns).
+* **Metrics per fold**: n (traded rows), mean return, Sharpe, hit_rate, IC
+  (Spearman correlation between predictions and realized returns, all rows).
 
 Logging rules
 -------------
@@ -36,6 +37,11 @@ Usage::
 
     # Log to auto-created timestamped file (default)
     python run_regime_v8.py --data data/output/master_research_dataset.csv
+
+    # Use custom top-frac (trade top 30% of signals)
+    python run_regime_v8.py \\
+        --data data/output/master_research_dataset.csv \\
+        --top-frac 0.3
 
     # Log to a specific file
     python run_regime_v8.py \\
@@ -100,10 +106,10 @@ def _setup_logging(level: str, log_file: str | None = None) -> None:
 def main(argv=None) -> None:
     p = argparse.ArgumentParser(
         description=(
-            "Regime V8: model-based signal pipeline. "
+            "Regime V8.1: model-based signal pipeline with top-k filtering. "
             "Trains LightGBM to predict ret_48b from sentiment and market "
-            "features using walk-forward validation, and evaluates trading "
-            "performance using sign(prediction)."
+            "features using walk-forward validation, and trades only the top "
+            "top_frac of predictions ranked by absolute magnitude."
         ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
@@ -127,6 +133,17 @@ def main(argv=None) -> None:
             "file is created automatically in logs/."
         ),
     )
+    p.add_argument(
+        "--top-frac",
+        type=float,
+        default=0.2,
+        metavar="FRAC",
+        help=(
+            "Fraction of predictions to trade per fold, ranked by absolute "
+            "prediction magnitude.  Must be in (0, 1].  Default is 0.2 "
+            "(top 20%%)."
+        ),
+    )
     args = p.parse_args(argv)
 
     _setup_logging(args.log_level, args.log_file)
@@ -145,7 +162,7 @@ def main(argv=None) -> None:
     from utils.validation import require_columns  # noqa: PLC0415
 
     _log = logging.getLogger(__name__)
-    _log.info("=== REGIME V8 ===")
+    _log.info("=== REGIME V8.1 ===")
 
     df = load_data(args.data)
 
@@ -186,6 +203,7 @@ def main(argv=None) -> None:
         df,
         feature_cols=available_features,
         target_col=TARGET_COL,
+        top_frac=args.top_frac,
     )
 
     log_fold_results(fold_df)

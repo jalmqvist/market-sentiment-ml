@@ -1,12 +1,13 @@
 """
 experiments/regime_v8.py
 ========================
-MODEL-BASED signal pipeline for FX sentiment research.
+MODEL-BASED signal pipeline for FX sentiment research — **Version 8.1**.
 
 Replaces handcrafted scoring with a learned alpha function: a LightGBM
 regressor trained to predict ``ret_48b`` from sentiment and market features.
-Positions are taken as ``sign(prediction)``; walk-forward evaluation is used
-to prevent forward leakage.
+V8.1 extends V8 with **prediction ranking and top-k selection**: only the
+strongest signals (by absolute prediction magnitude) are traded each fold,
+reducing noise and improving Sharpe.
 
 Pipeline overview
 -----------------
@@ -36,14 +37,16 @@ Pipeline overview
 3. **Model** – LightGBM regressor trained on the train split to predict
    ``ret_48b`` directly.  Predictions on the test split drive positions.
 
-4. **Signal construction**::
+4. **Signal construction (V8.1)**::
 
-       pred     = model.predict(X_test)
-       position = sign(pred)          # −1, 0 (exactly zero pred), or +1
-       pnl      = position * ret_48b
+       pred      = model.predict(X_test)
+       score     = abs(pred)
+       threshold = quantile(score, 1 - top_frac)   # default top_frac=0.2
+       position  = where(score >= threshold, sign(pred), 0)
+       pnl       = position * ret_48b   # only non-zero positions included
 
-5. **Metrics** (per fold): n, mean return, Sharpe, hit_rate, IC
-   (Spearman correlation between predictions and ``ret_48b``).
+5. **Metrics** (per fold): n (traded), mean return, Sharpe, hit_rate, IC
+   (Spearman correlation between predictions and ``ret_48b`` over all rows).
 
 Required columns
 ----------------
@@ -57,9 +60,9 @@ Fold output schema
 Logging (per fold)
 ------------------
 * Train size / test size
-* Sharpe
-* Hit rate
-* IC
+* Selection: top_frac, threshold, coverage
+* Mean |pred| selected vs full
+* Sharpe, hit rate, IC
 
 Usage::
 
@@ -68,6 +71,7 @@ Usage::
 
     python experiments/regime_v8.py \\
         --data data/output/master_research_dataset.csv \\
+        --top-frac 0.3 \\
         --log-level DEBUG
 """
 
@@ -228,16 +232,18 @@ def walk_forward(
     target_col: str = TARGET_COL,
     feature_cols: list[str] | None = None,
     year_col: str = "year",
+    top_frac: float = 0.2,
 ) -> pd.DataFrame:
-    """Regime-V8 walk-forward: LightGBM model-based signal pipeline.
+    """Regime-V8.1 walk-forward: LightGBM model-based signal pipeline with top-k filtering.
 
     For each test year (from the third unique year onward):
 
     1. Split into train / test by year (expanding window).
     2. Drop rows with NaN in any feature or target column.
     3. Train a LightGBM regressor on the train split to predict *target_col*.
-    4. Predict on the test split; compute positions as ``sign(pred)``.
-    5. Compute fold-level metrics (n, mean, Sharpe, hit_rate, IC).
+    4. Predict on the test split; rank by absolute prediction magnitude and
+       take positions only for the top ``top_frac`` fraction of signals.
+    5. Compute fold-level metrics using only traded (non-zero) positions.
 
     No test-period information enters model training.
 
@@ -247,6 +253,8 @@ def walk_forward(
         target_col: Forward-return column to predict.
         feature_cols: Feature columns used for training and prediction.
         year_col: Column containing calendar year.
+        top_frac: Fraction of predictions to trade, ranked by absolute
+            prediction magnitude.  Default is 0.2 (top 20%).
 
     Returns:
         DataFrame with schema ``_FOLD_COLS``; one row per valid test fold.
@@ -279,13 +287,13 @@ def walk_forward(
 
         if train_df.empty:
             logger.warning(
-                "REGIME V8 [year=%d]: empty train set; skipping fold", test_year
+                "REGIME V8.1 [year=%d]: empty train set; skipping fold", test_year
             )
             continue
 
         if test_df.empty:
             logger.warning(
-                "REGIME V8 [year=%d]: empty test set; skipping fold", test_year
+                "REGIME V8.1 [year=%d]: empty test set; skipping fold", test_year
             )
             continue
 
@@ -295,7 +303,7 @@ def walk_forward(
         y_test = test_df[target_col].values.astype(float)
 
         logger.info(
-            "REGIME V8 [year=%d] | train_size=%d | test_size=%d",
+            "REGIME V8.1 [year=%d] | train_size=%d | test_size=%d",
             test_year,
             len(train_df),
             len(test_df),
@@ -313,13 +321,33 @@ def walk_forward(
         model.fit(X_train, y_train)
 
         pred = model.predict(X_test)
-        position = np.sign(pred)
-        pnl = position * y_test
+        score = np.abs(pred)
+        threshold = np.quantile(score, 1 - top_frac)
+        position = np.where(score >= threshold, np.sign(pred), 0)
+
+        coverage = float(np.mean(score >= threshold))
+        mean_score_selected = float(np.mean(score[score >= threshold])) if coverage > 0 else float("nan")
+        mean_score_full = float(np.mean(score))
+
+        logger.info(
+            "Selection: top_frac=%.2f | threshold=%.6f | coverage=%.2f%%",
+            top_frac,
+            threshold,
+            100 * coverage,
+        )
+        logger.info(
+            "Mean |pred|: selected=%.6f | full=%.6f",
+            mean_score_selected,
+            mean_score_full,
+        )
+
+        active_mask = position != 0
+        pnl = position[active_mask] * y_test[active_mask]
 
         metrics = _fold_metrics(pnl, pred, y_test)
 
         logger.info(
-            "REGIME V8 FOLD | year=%d | n=%5d | mean=%+.6f"
+            "REGIME V8.1 FOLD | year=%d | n=%5d | mean=%+.6f"
             " | sharpe=%+.4f | hit_rate=%.4f | ic=%+.4f",
             test_year,
             metrics["n"],
@@ -332,7 +360,7 @@ def walk_forward(
         fold_rows.append({"year": int(test_year), **metrics})
 
     if not fold_rows:
-        logger.warning("REGIME V8: no valid folds produced")
+        logger.warning("REGIME V8.1: no valid folds produced")
         return pd.DataFrame(columns=_FOLD_COLS)
 
     return pd.DataFrame(fold_rows)[_FOLD_COLS].reset_index(drop=True)
@@ -419,9 +447,9 @@ def log_fold_results(fold_df: pd.DataFrame) -> None:
     Args:
         fold_df: DataFrame returned by :func:`walk_forward`.
     """
-    logger.info("=== REGIME V8 — PER-FOLD RESULTS ===")
+    logger.info("=== REGIME V8.1 — PER-FOLD RESULTS ===")
     if fold_df.empty:
-        logger.warning("REGIME V8: no fold results to display")
+        logger.warning("REGIME V8.1: no fold results to display")
         return
     for row in fold_df.itertuples(index=False):
         logger.info(
@@ -448,11 +476,11 @@ def log_final_summary(
     """
     sep = "=" * 70
     logger.info(sep)
-    logger.info("=== REGIME V8 — FINAL SUMMARY ===")
+    logger.info("=== REGIME V8.1 — FINAL SUMMARY ===")
     logger.info(sep)
 
     if fold_df.empty:
-        logger.warning("REGIME V8 SUMMARY: no results")
+        logger.warning("REGIME V8.1 SUMMARY: no results")
         return
 
     logger.info("Folds evaluated  : %d", summary["folds"])
@@ -484,10 +512,10 @@ def main(argv: list[str] | None = None) -> None:
     """
     p = argparse.ArgumentParser(
         description=(
-            "Regime V8: model-based signal pipeline. "
+            "Regime V8.1: model-based signal pipeline with top-k filtering. "
             "Trains LightGBM to predict ret_48b from sentiment and market "
-            "features using walk-forward validation, and evaluates trading "
-            "performance using sign(prediction)."
+            "features using walk-forward validation, and trades only the top "
+            "top_frac of predictions ranked by absolute magnitude."
         ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
@@ -511,12 +539,23 @@ def main(argv: list[str] | None = None) -> None:
             "file is created automatically in logs/."
         ),
     )
+    p.add_argument(
+        "--top-frac",
+        type=float,
+        default=0.2,
+        metavar="FRAC",
+        help=(
+            "Fraction of predictions to trade per fold, ranked by absolute "
+            "prediction magnitude.  Must be in (0, 1].  Default is 0.2 "
+            "(top 20%%)."
+        ),
+    )
     args = p.parse_args(argv)
 
     _setup_logging(args.log_level, args.log_file)
 
     log = logging.getLogger(__name__)
-    log.info("=== REGIME V8 ===")
+    log.info("=== REGIME V8.1 ===")
 
     df = load_data(args.data)
     require_columns(df, _REQUIRED_COLS, context="regime_v8.main")
@@ -531,7 +570,7 @@ def main(argv: list[str] | None = None) -> None:
         raise ValueError("Not enough features available for model")
     logger.info("Using features: %s", available_features)
 
-    fold_df = walk_forward(df, feature_cols=available_features)
+    fold_df = walk_forward(df, feature_cols=available_features, top_frac=args.top_frac)
 
     log_fold_results(fold_df)
     summary = compute_pooled_summary(fold_df)
