@@ -38,6 +38,7 @@ build_dataset  →  [attach_regimes]  →  discovery  →  portfolio  →  [regi
 | Regime V9 (event-based)         | `experiments/regime_v9.py`                       | `DATA_PATH` (canonical)          | Optional     |
 | Regime V10 (event ranking)      | `experiments/regime_v10.py`                      | `DATA_PATH` (canonical)          | Optional     |
 | Regime V11 (context-aware ranking) | `experiments/regime_v11.py`                   | `DATA_PATH` (canonical)          | Optional     |
+| Regime V12 (context selection + ranking) | `experiments/regime_v12.py`             | `DATA_PATH` (canonical)          | Optional     |
 | Validation                      | `validation/validate_pipeline_extended.py`       | both datasets                    | Automatic    |
 
 > **Important:** `--data` is the ONLY accepted dataset argument for all stage
@@ -95,6 +96,7 @@ Canonical dataset
 | Event-based signal (V9) | Event detection + contrarian scoring + train-only normalization | `experiments/regime_v9.py` |
 | Event ranking + selection (V10) | Non-linear scoring + top-frac event selection + extended metrics | `experiments/regime_v10.py` |
 | Context-aware event ranking (V11) | Context key (vol × trend × sentiment) + within-context ranking | `experiments/regime_v11.py` |
+| Context selection + event ranking (V12) | Train-based context Sharpe filter + within-context ranking | `experiments/regime_v12.py` |
 
 ---
 
