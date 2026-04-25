@@ -226,7 +226,7 @@ def walk_forward(
     df: pd.DataFrame,
     *,
     target_col: str = TARGET_COL,
-    feature_cols: list[str] = FEATURE_COLS,
+    feature_cols: list[str] | None = None,
     year_col: str = "year",
 ) -> pd.DataFrame:
     """Regime-V8 walk-forward: LightGBM model-based signal pipeline.
@@ -251,6 +251,13 @@ def walk_forward(
     Returns:
         DataFrame with schema ``_FOLD_COLS``; one row per valid test fold.
     """
+    if feature_cols is None:
+        raise ValueError(
+            "walk_forward: feature_cols must be provided explicitly. "
+            "Build available_features from CORE_FEATURES + present OPTIONAL_FEATURES "
+            "and pass it as feature_cols=available_features."
+        )
+
     if year_col not in df.columns:
         logger.warning("walk_forward: year column '%s' not found", year_col)
         return pd.DataFrame(columns=_FOLD_COLS)
@@ -293,6 +300,13 @@ def walk_forward(
             len(train_df),
             len(test_df),
         )
+
+        # Safety check: all feature columns must exist in df
+        missing_cols = [c for c in feature_cols if c not in df.columns]
+        if missing_cols:
+            raise ValueError(
+                f"walk_forward: feature column(s) missing from df: {missing_cols}"
+            )
 
         # Train model on train split only (no forward leakage)
         model = LGBMRegressor(**_LGBM_PARAMS)
@@ -512,12 +526,12 @@ def main(argv: list[str] | None = None) -> None:
     missing_optional = [c for c in OPTIONAL_FEATURES if c not in df.columns]
     if missing_optional:
         logger.warning("Missing optional features: %s", missing_optional)
-    feature_cols = [col for col in FEATURE_COLS if col in df.columns]
-    if len(feature_cols) < 2:
+    available_features = [col for col in FEATURE_COLS if col in df.columns]
+    if len(available_features) < 2:
         raise ValueError("Not enough features available for model")
-    logger.info("Using features: %s", feature_cols)
+    logger.info("Using features: %s", available_features)
 
-    fold_df = walk_forward(df, feature_cols=feature_cols)
+    fold_df = walk_forward(df, feature_cols=available_features)
 
     log_fold_results(fold_df)
     summary = compute_pooled_summary(fold_df)
