@@ -362,8 +362,8 @@ def _tertile_thresholds(series: pd.Series) -> tuple[float, float]:
         Tuple ``(q33, q67)``.
     """
     clean = series.dropna()
-    q33 = float(clean.quantile(0.333))
-    q67 = float(clean.quantile(0.667))
+    q33 = float(clean.quantile(1 / 3))
+    q67 = float(clean.quantile(2 / 3))
     # Ensure strictly increasing thresholds to avoid degenerate bins
     if q67 <= q33:
         q67 = q33 + 1e-10
