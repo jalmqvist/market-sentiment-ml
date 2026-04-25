@@ -37,6 +37,7 @@ build_dataset  →  [attach_regimes]  →  discovery  →  portfolio  →  [regi
 | Regime V8.3 (interaction features) | `experiments/regime_v8.py` (`--top-frac`)      | `DATA_PATH` (canonical)          | Optional     |
 | Regime V9 (event-based)         | `experiments/regime_v9.py`                       | `DATA_PATH` (canonical)          | Optional     |
 | Regime V10 (event ranking)      | `experiments/regime_v10.py`                      | `DATA_PATH` (canonical)          | Optional     |
+| Regime V11 (context-aware ranking) | `experiments/regime_v11.py`                   | `DATA_PATH` (canonical)          | Optional     |
 | Validation                      | `validation/validate_pipeline_extended.py`       | both datasets                    | Automatic    |
 
 > **Important:** `--data` is the ONLY accepted dataset argument for all stage
@@ -93,6 +94,7 @@ Canonical dataset
 | Interaction features     | Sentiment × trend × persistence interaction terms (V8.3) | `experiments/regime_v8.py` (`--top-frac`) |
 | Event-based signal (V9) | Event detection + contrarian scoring + train-only normalization | `experiments/regime_v9.py` |
 | Event ranking + selection (V10) | Non-linear scoring + top-frac event selection + extended metrics | `experiments/regime_v10.py` |
+| Context-aware event ranking (V11) | Context key (vol × trend × sentiment) + within-context ranking | `experiments/regime_v11.py` |
 
 ---
 
@@ -327,6 +329,48 @@ The project currently supports three distinct ways of using regimes:
   `coverage` (selected / total rows), `mean_score`, `Sharpe`, `hit_rate`
 - **Expected vs V9**: Sharpe ↑, hit_rate ↑, coverage ↓, better fold stability
 - Runner: `python run_regime_v10.py --data <path> [--top-frac 0.2] [--log-level DEBUG]`
+
+---
+
+#### 13. Context-aware event ranking pipeline (Regime V11)
+
+- Structural upgrade of V10: signal is **conditional on regime context** rather than globally ranked
+- V10 empirically mixes good and bad regimes when ranking globally → V11 ranks WITHIN similar contexts
+- **Context key** — each row is assigned a 3-component string key derived from **training-data tertiles only**
+  (no forward leakage):
+
+  * `vol_bucket`       — `low` / `mid` / `high`: rolling 48-bar std of `net_sentiment` (per-pair where available)
+  * `trend_bucket`     — `down` / `flat` / `up`: tertile discretization of `trend_strength_48b`
+  * `sentiment_bucket` — `low` / `mid` / `high`: tertile discretization of `abs_sentiment`
+  * `context_key = vol_bucket + "_" + trend_bucket + "_" + sentiment_bucket`
+
+- **Event flag** (unchanged from V9/V10): a row is an event when ALL of:
+  * `abs_sentiment >= 70` (extreme reading)
+  * `extreme_streak_70 >= 2` (persistence of at least 2 bars)
+- **Non-linear event score** (inherited from V10)::
+
+      score_raw = (abs_sentiment / 100) ** 2
+                - 0.5 * abs(net_sentiment × trend_strength_48b)
+                + 0.3 * log1p(extreme_streak_70)
+
+- **Score normalization**: z-score parameters (mean, std) fitted on **train split only**,
+  applied to test split — no forward leakage
+- **Context-aware ranking + selection**: within each test fold:
+  1. Events are grouped by `context_key`
+  2. Context groups with `n_events < 30` are skipped (noise filter)
+  3. Within each valid context group, events are ranked by normalized score (descending)
+     and the top `top_frac` fraction (default 20 %) is selected
+  4. Events outside valid contexts or below the top-frac cut receive position = 0
+- **Contrarian position** (selected events only)::
+
+      base_direction = −sign(net_sentiment)    # fade extreme sentiment
+      position       = base_direction × score_normalized
+
+- **Walk-forward**: expanding window; minimum 2 prior years before first test year
+- **Metrics per fold**: `n_total_events`, `n_selected_events`, `selection_ratio`,
+  `coverage` (selected / total rows), `mean_score`, `Sharpe`, `hit_rate`, `n_contexts`
+- **Expected vs V10**: Sharpe ↑ significantly, hit_rate ↑, coverage ↓ slightly, more stable folds
+- Runner: `python run_regime_v11.py --data <path> [--top-frac 0.2] [--min-context-events 30] [--log-level DEBUG]`
 
 ---
 
