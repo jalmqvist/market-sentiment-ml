@@ -32,6 +32,7 @@ build_dataset  →  [attach_regimes]  →  discovery  →  portfolio  →  [regi
 | Regime V7.1 (continuous scores) | `experiments/regime_v7_1.py`                     | `DATA_PATH` (canonical)          | Optional     |
 | Regime V7.2 (interaction scores)| `experiments/regime_v7_2.py`                     | `DATA_PATH` (canonical)          | Optional     |
 | Regime V8 (model-based)         | `experiments/regime_v8.py`                       | `DATA_PATH` (canonical)          | Optional     |
+| Regime V8.1 (top-k selection)   | `experiments/regime_v8.py` (`--top-frac`)         | `DATA_PATH` (canonical)          | Optional     |
 | Validation                      | `validation/validate_pipeline_extended.py`       | both datasets                    | Automatic    |
 
 > **Important:** `--data` is the ONLY accepted dataset argument for all stage
@@ -83,6 +84,7 @@ Canonical dataset
 | Continuous event scoring | Ranked continuous event scores + threshold | `experiments/regime_v7_1.py`  |
 | Interaction scoring      | Multiplicative event scores + row normalisation | `experiments/regime_v7_2.py` |
 | Model-based signal       | LightGBM learns alpha function from features | `experiments/regime_v8.py`  |
+| Top-k signal selection   | Prediction ranking + top-frac filtering (V8.1) | `experiments/regime_v8.py` (`--top-frac`) |
 
 ---
 
