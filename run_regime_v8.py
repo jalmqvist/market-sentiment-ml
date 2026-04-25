@@ -1,7 +1,7 @@
 """
 run_regime_v8.py
 ================
-Entry-point script for the Regime V8.1 model-based signal pipeline.
+Entry-point script for the Regime V8.2 model-based signal pipeline.
 
 All feature loading, model training, walk-forward, and metrics logic lives in
 ``experiments/regime_v8.py``; this script is a thin launcher that configures
@@ -10,10 +10,12 @@ logging (file-only by default, no stdout) and delegates to
 
 Pipeline summary
 ----------------
-Regime V8.1 extends V8 with **prediction ranking and top-k selection**.
+Regime V8.2 extends V8.1 with **continuous position sizing**.
 A LightGBM regressor is trained on six sentiment and market features to
-predict ``ret_48b`` directly.  Only the top ``top_frac`` of predictions
-(by absolute magnitude) are traded each fold; the remainder are zeroed out.
+predict ``ret_48b`` directly.  Predictions are normalised by their standard
+deviation and clipped to [-3, 3] to produce continuous positions.  Only the
+top ``top_frac`` of predictions (by absolute magnitude) are traded each fold;
+the remainder are zeroed out.
 Performance is evaluated using a strict expanding-window walk-forward:
 
 * **Features**: ``net_sentiment``, ``abs_sentiment``, ``extreme_streak_70``,
@@ -22,7 +24,13 @@ Performance is evaluated using a strict expanding-window walk-forward:
 * **Walk-forward**: for each test year, the model is trained exclusively on
   all prior years (no forward leakage).
 
-* **Signal**: ``score = abs(pred); position = where(score >= quantile(score, 1-top_frac), sign(pred), 0)``
+* **Signal**::
+
+      pred_std    = std(pred)
+      scaled_pred = pred / pred_std  if pred_std > 1e-10 else pred
+      scaled_pred = clip(scaled_pred, -3, 3)
+      score       = abs(pred)
+      position    = where(score >= quantile(score, 1-top_frac), scaled_pred, 0)
 
 * **Metrics per fold**: n (traded rows), mean return, Sharpe, hit_rate, IC
   (Spearman correlation between predictions and realized returns, all rows).
@@ -119,9 +127,11 @@ def _top_frac_arg(value: str) -> float:
 def main(argv=None) -> None:
     p = argparse.ArgumentParser(
         description=(
-            "Regime V8.1: model-based signal pipeline with top-k filtering. "
+            "Regime V8.2: model-based signal pipeline with continuous position sizing "
+            "and top-k filtering. "
             "Trains LightGBM to predict ret_48b from sentiment and market "
-            "features using walk-forward validation, and trades only the top "
+            "features using walk-forward validation, normalises prediction "
+            "magnitude into continuous positions, and trades only the top "
             "top_frac of predictions ranked by absolute magnitude."
         ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -175,7 +185,7 @@ def main(argv=None) -> None:
     from utils.validation import require_columns  # noqa: PLC0415
 
     _log = logging.getLogger(__name__)
-    _log.info("=== REGIME V8.1 ===")
+    _log.info("=== REGIME V8.2 ===")
 
     df = load_data(args.data)
 
