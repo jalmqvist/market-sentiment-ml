@@ -297,10 +297,10 @@ def walk_forward(
             " | sharpe=%+.4f | hit_rate=%.4f | ic=%+.4f",
             test_year,
             metrics["n"],
-            metrics["mean"] if not np.isnan(metrics["mean"]) else float("nan"),
-            metrics["sharpe"] if not np.isnan(metrics["sharpe"]) else float("nan"),
-            metrics["hit_rate"] if not np.isnan(metrics["hit_rate"]) else float("nan"),
-            metrics["ic"] if not np.isnan(metrics["ic"]) else float("nan"),
+            metrics["mean"],
+            metrics["sharpe"],
+            metrics["hit_rate"],
+            metrics["ic"],
         )
 
         fold_rows.append({"year": int(test_year), **metrics})
@@ -348,8 +348,7 @@ def _fold_metrics(
     hit_rate = float(np.mean(pnl > 0))
 
     # IC: Spearman correlation between predictions and realized returns
-    corr_result = spearmanr(pred, ret)
-    ic = float(corr_result.statistic) if hasattr(corr_result, "statistic") else float(corr_result[0])
+    ic = float(spearmanr(pred, ret).statistic)
 
     return {
         "n": n,
@@ -404,10 +403,10 @@ def log_fold_results(fold_df: pd.DataFrame) -> None:
             " | hit_rate=%.4f | ic=%+.4f",
             row.year,
             row.n,
-            row.mean if not np.isnan(row.mean) else float("nan"),
-            row.sharpe if not np.isnan(row.sharpe) else float("nan"),
-            row.hit_rate if not np.isnan(row.hit_rate) else float("nan"),
-            row.ic if not np.isnan(row.ic) else float("nan"),
+            row.mean,
+            row.sharpe,
+            row.hit_rate,
+            row.ic,
         )
 
 
@@ -431,33 +430,18 @@ def log_final_summary(
         return
 
     logger.info("Folds evaluated  : %d", summary["folds"])
-    logger.info(
-        "Mean Sharpe      : %+.4f",
-        summary["mean_sharpe"]
-        if not np.isnan(summary["mean_sharpe"])
-        else float("nan"),
-    )
-    logger.info(
-        "Mean hit rate    : %.4f",
-        summary["mean_hit_rate"]
-        if not np.isnan(summary["mean_hit_rate"])
-        else float("nan"),
-    )
-    logger.info(
-        "Mean IC          : %+.4f",
-        summary["mean_ic"]
-        if not np.isnan(summary["mean_ic"])
-        else float("nan"),
-    )
+    logger.info("Mean Sharpe      : %+.4f", summary["mean_sharpe"])
+    logger.info("Mean hit rate    : %.4f", summary["mean_hit_rate"])
+    logger.info("Mean IC          : %+.4f", summary["mean_ic"])
     logger.info(sep)
     logger.info("Per-fold detail:")
     for row in fold_df.itertuples(index=False):
         logger.info(
             "  year=%d | sharpe=%+.4f | hit_rate=%.4f | ic=%+.4f",
             row.year,
-            row.sharpe if not np.isnan(row.sharpe) else float("nan"),
-            row.hit_rate if not np.isnan(row.hit_rate) else float("nan"),
-            row.ic if not np.isnan(row.ic) else float("nan"),
+            row.sharpe,
+            row.hit_rate,
+            row.ic,
         )
     logger.info(sep)
 
