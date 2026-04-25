@@ -149,6 +149,9 @@ _REQUIRED_COLS: list[str] = [TARGET_COL] + CORE_FEATURES
 #: Output fold columns.
 _FOLD_COLS: list[str] = ["year", "n", "mean", "sharpe", "hit_rate", "ic"]
 
+#: Absolute-sentiment threshold above which a reading is flagged as extreme (V8.3).
+_EXTREME_SENTIMENT_THRESHOLD: int = 70
+
 _LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
 _LOG_DATE_FMT = "%Y-%m-%dT%H:%M:%S"
 
@@ -212,10 +215,11 @@ def _setup_logging(level: str, log_file: str | None = None) -> None:
 def add_interaction_features(df: pd.DataFrame) -> pd.DataFrame:
     """Compute interaction features that expose conditional signal structure.
 
-    Creates five new columns when their source columns are available:
+    Creates four interaction feature columns (plus one intermediate) when their
+    source columns are available:
 
     * ``sent_x_trend``    – net_sentiment × trend_strength_48b
-    * ``is_extreme``      – 1 when abs_sentiment >= 70, else 0 (intermediate)
+    * ``is_extreme``      – 1 when abs_sentiment >= 70, else 0 (intermediate; not in OPTIONAL_FEATURES)
     * ``extreme_x_trend`` – is_extreme × trend_strength_48b
     * ``streak_x_sent``   – extreme_streak_70 × net_sentiment
     * ``streak_x_trend``  – extreme_streak_70 × trend_strength_48b
@@ -240,7 +244,7 @@ def add_interaction_features(df: pd.DataFrame) -> pd.DataFrame:
         df["sent_x_trend"] = df["sent_x_trend"].replace([np.inf, -np.inf], np.nan)
 
     if has_abs and has_trend:
-        df["is_extreme"] = (df["abs_sentiment"] >= 70).astype(int)
+        df["is_extreme"] = (df["abs_sentiment"] >= _EXTREME_SENTIMENT_THRESHOLD).astype(int)
         df["extreme_x_trend"] = df["is_extreme"] * df["trend_strength_48b"]
         df["extreme_x_trend"] = df["extreme_x_trend"].replace([np.inf, -np.inf], np.nan)
 
