@@ -10,12 +10,17 @@ to prevent forward leakage.
 
 Pipeline overview
 -----------------
-1. **Features** – six columns already present in the dataset:
+1. **Features** – columns drawn from the dataset:
+
+   Core (required):
 
    * ``net_sentiment``
    * ``abs_sentiment``
    * ``extreme_streak_70``
    * ``trend_strength_48b``
+
+   Optional (used when present):
+
    * ``divergence``
    * ``signal_v2_raw``
 
@@ -43,7 +48,7 @@ Pipeline overview
 Required columns
 ----------------
 ``ret_48b``, ``net_sentiment``, ``abs_sentiment``, ``extreme_streak_70``,
-``trend_strength_48b``, ``divergence``, ``signal_v2_raw``
+``trend_strength_48b``
 
 Fold output schema
 ------------------
@@ -98,18 +103,25 @@ logger = logging.getLogger(__name__)
 
 TARGET_COL: str = "ret_48b"
 
-#: Features used to train and predict.
-FEATURE_COLS: list[str] = [
+#: Core features – always required.
+CORE_FEATURES: list[str] = [
     "net_sentiment",
     "abs_sentiment",
     "extreme_streak_70",
     "trend_strength_48b",
+]
+
+#: Optional features – used when present in the dataset.
+OPTIONAL_FEATURES: list[str] = [
     "divergence",
     "signal_v2_raw",
 ]
 
+#: Full candidate feature list (core + optional).
+FEATURE_COLS: list[str] = CORE_FEATURES + OPTIONAL_FEATURES
+
 #: Required columns for the pipeline (validated at entry points).
-_REQUIRED_COLS: list[str] = [TARGET_COL] + FEATURE_COLS
+_REQUIRED_COLS: list[str] = [TARGET_COL] + CORE_FEATURES
 
 #: Output fold columns.
 _FOLD_COLS: list[str] = ["year", "n", "mean", "sharpe", "hit_rate", "ic"]
@@ -192,8 +204,7 @@ def load_data(path: str | Path) -> pd.DataFrame:
         FileNotFoundError: If *path* does not exist.
         ValueError: If required columns are missing after loading.
     """
-    df = read_csv(path, required_columns=["time"] + _REQUIRED_COLS)
-    df = parse_timestamps(df, "time", context="regime_v8.load_data")
+    df = read_csv(path, required_columns=["time"] + _REQUIRED_COLS)    df = parse_timestamps(df, "time", context="regime_v8.load_data")
     df["year"] = df["time"].dt.year
 
     logger.info(
@@ -496,7 +507,16 @@ def main(argv: list[str] | None = None) -> None:
     require_columns(df, _REQUIRED_COLS, context="regime_v8.main")
     log.info("Dataset ready: %d rows", len(df))
 
-    fold_df = walk_forward(df)
+    # Build feature list dynamically: core (always used) + optional (if present)
+    missing_optional = [c for c in OPTIONAL_FEATURES if c not in df.columns]
+    if missing_optional:
+        logger.warning("Missing optional features: %s", missing_optional)
+    feature_cols = [col for col in FEATURE_COLS if col in df.columns]
+    if len(feature_cols) < 2:
+        raise ValueError("Not enough features available for model")
+    logger.info("Using features: %s", feature_cols)
+
+    fold_df = walk_forward(df, feature_cols=feature_cols)
 
     log_fold_results(fold_df)
     summary = compute_pooled_summary(fold_df)
