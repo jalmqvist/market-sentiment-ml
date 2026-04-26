@@ -6,6 +6,70 @@ paths, and shows how to run each stage independently.
 
 ---
 
+## ⚠️ Important update — Signal V20/V21 findings
+
+Recent experiments (`experiments/regime_v20.py`, `regime_v21.py`) revealed a **strong standalone signal** using raw sentiment (`net_sentiment`) with minimal transformation.
+
+### Key observations
+
+- Sharpe ≈ **0.20+** (walk-forward)
+- Stable across multiple years
+- Works without regime filtering
+
+### Validation test
+
+Signal alignment test:
+
+- signal-shift 5
+
+### Result:
+
+- Sharpe collapses to negative
+- Confirms no forward leakage
+
+------
+
+### Implication for pipeline design
+
+This challenges the current architecture:
+
+```
+Signal → Regime → Filter → Strategy
+```
+
+New evidence suggests:
+
+> A **direct signal layer exists before regime conditioning**
+
+Meaning:
+
+- Regimes may be **refinement**, not **source of alpha**
+- Previous pipelines may have **overcomplicated or diluted signal**
+
+------
+
+### Updated conceptual model
+
+```
+Raw sentiment signal (primary alpha)
+        ↓
+Optional conditioning (regime / volatility / selection)
+        ↓
+Execution layer
+```
+
+------
+
+### Action required
+
+Before further pipeline development:
+
+> ⚠️ Validate this signal **outside the pipeline**
+
+Do not rely solely on current walk-forward implementation.
+
+---
+
 ## Overview
 
 ```

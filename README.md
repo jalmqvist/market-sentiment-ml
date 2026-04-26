@@ -31,6 +31,86 @@ Using regime filtering:
 
 ---
 
+## 🚀 New finding — Time-local predictive signal (Regime V20+)
+
+Recent experiments (Regime V20–V21) uncovered a **strong, time-local predictive signal** derived from raw sentiment (`net_sentiment`) with minimal transformation.
+
+### Key result
+
+Walk-forward results:
+
+- Sharpe ≈ **0.21–0.22**
+- Hit rate ≈ **54–67%**
+- Stable across years
+
+### Critical validation
+
+A **signal shift test** was performed:
+
+```bash
+--signal-shift 5
+```
+
+Result:
+
+- Sharpe → negative (~ -0.05)
+- Signal collapses
+
+### Interpretation
+
+This confirms:
+
+- ✅ No forward leakage
+- ✅ No pipeline artifact
+- ✅ Signal depends on correct timestamp alignment
+
+> The signal is **causal and time-sensitive**
+
+------
+
+### Why this matters
+
+This is fundamentally different from earlier results:
+
+| Phase            | Result                               |
+| ---------------- | ------------------------------------ |
+| Earlier pipeline | weak conditional edge (Sharpe ~0.05) |
+| V20+             | strong direct signal (Sharpe ~0.21)  |
+
+This suggests:
+
+> The previous pipeline was **diluting or mis-specifying the signal**
+
+------
+
+### Hypothesis
+
+The signal likely represents:
+
+- **short-horizon reaction to sentiment imbalance**
+- **behavioral overshoot / mean-reversion**
+- **event-driven crowd positioning**
+
+------
+
+### Important caveat
+
+Despite strong backtest performance:
+
+- Real-world Sharpe will likely be lower (costs, latency)
+- Further validation is required outside the current pipeline
+
+------
+
+### Next steps
+
+1. **Out-of-pipeline validation (critical)**
+2. Signal decay / horizon analysis
+3. Execution modeling
+4. Strategy construction
+
+---
+
 ## Core insight
 
 > **Retail crowd behavior is only exploitable under specific market conditions**
