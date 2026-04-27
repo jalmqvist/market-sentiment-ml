@@ -254,6 +254,52 @@ def compute_v26_signal(df, price_window=24, sentiment_window=24):
     df["signal"] = signal
 
     return df
+
+def compute_price_signal(df, window=48):
+    df = df.copy()
+
+    # proxy past returns (causal)
+    df["past_ret"] = df["ret_48b"].shift(48)
+
+    # momentum
+    mom = df["past_ret"].rolling(window).mean().shift(1)
+
+    df["signal"] = np.sign(mom)
+
+    return df
+
+def compute_v27_signal(df, window=48, q=0.9):
+    df = df.copy()
+
+    # =========================
+    # 1. Price signal (same as baseline)
+    # =========================
+    df["past_ret"] = df["ret_48b"].shift(48)
+    mom = df["past_ret"].rolling(window).mean().shift(1)
+
+    price_signal = np.sign(mom)
+
+    # =========================
+    # 2. Sentiment extremes (causal)
+    # =========================
+    upper = df["net_sentiment"].expanding(200).quantile(q).shift(1)
+    lower = df["net_sentiment"].expanding(200).quantile(1 - q).shift(1)
+
+    extreme_long = df["net_sentiment"] > upper
+    extreme_short = df["net_sentiment"] < lower
+
+    # =========================
+    # 3. Filter logic
+    # =========================
+    signal = np.zeros(len(df))
+
+    # Only take trades when sentiment disagrees
+    signal[(price_signal > 0) & (extreme_short)] = +1
+    signal[(price_signal < 0) & (extreme_long)] = -1
+
+    df["signal"] = signal
+
+    return df
 # =========================
 # Signal factory
 # =========================
@@ -276,6 +322,12 @@ def compute_base_signal(df, variant):
 
     elif variant == "v26":
         df = compute_v26_signal(df)
+
+    elif variant == "price":
+        df = compute_price_signal(df)
+
+    elif variant == "v27":
+        df = compute_v27_signal(df)
 
     else:
         raise ValueError(f"Unknown variant: {variant}")
