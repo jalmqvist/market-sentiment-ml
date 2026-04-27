@@ -122,6 +122,26 @@ python research/raw_validation/pipeline_sanity_check.py
 
 ---
 
+## Dataset Versioning
+
+Datasets are **versioned and reproducible**. Every build produces:
+
+- A versioned directory under `data/output/<version>/`
+- Variant files (`core`, `extended`, `full`) filtered by coverage quality
+- A `DATASET_MANIFEST.json` recording the exact build parameters
+
+This ensures that any ML experiment can be reproduced by specifying the dataset version:
+
+```bash
+python research/deep_learning/train.py --dataset-version 1.1.0 --feature-set price_sentiment
+
+python research/deep_learning/evaluate.py --dataset-version 1.1.0
+```
+
+See [`docs/DATASET.md`](docs/DATASET.md) for the full dataset reference.
+
+---
+
 ## Data
 
 See `DATA_AVAILABILITY.md` for data access notes and `INPUT_SCHEMA.md` / `OUTPUT_SCHEMA.md` for data schemas.

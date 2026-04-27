@@ -101,6 +101,17 @@ This repository represents:
 
 ---
 
+## Dataset Versioning
+
+The research dataset is now **versioned and reproducible**. Each dataset version is stored in a dedicated directory (`data/output/<version>/`) alongside a manifest file that records all build parameters. This supports:
+
+- **ML workflows**: training scripts reference a specific dataset version, ensuring experiments are fully reproducible.
+- **ABM workflows**: agent-based models can load the same versioned feature tables used in ML experiments, enabling consistent comparisons across modeling approaches.
+
+Any experiment can be reproduced exactly by specifying its dataset version. See [`docs/DATASET.md`](docs/DATASET.md) for the full reference.
+
+---
+
 ## Philosophy
 
 - prioritize **correctness over results**
