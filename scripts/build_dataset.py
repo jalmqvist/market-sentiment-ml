@@ -113,6 +113,16 @@ def main(argv=None) -> None:
     logger.info("    Extended : %s", extended_path)
     logger.info("    Manifest : %s", manifest_path)
 
+    # Update data/output/latest symlink to point at this version
+    latest_link = cfg.OUTPUT_DIR / "latest"
+    try:
+        if latest_link.is_symlink() or latest_link.exists():
+            latest_link.unlink()
+        latest_link.symlink_to(version)
+        logger.info("  Latest link  : %s -> %s", latest_link, version)
+    except OSError as exc:
+        logger.warning("Could not update 'latest' symlink: %s", exc)
+
 
 if __name__ == "__main__":
     main()
