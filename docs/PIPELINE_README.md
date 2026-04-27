@@ -6,67 +6,61 @@ paths, and shows how to run each stage independently.
 
 ---
 
-## ⚠️ Important update — Signal V20/V21 findings
+## ⚠️ Important update — V20/V21 signal invalidated
 
-Recent experiments (`experiments/regime_v20.py`, `regime_v21.py`) revealed a **strong standalone signal** using raw sentiment (`net_sentiment`) with minimal transformation.
+Earlier experiments (`regime_v20.py`, `regime_v21.py`) appeared to show a strong signal:
 
-### Key observations
+- Sharpe ≈ **0.20+**
+- Stable across years
+- Passed naive shift tests
 
-- Sharpe ≈ **0.20+** (walk-forward)
-- Stable across multiple years
-- Works without regime filtering
+### ❗ This result has been invalidated
 
-### Validation test
+Independent validation using:
 
-Signal alignment test:
+- `validate_signal_raw.py`
+- `pipeline_sanity_check.py`
+- `pipeline_leakage_diagnosis.py`
 
-- signal-shift 5
+shows:
 
-### Result:
-
-- Sharpe collapses to negative
-- Confirms no forward leakage
-
-------
-
-### Implication for pipeline design
-
-This challenges the current architecture:
-
-```
-Signal → Regime → Filter → Strategy
-```
-
-New evidence suggests:
-
-> A **direct signal layer exists before regime conditioning**
-
-Meaning:
-
-- Regimes may be **refinement**, not **source of alpha**
-- Previous pipelines may have **overcomplicated or diluted signal**
+- Sharpe collapses to ~0 outside the pipeline
+- No predictive power in raw or transformed signal
+- No evidence of true alpha
 
 ------
 
-### Updated conceptual model
+### Root cause
 
-```
-Raw sentiment signal (primary alpha)
-        ↓
-Optional conditioning (regime / volatility / selection)
-        ↓
-Execution layer
-```
+The inflated Sharpe originated from:
+
+- groupby/apply misalignment
+- index leakage
+- unintended selection bias
+
+These effects combined into a **non-obvious pipeline artifact**.
 
 ------
 
-### Action required
+### Current status
 
-Before further pipeline development:
+| Component          | Status         |
+| ------------------ | -------------- |
+| Raw signal         | ❌ No edge      |
+| Pipeline (clean)   | ✅ No leakage   |
+| V20–V21 pipeline   | ❌ contaminated |
+| Validation scripts | ✅ trustworthy  |
 
-> ⚠️ Validate this signal **outside the pipeline**
+------
 
-Do not rely solely on current walk-forward implementation.
+### Updated directive
+
+> ⚠️ **All new signals must be validated outside the pipeline first**
+
+Pipeline is now considered:
+
+- ✅ safe for evaluation
+- ❌ unsafe for discovery without prior validation
 
 ---
 

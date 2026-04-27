@@ -31,83 +31,71 @@ Using regime filtering:
 
 ---
 
-## 🚀 New finding — Time-local predictive signal (Regime V20+)
+1. 
 
-Recent experiments (Regime V20–V21) uncovered a **strong, time-local predictive signal** derived from raw sentiment (`net_sentiment`) with minimal transformation.
+2. ------
 
-### Key result
+   ### ⚠️ Correction — V20/V21 signal invalidated
 
-Walk-forward results:
+   Initial Regime V20–V21 experiments appeared to show a strong predictive signal:
 
-- Sharpe ≈ **0.21–0.22**
-- Hit rate ≈ **54–67%**
-- Stable across years
+   - Sharpe ≈ **0.21–0.22**
+   - Stable across years
+   - Survived naive shift tests
 
-### Critical validation
+   However, **independent validation outside the pipeline disproved this result**.
 
-A **signal shift test** was performed:
+   ### Validation results
 
-```bash
---signal-shift 5
-```
+   Using a clean, minimal pipeline:
 
-Result:
+   - Raw signal Sharpe ≈ **0.00**
+   - Shifted signal Sharpe ≈ **0.00**
+   - Shuffled signal Sharpe ≈ **0.00**
 
-- Sharpe → negative (~ -0.05)
-- Signal collapses
+   Pipeline sanity tests confirm:
 
-### Interpretation
+   - No standalone predictive power
+   - No meaningful signal after removing pipeline transformations
 
-This confirms:
+   ### Root cause
 
-- ✅ No forward leakage
-- ✅ No pipeline artifact
-- ✅ Signal depends on correct timestamp alignment
+   The apparent edge in V20–V21 was caused by:
 
-> The signal is **causal and time-sensitive**
+   - subtle pipeline implementation errors
+   - emergent bias from groupby/apply + index misalignment
+   - implicit selection distortions
 
-------
+   Critically:
 
-### Why this matters
+   > The signal does **not** exist outside the pipeline.
 
-This is fundamentally different from earlier results:
+   ------
 
-| Phase            | Result                               |
-| ---------------- | ------------------------------------ |
-| Earlier pipeline | weak conditional edge (Sharpe ~0.05) |
-| V20+             | strong direct signal (Sharpe ~0.21)  |
+   ### Updated conclusion
 
-This suggests:
+   | Component        | Status               |
+   | ---------------- | -------------------- |
+   | Raw sentiment    | ❌ No edge            |
+   | Signal V2        | ❌ No edge            |
+   | Regime filtering | ⚠️ weak, unstable     |
+   | V20–V21 signal   | ❌ invalid (artifact) |
 
-> The previous pipeline was **diluting or mis-specifying the signal**
+   ------
 
-------
+   ### Key takeaway
 
-### Hypothesis
+   > **There is currently no validated alpha in the system**
 
-The signal likely represents:
+   This is a **clean negative result**, not a failure.
 
-- **short-horizon reaction to sentiment imbalance**
-- **behavioral overshoot / mean-reversion**
-- **event-driven crowd positioning**
+   ------
 
-------
+   ### Next step
 
-### Important caveat
-
-Despite strong backtest performance:
-
-- Real-world Sharpe will likely be lower (costs, latency)
-- Further validation is required outside the current pipeline
-
-------
-
-### Next steps
-
-1. **Out-of-pipeline validation (critical)**
-2. Signal decay / horizon analysis
-3. Execution modeling
-4. Strategy construction
+   - rebuild signal hypotheses from first principles
+   - validate **outside pipeline first**
+   - only then integrate into WF pipeline
 
 ---
 
