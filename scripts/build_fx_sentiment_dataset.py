@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 import json
 from datetime import datetime, timezone
@@ -16,7 +17,7 @@ import pandas as pd
 
 SENTIMENT_DIR = Path("data/input/sentiment")
 PRICE_DIR = Path("data/input/fx")
-OUTPUT_FILE = Path("data/output/master_research_dataset.csv")
+DEFAULT_VERSION = "v1"
 
 HORIZONS = [1, 2, 4, 6, 12, 24, 48]
 
@@ -27,7 +28,6 @@ MERGE_TOLERANCE = "90min"
 SENTIMENT_ASSUMED_UTC_OFFSET = "+02:00"
 PRICE_ASSUMED_UTC_OFFSET = "+01:00"
 SNAPSHOT_SHIFT = "-1h"
-CANONICAL_DATASET = "data/output/master_research_dataset_core.csv"
 # =========================
 # Helpers
 # =========================
@@ -471,21 +471,41 @@ def align_dataset_columns(
     return _align(full_df), _align(core_df), _align(extended_df)
 
 
+def compute_csv_sha256(path: Path) -> str:
+    """Return the hex SHA-256 digest of the file at *path*."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def write_dataset_manifest(
     output_dir: Path,
     full_df: pd.DataFrame,
     core_df: pd.DataFrame,
     extended_df: pd.DataFrame,
+    version: str,
+    tag: Optional[str] = None,
     git_commit: str | None = None,
 ) -> None:
+    versioned_prefix = f"data/output/{version}"
+    canonical_dataset = f"{versioned_prefix}/master_research_dataset_core.csv"
+
+    full_path = output_dir / "master_research_dataset.csv"
+    dataset_hash = compute_csv_sha256(full_path) if full_path.exists() else None
+
     manifest = {
         "schema_version": SCHEMA_VERSION,
-        "canonical_dataset": CANONICAL_DATASET,
+        "dataset_version": version,
+        "dataset_tag": tag,
+        "dataset_hash": dataset_hash,
+        "canonical_dataset": canonical_dataset,
         "dataset_variants": {
-            "full": "data/output/master_research_dataset.csv",
-            "core": "data/output/master_research_dataset_core.csv",
-            "extended": "data/output/master_research_dataset_extended.csv",
-            "coverage_summary": "data/output/pair_coverage_summary.csv",
+            "full": f"{versioned_prefix}/master_research_dataset.csv",
+            "core": f"{versioned_prefix}/master_research_dataset_core.csv",
+            "extended": f"{versioned_prefix}/master_research_dataset_extended.csv",
+            "coverage_summary": f"{versioned_prefix}/pair_coverage_summary.csv",
         },
         "pair_normalization": "lowercase 3-3 with '-' separator",
         "return_definition": "trading bars ahead within pair series",
@@ -547,7 +567,9 @@ def build_master_dataset(
     sentiment_dir: Path,
     price_dir: Path,
     output_file: Optional[Path] = None,
-    horizons: Iterable[int] = HORIZONS
+    horizons: Iterable[int] = HORIZONS,
+    version: str = DEFAULT_VERSION,
+    tag: Optional[str] = None,
 ) -> pd.DataFrame:
     sentiment = load_all_sentiment_files(sentiment_dir)
     print(f"Loaded sentiment rows: {len(sentiment):,}")
@@ -637,7 +659,7 @@ def build_master_dataset(
     print("\nEligible coverage by pair:")
     print(coverage.to_string(index=False))
 
-    coverage_path = Path("data/output/pair_coverage_summary.csv")
+    coverage_path = Path(f"data/output/{version}/pair_coverage_summary.csv")
     ensure_output_dir(coverage_path)
     coverage.to_csv(coverage_path, index=False)
     print(f"\nSaved pair coverage summary to {coverage_path}")
@@ -821,9 +843,9 @@ def build_master_dataset(
 
 
     # Save dataset variants
-    full_path = Path("data/output/master_research_dataset.csv")
-    core_path = Path("data/output/master_research_dataset_core.csv")
-    extended_path = Path("data/output/master_research_dataset_extended.csv")
+    full_path = Path(f"data/output/{version}/master_research_dataset.csv")
+    core_path = Path(f"data/output/{version}/master_research_dataset_core.csv")
+    extended_path = Path(f"data/output/{version}/master_research_dataset_extended.csv")
 
     ensure_output_dir(full_path)
     master_valid.to_csv(full_path, index=False)
@@ -844,10 +866,12 @@ def build_master_dataset(
     # Manifest
     git_commit = get_git_commit_hash()
     write_dataset_manifest(
-        output_dir=Path("data/output"),
+        output_dir=Path(f"data/output/{version}"),
         full_df=master_valid,
         core_df=master_core,
         extended_df=master_extended,
+        version=version,
+        tag=tag,
         git_commit=git_commit,
     )
 
@@ -881,8 +905,8 @@ if __name__ == "__main__":
     master_df = build_master_dataset(
         sentiment_dir=SENTIMENT_DIR,
         price_dir=PRICE_DIR,
-        output_file=OUTPUT_FILE,
-        horizons=HORIZONS
+        horizons=HORIZONS,
+        version=DEFAULT_VERSION,
     )
 
     quick_summary(master_df, horizons=HORIZONS)
