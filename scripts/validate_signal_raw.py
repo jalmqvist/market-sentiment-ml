@@ -162,7 +162,98 @@ def compute_v24_signal(df, window=20):
     df["signal"] = signal
     return df
 
+def compute_v25_signal(df, vol_lookback=48, q=0.95):
+    df = df.copy()
 
+    # =========================
+    # 1. Proxy past returns (causal)
+    # =========================
+    # We cannot use ret_48b directly as a feature,
+    # so we approximate past returns via shifting
+    df["past_ret"] = df["ret_48b"].shift(48)
+
+    # =========================
+    # 2. Volatility (rolling std of past returns)
+    # =========================
+    df["vol"] = df["past_ret"].rolling(vol_lookback).std().shift(1)
+
+    # =========================
+    # 3. Volatility regime (expanding z-score)
+    # =========================
+    vol_mean = df["vol"].expanding(200).mean().shift(1)
+    vol_std = df["vol"].expanding(200).std().shift(1)
+
+    df["vol_z"] = (df["vol"] - vol_mean) / (vol_std + 1e-6)
+
+    # Define "high / rising vol"
+    high_vol = df["vol_z"] > 1.0
+
+    # =========================
+    # 4. Extreme sentiment (causal)
+    # =========================
+    upper = df["net_sentiment"].expanding(200).quantile(q).shift(1)
+    lower = df["net_sentiment"].expanding(200).quantile(1 - q).shift(1)
+
+    extreme_long = df["net_sentiment"] > upper
+    extreme_short = df["net_sentiment"] < lower
+
+    # =========================
+    # 5. Final signal
+    # =========================
+    signal = np.zeros(len(df))
+
+    # Only act when volatility is high
+    signal[(high_vol) & (extreme_long)] = -1
+    signal[(high_vol) & (extreme_short)] = +1
+
+    df["signal"] = signal
+
+    return df
+
+def compute_v26_signal(df, price_window=24, sentiment_window=24):
+    df = df.copy()
+
+    # =========================
+    # 1. Proxy past price movement (causal)
+    # =========================
+    df["past_ret"] = df["ret_48b"].shift(48)
+
+    # cumulative price move
+    df["price_move"] = df["past_ret"].rolling(price_window).sum().shift(1)
+
+    # =========================
+    # 2. Sentiment change
+    # =========================
+    df["sent_change"] = df["net_sentiment"].diff(sentiment_window)
+
+    # =========================
+    # 3. Normalize both (causal)
+    # =========================
+    def zscore(series):
+        mean = series.expanding(200).mean().shift(1)
+        std = series.expanding(200).std().shift(1)
+        return (series - mean) / (std + 1e-6)
+
+    price_z = zscore(df["price_move"])
+    sent_z = zscore(df["sent_change"])
+
+    # =========================
+    # 4. Disagreement signal
+    # =========================
+    # price up but sentiment not increasing → bullish continuation
+    # price down but sentiment not decreasing → bearish continuation
+
+    signal = np.zeros(len(df))
+
+    # strong up move, weak sentiment response
+    signal[(price_z > 1.0) & (sent_z < 0.5)] = +1
+
+    # strong down move, weak sentiment response
+    signal[(price_z < -1.0) & (sent_z > -0.5)] = -1
+
+    df["signal"] = signal
+
+    return df
 # =========================
 # Signal factory
 # =========================
@@ -179,6 +270,12 @@ def compute_base_signal(df, variant):
 
     elif variant == "v24":
         df = compute_v24_signal(df)
+
+    elif variant == "v25":
+        df = compute_v25_signal(df)
+
+    elif variant == "v26":
+        df = compute_v26_signal(df)
 
     else:
         raise ValueError(f"Unknown variant: {variant}")
