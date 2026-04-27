@@ -1,425 +1,135 @@
-# FX Retail Sentiment Research & Signal Pipeline
+# FX Retail Sentiment — Behavioral Signal Research
 
-A quantitative research and signal engineering pipeline for extracting **conditional alpha from retail FX sentiment**.
-
----
-
-## Executive summary
-
-This project investigates whether retail FX sentiment contains predictive information — and more importantly:
-
-> **When it becomes predictive**
-
-The final outcome is not just a research conclusion, but a working system:
-
-> **A regime-conditioned trading pipeline that improves signal quality by filtering for favorable market + behavioral conditions**
+A quantitative research project studying whether retail FX sentiment contains predictive signal.
 
 ---
 
-## Main result (current)
+## Executive Summary
 
-After extensive validation, debiasing, and multiple model iterations:
+**Current status: no validated standalone alpha.**
 
-> **Retail sentiment contains no unconditional edge — but a measurable, conditional edge exists**
+Extensive experimentation and strict out-of-sample validation have produced a clean negative result:
 
-Using regime filtering:
+- Raw retail FX sentiment = noise
+- Previous pipeline-based signals were invalidated (caused by pipeline artifacts and data leakage)
+- Conditional signal (regime-filtered) appears only weakly and is unstable across time
 
-- **Baseline signal (always-on)** → Sharpe ≈ 0.01
-- **Regime-filtered signal** → Sharpe ≈ **0.04–0.05**
-- Coverage ≈ **10% of opportunities**
-- Hit rate ≈ **52–53%**
-
----
-
-1. 
-
-2. ------
-
-   ### ⚠️ Correction — V20/V21 signal invalidated
-
-   Initial Regime V20–V21 experiments appeared to show a strong predictive signal:
-
-   - Sharpe ≈ **0.21–0.22**
-   - Stable across years
-   - Survived naive shift tests
-
-   However, **independent validation outside the pipeline disproved this result**.
-
-   ### Validation results
-
-   Using a clean, minimal pipeline:
-
-   - Raw signal Sharpe ≈ **0.00**
-   - Shifted signal Sharpe ≈ **0.00**
-   - Shuffled signal Sharpe ≈ **0.00**
-
-   Pipeline sanity tests confirm:
-
-   - No standalone predictive power
-   - No meaningful signal after removing pipeline transformations
-
-   ### Root cause
-
-   The apparent edge in V20–V21 was caused by:
-
-   - subtle pipeline implementation errors
-   - emergent bias from groupby/apply + index misalignment
-   - implicit selection distortions
-
-   Critically:
-
-   > The signal does **not** exist outside the pipeline.
-
-   ------
-
-   ### Updated conclusion
-
-   | Component        | Status               |
-   | ---------------- | -------------------- |
-   | Raw sentiment    | ❌ No edge            |
-   | Signal V2        | ❌ No edge            |
-   | Regime filtering | ⚠️ weak, unstable     |
-   | V20–V21 signal   | ❌ invalid (artifact) |
-
-   ------
-
-   ### Key takeaway
-
-   > **There is currently no validated alpha in the system**
-
-   This is a **clean negative result**, not a failure.
-
-   ------
-
-   ### Next step
-
-   - rebuild signal hypotheses from first principles
-   - validate **outside pipeline first**
-   - only then integrate into WF pipeline
+This is a valid research finding, not a failure. The project continues with hypothesis testing,
+deep learning sequence modeling, and agent-based behavioral simulation.
 
 ---
 
-## Core insight
+## Key Findings
 
-> **Retail crowd behavior is only exploitable under specific market conditions**
+| Component        | Status                       |
+| ---------------- | ---------------------------- |
+| Raw sentiment    | ❌ No edge (noise)            |
+| Signal V2        | ❌ No edge                    |
+| Regime filtering | ⚠️ Weak, unstable conditional |
+| V20–V21 signal   | ❌ Invalid (pipeline artifact) |
 
-In particular:
+### What went wrong in earlier experiments
 
-> **Crowd extremes become predictive when they occur within certain trend and volatility contexts**
+The apparent edge in Regime V20–V21 (Sharpe ≈ 0.21–0.22) was caused by:
 
-This transforms the problem from:
+- Subtle pipeline implementation errors
+- Emergent bias from `groupby/apply` + index misalignment
+- Implicit selection distortions
 
-- ❌ “Is sentiment predictive?”
+**Independent validation outside the pipeline disproved this result.**
 
-to:
-
-- ✅ “When is sentiment predictive?”
-
----
-
-## Evolution of the project
-
-### Phase 1 — False discovery (invalidated)
-
-Initial findings suggested:
-
-- strong pair-specific effects (JPY)
-- regime dependence
-- large Sharpe ratios
-
-These were invalidated due to:
-
-- overlapping signals
-- in-sample bias
-- flawed validation
+Using a clean, minimal validation setup:
+- Raw signal Sharpe ≈ 0.00
+- Shifted signal Sharpe ≈ 0.00
+- Shuffled signal Sharpe ≈ 0.00
 
 ---
 
-### Phase 2 — Strict validation (negative result)
+## Research Direction
 
-After enforcing:
+Three parallel research tracks are now active:
 
-- non-overlapping samples
-- walk-forward validation
-- holdout testing
+### 1. Hypothesis Testing (statistical)
 
-Result:
+Iterative statistical tests on behavioral signal hypotheses. Most results are negative — this is expected and informative. See `research/hypothesis_tests/`.
 
-> **No unconditional signal**
+### 2. Deep Learning (sequence modeling)
 
----
+Experimental sequence models (LSTM, Transformer) applied to sentiment and price time series to detect nonlinear conditional structure. See `research/deep_learning/`.
 
-### Phase 3 — Behavioral insight
+### 3. Agent-Based Modeling (behavioral simulation)
 
-Shift from price regimes → **crowd behavior**
-
-Discovery:
-
-> Signal depends on interaction between **sentiment extremes and trend context**
+Simulation of retail crowd behavior to understand *why* sentiment might be conditionally predictive under certain market regimes. See `research/abm/`.
 
 ---
 
-### Phase 4 — Regime discovery (Regime V3)
+## Repo Structure
 
-Introduced:
+```
+market-sentiment-ml/
+├── research/
+│   ├── raw_validation/      # Ground truth testing — validate hypotheses outside any pipeline
+│   ├── hypothesis_tests/    # Iterative experiments (regime_v*, signal_v*, etc.) — mostly negative results
+│   ├── deep_learning/       # Experimental sequence modeling (WIP)
+│   └── abm/                 # Experimental agent-based modeling (WIP)
+├── docs/
+│   ├── archive/             # Legacy documentation (pipeline_v1, etc.)
+│   └── RESEARCH_STRATEGY.md # Research philosophy and approach
+├── scripts/                 # Build and data preparation utilities
+├── pipeline/                # Core pipeline modules (retained for reference)
+├── evaluation/              # Validation and walk-forward evaluation utilities
+├── utils/                   # Shared utility functions
+└── tests/                   # Unit tests
+```
 
-- regime definitions (volatility × trend × sentiment)
-- interaction features
-- walk-forward modeling (Ridge, LightGBM)
+### Directory guide
 
-Result:
-
-> Weak predictive power, but **clear regime-dependent structure**
-
----
-
-### Phase 5 — Regime filtering (Regime V4 — current)
-
-Key breakthrough:
-
-> Use regimes **not to predict**, but to **filter trades**
-
-Pipeline:
-
-1. Discover regimes on training data
-2. Select regimes with:
-   - sufficient sample size
-   - positive Sharpe
-3. Apply filter to test data
-4. (Optional) apply directional logic
-
-Result:
-
-> **Significant improvement in signal quality via selective execution**
+| Directory | Purpose |
+| --------- | ------- |
+| `research/raw_validation/` | Ground truth: validate any signal hypothesis using clean, minimal code *outside* the pipeline. This is the primary validation framework. |
+| `research/hypothesis_tests/` | All iterative research experiments. Most are negative results. Preserved for reproducibility. |
+| `research/deep_learning/` | Experimental deep learning approaches (not yet validated). |
+| `research/abm/` | Experimental agent-based modeling (not yet validated). |
+| `docs/archive/` | Legacy documentation preserved for historical reference. |
 
 ---
 
-## System architecture
+## Philosophy
 
-### Layer 1 — Base signal (Signal V2)
+**Negative results are valid.**
 
-- Derived from sentiment features
-- Uses price-based momentum (causal, no leakage)
-- Always-on baseline
+> Knowing that retail sentiment is *not* predictive (under naive conditions) is a genuine research contribution.
 
----
+**Validation outside the pipeline is mandatory.**
 
-### Layer 2 — Regime filter (Regime V4)
+> Any new hypothesis must first be validated using a clean, minimal script in `research/raw_validation/` before being integrated into any larger framework. Pipeline complexity is a source of false positives.
 
-Defines regimes using:
+**Avoid data leakage.**
 
-| Feature          | Method           |
-| ---------------- | ---------------- |
-| Volatility       | Quantile buckets |
-| Trend direction  | Sign of trend    |
-| Trend strength   | Quantiles        |
-| Sentiment regime | Fixed bins       |
-
-Each observation is mapped to a **regime key**.
+> Every feature and signal must be causally clean. Walk-forward evaluation with strict training/test splits is required. No forward-looking information is permitted in any feature construction.
 
 ---
 
-### Layer 3 — Regime selection
-
-Per walk-forward fold:
-
-- compute regime statistics on training data
-- select regimes satisfying:
-  - minimum sample size
-  - minimum Sharpe
-  - persistence across folds
-
----
-
-### Layer 4 — Signal execution
-
-Only trade when:
-
-- observation belongs to selected regime
-
-Optional:
-
-- follow or fade based on regime direction
-
----
-
-## Key findings
-
-### 1. No unconditional edge
-
-- Raw sentiment ≈ noise
-
----
-
-### 2. Conditional edge exists
-
-- Appears only under specific regimes
-- Requires filtering
-
----
-
-### 3. Regime filtering improves Sharpe
-
-- ~4× improvement vs baseline
-- reduces coverage significantly
-
----
-
-### 4. Trade-off: quality vs capacity
-
-| Metric   | Baseline | Filtered |
-| -------- | -------- | -------- |
-| Sharpe   | ~0.01    | ~0.05    |
-| Coverage | 100%     | ~10%     |
-| Hit rate | ~50%     | ~52–53%  |
-
----
-
-### 5. Instability remains
-
-- performance varies across years
-- some regimes degrade or disappear
-
-This is expected for behavioral signals.
-
----
-
-## Validation methodology
-
-Strict validation throughout:
-
-- walk-forward evaluation
-- expanding window training
-- no forward-looking features
-- regime selection using **training data only**
-- out-of-sample performance tracking
-
----
-
-## Current limitations
-
-- regime instability across time
-- low coverage (capacity constraints)
-- sensitivity to thresholds (min_n, Sharpe)
-- early-period cold start (no regimes available)
-
----
-
-## Research directions
-
-### 1. Regime stabilization
-
-- persistence constraints
-- smoothing regime definitions
-
----
-
-### 2. Signal + regime interaction
-
-- thresholding base signal
-- combining strength + regime filter
-
----
-
-### 3. Portfolio construction
-
-- cross-pair aggregation
-- regime-aware weighting
-
----
-
-### 4. Behavioral modeling
-
-- crowd saturation
-- positioning pressure
-- trend exhaustion
-
----
-
-## Running the project
-
-### Build dataset
+## Running validation experiments
 
 ```bash
-python build_fx_sentiment_dataset.py
+# Validate raw signal (ground truth check)
+python research/raw_validation/validate_signal_raw.py
+
+# Pipeline sanity check
+python research/raw_validation/pipeline_sanity_check.py
 ```
-
-------
-
-### Signal pipeline
-
-```
-python run_signal_v2.py
-```
-
-------
-
-### Regime-filtered pipeline (recommended)
-
-```
-python run_regime_v4_signal_filter.py \
-  --data data/output/master_research_dataset.csv
-```
-
-------
-
-### Example variations
-
-```
-# With direction logic
-python run_regime_v4_signal_filter.py --with-direction
-
-# Stricter regime selection
-python run_regime_v4_signal_filter.py --min-n 150 --min-sharpe 0.1
-
-# Signal thresholding
-python run_regime_v4_signal_filter.py --threshold 0.5
-```
-
-------
-
-## Output schema (core)
-
-Per fold:
-
-```
-["year", "n", "mean", "sharpe", "hit_rate", "coverage"]
-```
-
-------
-
-## Project structure
-
-```
-build → signal → regime → filter → evaluate
-```
-
-- `signal_v2.py` → base signal
-- `regime_v3.py` → regime discovery
-- `regime_filter_pipeline.py` → filtering
-- `regime_v4_signal_filter.py` → combined pipeline
-
-------
-
-## Final takeaway
-
-This project demonstrates:
-
-> **Alpha is not static — it is conditional**
-
-Retail sentiment is not broadly predictive.
-
-But:
-
-> **Under the right conditions, it becomes exploitable**
-
-------
-
-## Meta insight
-
-The most important result is methodological:
-
-> Fixing validation did not destroy the signal —
->  it revealed **where it actually lives**
 
 ---
+
+## Data
+
+See `DATA_AVAILABILITY.md` for data access notes and `INPUT_SCHEMA.md` / `OUTPUT_SCHEMA.md` for data schemas.
+
+---
+
+## Further reading
+
+- [`docs/RESEARCH_STRATEGY.md`](docs/RESEARCH_STRATEGY.md) — Research strategy and modeling philosophy
+- [`docs/archive/pipeline_v1.md`](docs/archive/pipeline_v1.md) — Legacy pipeline description (archived)
+- [`RESEARCH_STATE.md`](RESEARCH_STATE.md) — Current state of all experiments
