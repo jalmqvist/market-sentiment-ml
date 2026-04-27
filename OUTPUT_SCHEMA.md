@@ -554,3 +554,24 @@ After schema version `1.0` is published:
 ### Backward compatibility rule
 
 Downstream consumers should be able to rely on all required columns documented here remaining present and semantically stable across `1.x` versions.
+
+---
+
+## ML Usage Contract (Deep Learning & Modeling)
+
+For all machine learning experiments:
+
+- Only columns listed under **causal feature columns** may be used as inputs
+- Target variables:
+  - ret_* columns (e.g., ret_48b)
+- The following must be enforced in code:
+  - no forward-looking columns in feature set
+  - no leakage via alignment or preprocessing
+
+### Recommended feature grouping
+
+- price features
+- sentiment features
+- interaction features
+
+Experiments must explicitly define which feature groups are used.
