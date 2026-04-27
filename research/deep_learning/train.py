@@ -33,7 +33,7 @@ import pandas as pd
 # hierarchy picks up the file handler.
 # ---------------------------------------------------------------------------
 
-_REPO_ROOT = Path(__file__).resolve().parents[3]  # market-sentiment-ml/
+_REPO_ROOT = Path(__file__).resolve().parents[2]  # market-sentiment-ml/
 
 
 def _setup_logging() -> None:
