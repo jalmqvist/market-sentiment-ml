@@ -1,144 +1,112 @@
 # Project Description
 
-This project investigates whether **retail FX sentiment extremes** contain predictive information about subsequent market behavior.
+This project investigates whether **retail FX sentiment data** contains predictive information about future market behavior.
 
-The initial working hypothesis was **contrarian and conditional**:
+The dataset consists of multi-year time series of:
 
-- extreme positioning may create exploitable signals  
-- persistence of sentiment may matter  
-- the effect may depend on pair type and market regime  
+- retail trader positioning (long/short ratios)
+- FX price data (OHLC)
+- derived behavioral and market features
+
+The central question is:
+
+> Can aggregated retail positioning be transformed into a **causal, predictive signal**?
+
+---
 
 ## Scope
 
-This is a **data engineering and quantitative research project**, not a finished trading strategy.
+This is a **quantitative research and data engineering project**, not a production trading strategy.
 
-It demonstrates:
+The project focuses on:
 
-- large-scale multi-file data ingestion  
-- timestamp alignment across heterogeneous sources  
-- research-grade feature engineering  
-- pair-level data-quality filtering  
-- structured validation (permutation, holdout, walk-forward)  
-- reproducible research workflow  
+- building a clean, reproducible research dataset
+- constructing and testing signal hypotheses
+- eliminating false positives through strict validation
+- understanding the limits of behavioral data in financial markets
 
 ---
 
-## Data used
+## Data & Feature Construction
 
-The pipeline combines:
+The pipeline constructs a unified dataset by:
 
-- multi-year retail FX sentiment snapshot data  
-- hourly FX market data exported from MT4 histories  
+- aggregating sentiment snapshots across time
+- aligning sentiment with FX price bars
+- computing forward returns (evaluation targets)
+- engineering behavioral features such as:
+  - sentiment extremes
+  - persistence (streaks)
+  - divergence vs price
+  - rate-of-change dynamics
 
-Raw data is not distributed due to licensing constraints.
-
----
-
-## Pipeline summary
-
-The project includes:
-
-- sentiment aggregation across many CSV snapshots  
-- pair normalization  
-- timezone correction  
-- forward alignment to hourly price bars  
-- construction of forward returns and contrarian targets  
-- behavioral feature engineering (persistence, streaks, dynamics)  
-- structured validation scripts  
+All features are designed to be **causal (past-only)**.
 
 ---
 
-## Key result (updated)
+## Validation Framework
 
-After correcting for major methodological issues:
+A key contribution of the project is a **strict validation methodology**:
 
-- overlapping signals  
-- in-sample bias  
-- improper walk-forward validation  
+- signals are tested **outside any pipeline**
+- mandatory tests include:
+  - shift tests (temporal robustness)
+  - shuffle tests (randomization control)
+  - time-based splits (out-of-sample validation)
 
-👉 **No robust predictive edge remains under price-based conditioning**
+This ensures that:
 
-Specifically, the following do *not* hold:
-
-- volatility regime (HV vs LV)  
-- trend alignment (fight vs follow)  
-- trend strength buckets  
-- macro regime (pre/post 2022)  
-
-All converge to approximately:
-
-- mean ≈ 0  
-- Sharpe ≈ 0  
-- hit rate ≈ 50%  
+> any detected signal reflects genuine predictive structure, not implementation artifacts.
 
 ---
 
-## Interpretation
+## Current Understanding
 
-This is a **negative result**.
+Empirical results show that:
 
-> Retail sentiment does not produce a stable signal when conditioned on price-based regimes.
-
-Earlier findings (e.g. JPY-cross persistence effects) were driven by:
-
-- overlapping trade exposure  
-- clustering in specific time periods  
-- pair concentration bias  
-- incorrect aggregation methods  
+- retail sentiment is strongly **correlated with price**
+- but does **not provide independent predictive information**
+- apparent signals are often explained by:
+  - price autocorrelation
+  - sampling effects
+  - pipeline-induced bias
 
 ---
 
-## Updated research direction
+## Research Directions
 
-The failure of price-based regimes suggests:
+The project now explores two complementary directions:
 
-> If a signal exists, it is governed by **crowd behavior**, not market structure.
+### 1. Deep Learning (Predictive Modeling)
 
-The project therefore shifts toward:
+- sequence models (LSTM, Transformer)
+- nonlinear feature interactions
+- goal: detect weak conditional structure, if it exists
 
-### Regime v2 — Behavioral regimes
+### 2. Agent-Based Modeling (Behavioral Modeling)
 
-Instead of conditioning on price (volatility, trend), we model:
-
-- crowd persistence (streaks of extreme positioning)  
-- sentiment acceleration (rate of change)  
-- crowd saturation (imbalance intensity)  
-- behavioral stress (crowd trapped vs correct)  
-
----
-
-## Current status
-
-The repository now represents:
-
-- a **validated research pipeline**  
-- a **documented negative result**  
-- a **foundation for behavioral regime modeling (Regime v2)**  
+- simulate retail trader behavior
+- reproduce observed sentiment dynamics
+- goal: understand *why* predictive signal is absent or unstable
 
 ---
 
-**Updated finding**: signal is conditional on behavioral-trend interaction, not price regimes.
+## Role of This Project
 
----
+This repository represents:
 
-## Next phase
-
-The next step is to:
-
-- define minimal behavioral regimes  
-- test them under strict walk-forward validation  
-- expand analysis beyond JPY crosses to the full FX universe  
+- a **validated research environment**
+- a **documented negative result**
+- a **foundation for behavioral and ML-based exploration**
 
 ---
 
 ## Philosophy
 
-This project emphasizes:
+- prioritize **correctness over results**
+- treat **negative findings as valuable outcomes**
+- enforce **strict separation between discovery and validation**
 
-- eliminating false positives  
-- validating assumptions rigorously  
-- documenting negative results clearly  
+The objective is not to confirm a hypothesis, but to:
 
-The goal is not to “find a signal”, but to:
-
-> **build a reliable process for discovering (or rejecting) signals**
+> **rigorously determine whether a signal exists at all**

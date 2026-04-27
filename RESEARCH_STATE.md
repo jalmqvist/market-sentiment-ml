@@ -2,176 +2,137 @@
 
 ## Objective
 
-Determine whether retail FX sentiment contains exploitable predictive signal.
+Determine whether retail FX sentiment contains **causal, exploitable predictive signal**.
 
-------
+---
 
-## Phase Summary
+## Current Status
 
-### Phase 1 — Early discovery (invalidated)
+| Area                 | Status          |
+| -------------------- | --------------- |
+| Data quality         | ✅ Verified      |
+| Pipeline correctness | ✅ Verified      |
+| Validation framework | ✅ Strong        |
+| Signal existence     | ❌ Not confirmed |
 
-Findings:
+---
 
-- Strong Sharpe
-- Pair-specific effects (JPY)
-- Regime dependence
+## Core Finding
 
-Outcome:
-❌ Invalidated due to:
+> **No standalone predictive signal has been validated.**
 
-- overlapping samples
-- in-sample bias
-- flawed validation
+Across all tested variants:
 
-------
+- Raw signal → Sharpe ≈ 0
+- Shifted signal → Sharpe ≈ 0
+- Shuffled signal → Sharpe ≈ 0
 
-### Phase 2 — Strict validation
+This holds consistently across years and configurations.
 
-Methods introduced:
+---
 
-- walk-forward evaluation
-- non-overlapping samples
-- holdout testing
+## Key Lessons
 
-Result:
+### 1. Apparent alpha is fragile
 
-> ❌ No unconditional signal
+Previously observed signals (e.g. V19–V21):
 
-------
+- showed strong Sharpe (~0.20)
+- appeared stable in pipeline
 
-### Phase 3 — Regime exploration
+But failed under independent validation.
 
-Approach:
+---
 
-- volatility × trend × sentiment regimes
-- filtering + weighting
+### 2. Pipeline complexity creates false positives
 
-Result:
+Identified failure modes include:
 
-> ⚠️ Weak, unstable conditional edge (~0.04–0.05 Sharpe)
-
-------
-
-### Phase 4 — Signal engineering (V19–V21)
-
-Approach:
-
-- direct signal extraction from `net_sentiment`
-- minimal transformations
-- walk-forward validation
-
-Initial result:
-
-> 🚀 Sharpe ≈ 0.21 (appeared strong)
-
-------
-
-### Phase 5 — Independent validation
-
-New tools:
-
-- validate_signal_raw.py
-- pipeline_sanity_check.py
-- pipeline_leakage_diagnosis.py
-
-Result:
-
-| Test             | Sharpe |
-| ---------------- | ------ |
-| Raw signal       | ~0.00  |
-| Shifted          | ~0.00  |
-| Shuffled         | ~0.00  |
-| Pipeline (clean) | ~0.00  |
+- index misalignment
+- groupby/apply artifacts
+- implicit selection bias
 
 Conclusion:
 
-> ❌ V19–V21 signal is an artifact
+> complex pipelines can generate convincing but invalid signals
 
-------
+---
 
-## Confirmed Negative Results
+### 3. Sentiment is reactive, not predictive
 
-The following hypotheses are **falsified**:
+Empirically:
+
+- sentiment tracks price behavior
+- does not lead it
+- adds little to no incremental information
+
+---
+
+## Hypotheses Tested (Falsified)
 
 - Raw sentiment predicts returns
-- Simple transformations (tanh, z-score) produce alpha
-- Cross-sectional ranking produces alpha
-- Time-local signal exists in `net_sentiment`
-- Pipeline-generated Sharpe (V19–V21) is real
+- Extremes produce contrarian alpha
+- Persistence (streaks) contains signal
+- Simple transformations (z-score, tanh) add edge
+- Regime conditioning (volatility, trend) stabilizes signal
+- Pipeline-generated signals (V19–V21) are valid
 
-------
+---
 
-## Confirmed Positive Results
+## Validation Standard (Current)
 
-The following are **true and reliable**:
+All new hypotheses must:
 
-- Dataset is correct (scraping verified)
-- No forward leakage in clean pipeline
-- Validation framework is sound
-- Failure-mode tests reproduce leakage Sharpe (~0.12)
-
-------
-
-## Key Insight
-
-> **Most apparent alpha was produced by implementation artifacts, not data**
-
-------
-
-## Current State
-
-| Area                 | Status     |
-| -------------------- | ---------- |
-| Data quality         | ✅ Verified |
-| Pipeline correctness | ✅ Verified |
-| Signal existence     | ❌ None     |
-| Validation framework | ✅ Strong   |
-
-------
-
-## Implications
-
-- There is currently **no trading signal**
-- Pipeline is now **trustworthy**
-- Research must restart from **hypothesis generation**
-
-------
-
-## Recommended Research Strategy
-
-### Step 1 — Signal-first validation
-
-All new ideas must:
-
-1. Work in raw form (no pipeline)
+1. Work in **raw form** (no pipeline dependence)
 2. Survive:
    - shift test
    - shuffle test
-   - time split
+   - time split validation
+3. Only then be considered for further modeling
 
-------
+---
 
-### Step 2 — Only then integrate
+## Interpretation
 
-Pipeline becomes:
+> The absence of signal is a **robust, repeatable result**
 
-> evaluation tool, not discovery engine
+This suggests:
 
-------
+- retail sentiment may not encode exploitable information
+- or signal exists only in highly conditional / nonlinear form
 
-### Step 3 — New hypothesis directions
+---
 
-Focus areas:
+## Active Research Directions
 
-- event-based signals (rare extremes)
-- cross-asset relationships
-- latency / reaction effects
-- structural features (time-of-day, clustering)
+### 1. Hypothesis Testing (statistical)
 
-------
+- continue systematic testing of behavioral features
+- focus on falsifiable, minimal assumptions
 
-## Final Conclusion
+---
 
-> The system is now **scientifically valid but alpha-free**
+### 2. Deep Learning (predictive)
 
-This is the correct foundation for real discovery.
+- sequence models on sentiment + price
+- goal: detect nonlinear or interaction effects
+
+---
+
+### 3. Agent-Based Modeling (explanatory)
+
+- simulate trader behavior
+- reproduce observed sentiment dynamics
+- understand structural limitations of the data
+
+---
+
+## Conclusion
+
+> The project has transitioned from **signal discovery** to **signal validation and falsification**
+
+This provides a reliable foundation for:
+
+- future modeling work
+- methodological rigor
+- credible research conclusions
