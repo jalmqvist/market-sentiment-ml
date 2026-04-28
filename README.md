@@ -117,7 +117,7 @@ market-sentiment-ml/
 ├── research/
 │   ├── signal_discovery/        # V1–V29 (archived exploration)
 │   ├── raw_validation/          # ground truth + diagnostics
-│   ├── hypothesis_tests/        # clean, modern experiments
+│   ├── hypothesis_experiments/  # clean, modern experiments
 │   ├── analysis/                # descriptive / exploratory analysis
 │   ├── utils/                   # helper scripts
 │   ├── deep_learning/
