@@ -117,9 +117,9 @@ def main():
 
     # Load
     df = load_dataset(args.dataset_version, variant=args.variant)
-    X, y = get_features(df, args.feature_set)
+    X, y, df_clean = get_features(df, args.feature_set)
 
-    (X_train, y_train), (X_test, y_test) = train_test_split(X, y, df)
+    (X_train, y_train), (X_test, y_test) = train_test_split(X, y, df_clean)
 
     # ------------------------------------------------------------------
     # NORMALIZATION (CRITICAL FIX)
@@ -163,7 +163,7 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
 
     test_idx_start = len(X_train)
-    pred_df = df.iloc[test_idx_start:].copy().reset_index(drop=True)
+    pred_df = df_clean.iloc[test_idx_start:].copy().reset_index(drop=True)
     pred_df["prediction"] = test_preds  # NO signal column here
 
     pred_path = out_dir / f"predictions_{args.feature_set}.csv"
