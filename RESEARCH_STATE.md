@@ -30,6 +30,50 @@ This holds across:
 
 ------
 
+## Deep Learning Experiments (MLP)
+
+A structured set of deep learning experiments was conducted to test whether nonlinear models can extract predictive signal from sentiment.
+
+### Models Tested
+
+- price_only
+- price + sentiment
+- price + volatility
+- price + volatility + sentiment
+
+### Results
+
+- price_only: small but stable predictive signal
+- price + sentiment: no improvement
+- price + volatility: performance degrades
+- price + volatility + sentiment: no recovery
+
+### Conclusion
+
+> No predictive signal is recovered by nonlinear models.
+
+This extends previous findings:
+
+- no standalone signal
+- no additive signal
+- no conditional signal
+- no nonlinear interaction signal
+
+### Implication
+
+Sentiment does not contain exploitable directional information under current representation.
+
+### Remaining Hypothesis
+
+Not yet falsified:
+
+- sequence-dependent effects
+- delayed or path-dependent interactions
+
+→ Next step: sequence models (LSTM)
+
+---
+
 ## Incremental Value Tests (V28–V29)
 
 ### V28 — Additive Model

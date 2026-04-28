@@ -31,6 +31,60 @@ This is a meaningful and informative research outcome. The project now focuses o
 
 ------
 
+## Deep Learning Experiments (MLP)
+
+A series of controlled deep learning experiments were conducted to test whether nonlinear models can extract predictive signal from sentiment.
+
+### Setup
+
+- Model: minimal 2-layer MLP
+- Inputs:
+  - price features (trend, returns)
+  - sentiment features
+  - volatility features (rolling std)
+- Strict validation:
+  - chronological split
+  - no leakage (train-only normalization)
+  - independent evaluation (shift / shuffle tests)
+
+### Experiments
+
+1. **price_only**
+2. **price + sentiment**
+3. **price + volatility**
+4. **price + volatility + sentiment**
+
+### Results
+
+- price_only → small, stable signal (~0.01–0.02 Sharpe)
+- price + sentiment → no meaningful improvement (noise increases)
+- price + volatility → degrades performance
+- price + volatility + sentiment → no recovery
+
+### Conclusion
+
+> Nonlinear models do not uncover hidden predictive structure in sentiment.
+
+This reinforces earlier findings:
+
+- sentiment is not predictive
+- sentiment does not add incremental value
+- sentiment does not become useful under volatility regimes
+
+### Interpretation
+
+Sentiment likely:
+
+- reflects price dynamics
+- reacts to market conditions
+- does not lead price in a predictive way
+
+### Next Step
+
+→ Sequence models (LSTM) to test temporal dependencies.
+
+---
+
 ## Incremental Value Testing (V28–V29)
 
 A focused experiment series was conducted to answer:
