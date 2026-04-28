@@ -73,6 +73,24 @@ Empirical results show that:
 
 ---
 
+## Updated Understanding
+
+Retail sentiment appears to:
+
+- reflect market behavior rather than predict it
+- provide limited incremental information beyond price
+
+However, preliminary evidence suggests:
+
+> sentiment may influence the *quality or persistence* of price signals under specific conditions
+
+This motivates a shift toward:
+
+- interaction-based modeling
+- conditional signal discovery
+
+---
+
 ## Research Directions
 
 The project now explores two complementary directions:

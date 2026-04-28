@@ -4,135 +4,180 @@
 
 Determine whether retail FX sentiment contains **causal, exploitable predictive signal**.
 
----
+------
 
 ## Current Status
 
-| Area                 | Status          |
-| -------------------- | --------------- |
-| Data quality         | ✅ Verified      |
-| Pipeline correctness | ✅ Verified      |
-| Validation framework | ✅ Strong        |
-| Signal existence     | ❌ Not confirmed |
+| Area                 | Status                                |
+| -------------------- | ------------------------------------- |
+| Data quality         | ✅ Verified                            |
+| Pipeline correctness | ✅ Verified                            |
+| Validation framework | ✅ Strong                              |
+| Price signal         | ✅ Stable (~0.14 Sharpe)               |
+| Sentiment signal     | ❌ No standalone or incremental signal |
 
----
+------
 
 ## Core Finding
 
-> **No standalone predictive signal has been validated.**
+> **Retail sentiment provides no predictive value for returns under tested conditions.**
 
-Across all tested variants:
+This holds across:
 
-- Raw signal → Sharpe ≈ 0
-- Shifted signal → Sharpe ≈ 0
-- Shuffled signal → Sharpe ≈ 0
+- standalone signals
+- additive combinations with price
+- conditional / regime-based models
 
-This holds consistently across years and configurations.
+------
 
----
+## Incremental Value Tests (V28–V29)
 
-## Key Lessons
+### V28 — Additive Model
 
-### 1. Apparent alpha is fragile
+Test:
 
-Previously observed signals (e.g. V19–V21):
+> Does sentiment improve a price-based signal when added linearly?
 
-- showed strong Sharpe (~0.20)
-- appeared stable in pipeline
+Result:
 
-But failed under independent validation.
-
----
-
-### 2. Pipeline complexity creates false positives
-
-Identified failure modes include:
-
-- index misalignment
-- groupby/apply artifacts
-- implicit selection bias
+- Price Sharpe ≈ 0.14
+- Price + sentiment → Sharpe ≈ 0
 
 Conclusion:
 
-> complex pipelines can generate convincing but invalid signals
+> Sentiment introduces noise and degrades signal quality.
 
----
+------
 
-### 3. Sentiment is reactive, not predictive
+### V29 — Conditional Model
 
-Empirically:
+Test:
 
-- sentiment tracks price behavior
-- does not lead it
-- adds little to no incremental information
+> Does sentiment improve performance in extreme regimes?
 
----
+Result:
+
+- Identical performance to price-only signal
+
+Conclusion:
+
+> No measurable conditional benefit under this formulation.
+
+------
+
+## Interpretation
+
+The combined evidence supports:
+
+### 1. No standalone signal
+
+[
+E[r_{t+1} | S_t] \approx 0
+]
+
+------
+
+### 2. No incremental contribution
+
+[
+E[r_{t+1} | P_t, S_t] \approx E[r_{t+1} | P_t]
+]
+
+------
+
+### 3. Informational redundancy
+
+> Sentiment does not add new information beyond price.
+
+Likely explanation:
+
+- sentiment reflects price dynamics
+- but does not lead them
+- and may introduce noise when used directly
+
+------
+
+## Key Lessons
+
+### 1. Strong validation is essential
+
+Pipeline-based signals (V19–V21):
+
+- appeared robust
+- failed under independent validation
+
+------
+
+### 2. Simpler models reveal truth faster
+
+Minimal, causal implementations:
+
+- exposed artifacts
+- eliminated false positives
+
+------
+
+### 3. Negative results define the search space
+
+We have now ruled out:
+
+- linear relationships
+- additive models
+- simple conditional filters
+
+This significantly narrows future research directions.
+
+------
 
 ## Hypotheses Tested (Falsified)
 
 - Raw sentiment predicts returns
 - Extremes produce contrarian alpha
-- Persistence (streaks) contains signal
-- Simple transformations (z-score, tanh) add edge
-- Regime conditioning (volatility, trend) stabilizes signal
-- Pipeline-generated signals (V19–V21) are valid
+- Additive sentiment improves price signals (V28)
+- Conditional sentiment improves regimes (V29)
+- Pipeline-derived signals are valid
 
----
+------
 
-## Validation Standard (Current)
+## What remains open
 
-All new hypotheses must:
+Not ruled out:
 
-1. Work in **raw form** (no pipeline dependence)
-2. Survive:
-   - shift test
-   - shuffle test
-   - time split validation
-3. Only then be considered for further modeling
+- nonlinear / higher-order interactions
+- alternative targets (volatility, drawdowns)
+- sequence-based effects
+- structural behavioral dynamics
 
----
-
-## Interpretation
-
-> The absence of signal is a **robust, repeatable result**
-
-This suggests:
-
-- retail sentiment may not encode exploitable information
-- or signal exists only in highly conditional / nonlinear form
-
----
+------
 
 ## Active Research Directions
 
-### 1. Hypothesis Testing (statistical)
+### 1. Hypothesis Testing
 
-- continue systematic testing of behavioral features
-- focus on falsifiable, minimal assumptions
+Continue systematic falsification of simple behavioral models.
 
----
+------
 
-### 2. Deep Learning (predictive)
+### 2. Deep Learning
 
-- sequence models on sentiment + price
-- goal: detect nonlinear or interaction effects
+Test whether sequence models can capture nonlinear dependencies.
 
----
+------
 
-### 3. Agent-Based Modeling (explanatory)
+### 3. Agent-Based Modeling
 
-- simulate trader behavior
-- reproduce observed sentiment dynamics
-- understand structural limitations of the data
+Understand how sentiment emerges from trader behavior.
 
----
+------
 
 ## Conclusion
 
-> The project has transitioned from **signal discovery** to **signal validation and falsification**
+> The project has transitioned from **signal discovery** to **structured exploration of model space**
 
-This provides a reliable foundation for:
+The absence of signal is:
 
-- future modeling work
-- methodological rigor
-- credible research conclusions
+- consistent
+- reproducible
+- informative
+
+It provides a solid foundation for future work.

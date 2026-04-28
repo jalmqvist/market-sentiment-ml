@@ -1,21 +1,4 @@
 #!/usr/bin/env python3
-"""
-research/deep_learning/train.py
-================================
-Train the MLP on a versioned dataset and write predictions + metrics.
-
-Usage::
-
-    python research/deep_learning/train.py \\
-        --dataset-version 1.1.0 \\
-        --feature-set price_sentiment \\
-        --epochs 50
-
-Outputs (written to ``data/output/<version>/dl/``):
-    - ``predictions_<feature_set>.csv``   — test-set predictions
-    - ``metrics_<feature_set>.json``      — basic evaluation metrics
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -27,13 +10,15 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import torch
+import torch.nn as nn
+import torch.optim as optim
 
 # ---------------------------------------------------------------------------
-# Logging — must be configured before any project imports so the logger
-# hierarchy picks up the file handler.
+# Logging
 # ---------------------------------------------------------------------------
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]  # market-sentiment-ml/
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _setup_logging() -> None:
@@ -51,16 +36,18 @@ def _setup_logging() -> None:
 
 
 _setup_logging()
-
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Project imports (after logging setup)
+# Reproducibility
 # ---------------------------------------------------------------------------
 
-import torch
-import torch.nn as nn
-import torch.optim as optim
+torch.manual_seed(42)
+np.random.seed(42)
+
+# ---------------------------------------------------------------------------
+# Imports
+# ---------------------------------------------------------------------------
 
 from research.deep_learning.dataset_loader import (
     get_features,
@@ -76,14 +63,7 @@ from research.deep_learning.model import MLP
 # ---------------------------------------------------------------------------
 
 
-def _train(
-    model: nn.Module,
-    X_train: torch.Tensor,
-    y_train: torch.Tensor,
-    epochs: int,
-    lr: float = 1e-3,
-) -> None:
-    """Train *model* in-place using MSE loss and Adam optimiser."""
+def _train(model, X_train, y_train, epochs, lr):
     optimizer = optim.Adam(model.parameters(), lr=lr)
     criterion = nn.MSELoss()
 
@@ -99,19 +79,9 @@ def _train(
             logger.info("epoch %d/%d  loss=%.6f", epoch, epochs, loss.item())
 
 
-# ---------------------------------------------------------------------------
-# Evaluation helpers (mirrors validate_signal_raw logic)
-# ---------------------------------------------------------------------------
-
-
 def _compute_metrics(predictions: np.ndarray, targets: np.ndarray) -> dict:
-    """Compute Sharpe and hit-rate from raw predictions."""
-    position = np.sign(predictions).astype(float)
+    position = np.sign(predictions)
     pnl = position * targets
-
-    n = len(pnl)
-    if n == 0:
-        return {"n": 0, "sharpe": 0.0, "hit_rate": 0.0, "mse": 0.0}
 
     mean = pnl.mean()
     std = pnl.std()
@@ -119,7 +89,12 @@ def _compute_metrics(predictions: np.ndarray, targets: np.ndarray) -> dict:
     hit_rate = float((pnl > 0).mean())
     mse = float(np.mean((predictions - targets) ** 2))
 
-    return {"n": int(n), "sharpe": sharpe, "hit_rate": hit_rate, "mse": mse}
+    return {
+        "sharpe": sharpe,
+        "hit_rate": hit_rate,
+        "mse": mse,
+        "n": int(len(pnl)),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -127,64 +102,47 @@ def _compute_metrics(predictions: np.ndarray, targets: np.ndarray) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Train MLP on versioned dataset")
-    parser.add_argument("--dataset-version", required=True, help="e.g. 1.1.0")
-    parser.add_argument(
-        "--feature-set",
-        default="price_sentiment",
-        choices=["price_only", "price_sentiment"],
-    )
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dataset-version", required=True)
+    parser.add_argument("--feature-set", default="price_sentiment")
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--hidden-dim", type=int, default=32)
     parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument(
-        "--variant",
-        default="core",
-        choices=["full", "core", "extended"],
-        help="Dataset variant to load",
-    )
+    parser.add_argument("--variant", default="core")
     args = parser.parse_args()
 
     logger.info("=== DL Training ===")
-    logger.info(
-        "config: version=%s feature_set=%s epochs=%d hidden_dim=%d lr=%s",
-        args.dataset_version,
-        args.feature_set,
-        args.epochs,
-        args.hidden_dim,
-        args.lr,
-    )
+    logger.info(vars(args))
 
-    # ------------------------------------------------------------------
     # Load
-    # ------------------------------------------------------------------
     df = load_dataset(args.dataset_version, variant=args.variant)
-    logger.info("dataset version=%s  rows=%d", args.dataset_version, len(df))
-
     X, y = get_features(df, args.feature_set)
-    logger.info("feature_set=%s  shape=%s", args.feature_set, X.shape)
 
     (X_train, y_train), (X_test, y_test) = train_test_split(X, y, df)
 
+    # ------------------------------------------------------------------
+    # NORMALIZATION (CRITICAL FIX)
+    # ------------------------------------------------------------------
+    mean = X_train.mean(axis=0)
+    std = X_train.std(axis=0) + 1e-8
+
+    X_train = (X_train - mean) / std
+    X_test = (X_test - mean) / std
+
+    logger.info("feature normalization applied (train stats)")
+
+    # Convert to tensors
     X_train_t, y_train_t = to_tensors(X_train, y_train)
     X_test_t, y_test_t = to_tensors(X_test, y_test)
 
-    # ------------------------------------------------------------------
     # Model
-    # ------------------------------------------------------------------
-    input_dim = X_train.shape[1]
-    model = MLP(input_dim=input_dim, hidden_dim=args.hidden_dim)
-    logger.info("model: MLP(input_dim=%d, hidden_dim=%d)", input_dim, args.hidden_dim)
+    model = MLP(input_dim=X_train.shape[1], hidden_dim=args.hidden_dim)
 
-    # ------------------------------------------------------------------
     # Train
-    # ------------------------------------------------------------------
-    _train(model, X_train_t, y_train_t, epochs=args.epochs, lr=args.lr)
+    _train(model, X_train_t, y_train_t, args.epochs, args.lr)
 
-    # ------------------------------------------------------------------
     # Evaluate
-    # ------------------------------------------------------------------
     model.eval()
     with torch.no_grad():
         train_preds = model(X_train_t).numpy()
@@ -194,42 +152,36 @@ def main() -> None:
     test_metrics = _compute_metrics(test_preds, y_test)
 
     logger.info("train metrics: %s", train_metrics)
-    logger.info("test  metrics: %s", test_metrics)
+    logger.info("test metrics: %s", test_metrics)
 
-    # ------------------------------------------------------------------
-    # Save outputs
-    # ------------------------------------------------------------------
+    # Save
     import config as cfg
 
     out_dir = cfg.OUTPUT_DIR / args.dataset_version / "dl"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Predictions CSV
     test_idx_start = len(X_train)
     pred_df = df.iloc[test_idx_start:].copy().reset_index(drop=True)
-    pred_df["prediction"] = test_preds
-    pred_df["signal"] = np.sign(test_preds)
+    pred_df["prediction"] = test_preds  # NO signal column here
 
     pred_path = out_dir / f"predictions_{args.feature_set}.csv"
     pred_df.to_csv(pred_path, index=False)
-    logger.info("predictions saved to %s", pred_path)
 
-    # Metrics JSON
-    metrics_payload = {
-        "dataset_version": args.dataset_version,
-        "feature_set": args.feature_set,
-        "epochs": args.epochs,
-        "hidden_dim": args.hidden_dim,
-        "train": train_metrics,
-        "test": test_metrics,
-    }
     metrics_path = out_dir / f"metrics_{args.feature_set}.json"
-    metrics_path.write_text(json.dumps(metrics_payload, indent=2))
-    logger.info("metrics saved to %s", metrics_path)
+    metrics_path.write_text(
+        json.dumps(
+            {
+                "config": vars(args),
+                "train": train_metrics,
+                "test": test_metrics,
+            },
+            indent=2,
+        )
+    )
 
     print("\n=== Test metrics ===")
     for k, v in test_metrics.items():
-        print(f"  {k}: {v}")
+        print(f"{k}: {v}")
 
 
 if __name__ == "__main__":
