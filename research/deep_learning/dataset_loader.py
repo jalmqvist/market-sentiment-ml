@@ -119,8 +119,18 @@ def get_features(
     if missing:
         raise ValueError(f"Missing feature columns in DataFrame: {missing}")
 
+    df = df[columns + [TARGET]].copy()
+    df = df.replace([np.inf, -np.inf], np.nan)
+    df = df.dropna()
+
+    logger.info("After cleaning: %d rows", len(df))
+
     X = df[columns].to_numpy(dtype=np.float32)
     y = df[TARGET].to_numpy(dtype=np.float32)
+
+    assert np.isfinite(X).all(), "Non-finite values in features"
+    assert np.isfinite(y).all(), "Non-finite values in target"
+
     logger.debug("Feature matrix shape: %s  target shape: %s", X.shape, y.shape)
     return X, y
 

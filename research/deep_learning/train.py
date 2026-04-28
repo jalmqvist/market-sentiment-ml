@@ -125,12 +125,14 @@ def main():
     # NORMALIZATION (CRITICAL FIX)
     # ------------------------------------------------------------------
     mean = X_train.mean(axis=0)
-    std = X_train.std(axis=0) + 1e-8
+    std = X_train.std(axis=0)
+    std = np.where(std < 1e-8, 1.0, std)
 
     X_train = (X_train - mean) / std
     X_test = (X_test - mean) / std
 
     logger.info("feature normalization applied (train stats)")
+    logger.info("X_train stats: mean=%.4f std=%.4f", X_train.mean(), X_train.std())
 
     # Convert to tensors
     X_train_t, y_train_t = to_tensors(X_train, y_train)
