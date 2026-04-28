@@ -83,7 +83,7 @@ def main():
     for s in shifts:
         shifted = df.copy()
         shifted["signal"] = shifted["signal"].shift(s)
-        shifted = shifted.dropna()
+        shifted = shifted.dropna(subset=["signal"])
         shifted["position"] = shifted["signal"]
         _run(shifted, f"shift({s})")
 
