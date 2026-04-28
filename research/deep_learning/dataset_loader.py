@@ -20,8 +20,8 @@ Usage::
     )
 
     df = load_dataset("1.1.0")
-    X, y = get_features(df, "price_sentiment")
-    (X_train, y_train), (X_test, y_test) = train_test_split(X, y, df)
+    X, y, df_clean = get_features(df, "price_sentiment")
+    (X_train, y_train), (X_test, y_test) = train_test_split(X, y, df_clean)
     X_train_t, y_train_t = to_tensors(X_train, y_train)
 """
 
@@ -96,15 +96,16 @@ def load_dataset(
 def get_features(
     df: pd.DataFrame,
     feature_set: FeatureSet = "price_sentiment",
-) -> Tuple[np.ndarray, np.ndarray]:
-    """Extract feature matrix X and target vector y.
+) -> Tuple[np.ndarray, np.ndarray, pd.DataFrame]:
+    """Extract feature matrix X, target vector y, and the cleaned DataFrame.
 
     Args:
         df:          DataFrame returned by :func:`load_dataset`.
         feature_set: ``"price_only"`` or ``"price_sentiment"``.
 
     Returns:
-        Tuple of ``(X, y)`` as float32 numpy arrays.
+        Tuple of ``(X, y, df)`` where ``X`` and ``y`` are float32 numpy arrays
+        and ``df`` is the cleaned DataFrame aligned with ``X`` and ``y``.
 
     Raises:
         ValueError: If ``feature_set`` is not recognised or columns are missing.
@@ -119,9 +120,10 @@ def get_features(
     if missing:
         raise ValueError(f"Missing feature columns in DataFrame: {missing}")
 
-    df = df[columns + [TARGET]].copy()
+    df = df.copy()
     df = df.replace([np.inf, -np.inf], np.nan)
-    df = df.dropna()
+    df = df.dropna(subset=columns + [TARGET])
+    df = df.reset_index(drop=True)
 
     logger.info("After cleaning: %d rows", len(df))
 
@@ -132,7 +134,7 @@ def get_features(
     assert np.isfinite(y).all(), "Non-finite values in target"
 
     logger.debug("Feature matrix shape: %s  target shape: %s", X.shape, y.shape)
-    return X, y
+    return X, y, df
 
 
 def train_test_split(
@@ -148,9 +150,10 @@ def train_test_split(
     fraction of rows (by time) forms the test set.
 
     Args:
-        X:          Feature matrix aligned with *df*.
-        y:          Target vector aligned with *df*.
-        df:         Source DataFrame (used for time ordering).
+        X:          Feature matrix aligned with *df* (cleaned).
+        y:          Target vector aligned with *df* (cleaned).
+        df:         Cleaned DataFrame aligned with *X* and *y* (used for
+                    time ordering only).
         test_ratio: Fraction of rows reserved for test (default 0.2).
         time_col:   Column in *df* used for ordering; defaults to
                     ``"snapshot_time"``.
@@ -164,7 +167,10 @@ def train_test_split(
     if not 0.0 < test_ratio < 1.0:
         raise ValueError(f"test_ratio must be in (0, 1), got {test_ratio}")
 
-    n = len(df)
+    assert len(X) == len(y), "X and y length mismatch"
+
+    n = len(X)
+    logger.info("Split using cleaned dataset: %d rows", n)
     split_idx = int(n * (1.0 - test_ratio))
 
     # df is already sorted by time from load_dataset; use sequential index order
