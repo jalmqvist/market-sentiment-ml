@@ -51,10 +51,23 @@ SENTIMENT_FEATURES: list[str] = [
 ]
 
 # ---------------------------------------------------------------------------
+# Volatility features
+# ---------------------------------------------------------------------------
+
+PRICE_VOL_FEATURES: list[str] = PRICE_FEATURES + [
+    "vol_12b",   # 12-bar realised volatility
+    "vol_48b",   # 48-bar realised volatility
+]
+
+PRICE_VOL_SENTIMENT_FEATURES: list[str] = PRICE_VOL_FEATURES + SENTIMENT_FEATURES
+
+# ---------------------------------------------------------------------------
 # Convenience groupings
 # ---------------------------------------------------------------------------
 
 FEATURE_SETS: dict[str, list[str]] = {
     "price_only": PRICE_FEATURES,
     "price_sentiment": PRICE_FEATURES + SENTIMENT_FEATURES,
+    "price_vol": PRICE_VOL_FEATURES,
+    "price_vol_sentiment": PRICE_VOL_SENTIMENT_FEATURES,
 }
