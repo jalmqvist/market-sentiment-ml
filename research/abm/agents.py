@@ -31,6 +31,12 @@ from __future__ import annotations
 import numpy as np
 
 
+# Tunable parameters for RetailTrader.update()
+_SIGNAL_AMPLIFICATION = 5.0   # tanh gain applied to raw price signal
+_PERSISTENCE_WEIGHT = 0.1     # fraction of current position fed back into score
+_INERTIA_THRESHOLD = 0.05     # minimum |score| required to change position
+
+
 class RetailTrader:
     """Abstract base class for a retail FX trader agent.
 
@@ -78,17 +84,14 @@ class RetailTrader:
         if len(price_history) < 2:
             return
 
-        signal = self._price_signal(price_history)
+        signal = np.tanh(_SIGNAL_AMPLIFICATION * self._price_signal(price_history))
         herd = self.crowd_weight * crowd_sentiment
         noise = self.rng.normal(0.0, self.noise_scale)
+        persistence = _PERSISTENCE_WEIGHT * self.position
 
-        score = signal + herd + noise
+        score = signal + herd + noise + persistence
 
-        # --- NEW: inertia ---
-        threshold = 0.2
-
-        if abs(score) < threshold:
-            # do nothing → keep position
+        if abs(score) < _INERTIA_THRESHOLD:
             return
 
         if score > 0:

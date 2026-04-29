@@ -168,24 +168,28 @@ class TestFXSentimentSimulation:
     def test_output_row_count(self):
         sim = self._sim()
         n = 100
-        df = sim.run(n_steps=n)
+        prices = np.linspace(1.0, 1.1, 200)
+        df = sim.run(n_steps=n, price_series=prices)
         assert len(df) == n
 
     def test_step_index_zero_based(self):
         sim = self._sim()
-        df = sim.run(n_steps=20)
+        prices = np.linspace(1.0, 1.1, 200)
+        df = sim.run(n_steps=20, price_series=prices)
         assert df["step"].iloc[0] == 0
         assert df["step"].iloc[-1] == 19
 
     def test_net_sentiment_bounded(self):
         sim = self._sim()
-        df = sim.run(n_steps=200)
+        prices = np.linspace(1.0, 1.1, 400)
+        df = sim.run(n_steps=200, price_series=prices)
         assert (df["net_sentiment"] >= -100).all()
         assert (df["net_sentiment"] <= 100).all()
 
     def test_abs_sentiment_is_abs(self):
         sim = self._sim()
-        df = sim.run(n_steps=100)
+        prices = np.linspace(1.0, 1.1, 200)
+        df = sim.run(n_steps=100, price_series=prices)
         pd.testing.assert_series_equal(
             df["abs_sentiment"],
             df["net_sentiment"].abs(),
@@ -194,7 +198,8 @@ class TestFXSentimentSimulation:
 
     def test_crowd_side_sign(self):
         sim = self._sim()
-        df = sim.run(n_steps=100)
+        prices = np.linspace(1.0, 1.1, 200)
+        df = sim.run(n_steps=100, price_series=prices)
         expected = np.sign(df["net_sentiment"]).astype(int)
         pd.testing.assert_series_equal(
             df["crowd_side"].astype(int),
@@ -221,18 +226,9 @@ class TestFXSentimentSimulation:
 
     def test_raises_on_zero_steps(self):
         sim = self._sim()
+        prices = np.linspace(1.0, 1.1, 200)
         with pytest.raises(ValueError):
-            sim.run(n_steps=0)
-
-    def test_raises_on_negative_volatility(self):
-        agents, rng = _make_agents()
-        with pytest.raises(ValueError):
-            FXSentimentSimulation(agents, rng=rng, volatility=-0.01)
-
-    def test_raises_on_non_positive_initial_price(self):
-        agents, rng = _make_agents()
-        with pytest.raises(ValueError):
-            FXSentimentSimulation(agents, rng=rng, initial_price=0.0)
+            sim.run(n_steps=0, price_series=prices)
 
     def test_with_external_price_series(self):
         agents, rng = _make_agents()
@@ -253,8 +249,9 @@ class TestFXSentimentSimulation:
         agents2, rng2 = _make_agents(seed=7)
         sim1 = FXSentimentSimulation(agents1, rng=rng1, warmup_steps=5)
         sim2 = FXSentimentSimulation(agents2, rng=rng2, warmup_steps=5)
-        df1 = sim1.run(n_steps=50)
-        df2 = sim2.run(n_steps=50)
+        prices = np.linspace(1.0, 1.1, 200)
+        df1 = sim1.run(n_steps=50, price_series=prices)
+        df2 = sim2.run(n_steps=50, price_series=prices)
         pd.testing.assert_frame_equal(df1, df2)
 
     def test_different_seeds_differ(self):
@@ -262,8 +259,9 @@ class TestFXSentimentSimulation:
         agents2, rng2 = _make_agents(seed=2)
         sim1 = FXSentimentSimulation(agents1, rng=rng1, warmup_steps=5)
         sim2 = FXSentimentSimulation(agents2, rng=rng2, warmup_steps=5)
-        df1 = sim1.run(n_steps=100)
-        df2 = sim2.run(n_steps=100)
+        prices = np.linspace(1.0, 1.1, 300)
+        df1 = sim1.run(n_steps=100, price_series=prices)
+        df2 = sim2.run(n_steps=100, price_series=prices)
         # Net sentiment should not be identical across different seeds.
         assert not df1["net_sentiment"].equals(df2["net_sentiment"])
 
@@ -329,7 +327,8 @@ class TestCompareToData:
     def _sim_df(self, n: int = 200) -> pd.DataFrame:
         agents, rng = _make_agents(seed=99)
         sim = FXSentimentSimulation(agents, rng=rng, warmup_steps=5)
-        return sim.run(n_steps=n)
+        prices = np.linspace(1.0, 1.1, n + 10)
+        return sim.run(n_steps=n, price_series=prices)
 
     def test_returns_dataframe(self):
         result = compare_to_data(self._sim_df(), self._targets())

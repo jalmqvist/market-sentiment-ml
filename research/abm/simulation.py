@@ -111,6 +111,9 @@ class FXSentimentSimulation:
         if price_series is None:
             raise ValueError("price_series must be provided (no GBM allowed)")
 
+        if n_steps <= 0:
+            raise ValueError(f"n_steps must be positive, got {n_steps}")
+
         total_required = self._warmup_steps + n_steps + 1
         if len(price_series) < total_required:
             raise ValueError(

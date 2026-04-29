@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Ensure project root is on sys.path when run directly.
@@ -119,6 +120,24 @@ def _load_real_data(version: str, variant: str) -> pd.DataFrame:
 def main(argv=None) -> None:
     args = _parse_args(argv)
     setup_logging(args.log_level)
+
+    # --------------------------------------------------------
+    # File logging
+    # --------------------------------------------------------
+
+    log_dir = cfg.REPO_ROOT / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    log_file = log_dir / f"abm_{args.pair}_{args.version}_{timestamp}.log"
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+            datefmt="%Y-%m-%dT%H:%M:%S",
+        )
+    )
+    logging.getLogger().addHandler(file_handler)
+    logger.info("Logging to %s", log_file)
 
     logger.info("=== FX Sentiment ABM ===")
     logger.info(
