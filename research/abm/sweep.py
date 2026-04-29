@@ -115,7 +115,7 @@ def run_sweep(
 
             sim = FXSentimentSimulation(agents, rng=rng)
 
-            max_steps = len(price_series) - sim._warmup_steps - 1
+            max_steps = len(price_series) - sim.warmup_steps - 1
             if max_steps <= 0:
                 logger.warning(
                     "Not enough price data for pair=%s, skipping run", pair
@@ -130,7 +130,7 @@ def run_sweep(
                     price_series=price_series,
                     timestamps=timestamps,
                 )
-                warmup = sim._warmup_steps
+                warmup = sim.warmup_steps
                 sim_df["real_net_sentiment"] = (
                     real_sentiment[warmup + 1 : warmup + 1 + len(sim_df)]
                 )

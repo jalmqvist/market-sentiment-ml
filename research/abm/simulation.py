@@ -82,6 +82,11 @@ class FXSentimentSimulation:
         """Total number of agents in the population."""
         return len(self._agents)
 
+    @property
+    def warmup_steps(self) -> int:
+        """Number of warmup steps run before recording begins."""
+        return self._warmup_steps
+
     # ------------------------------------------------------------------
     # Public run method
     # ------------------------------------------------------------------
