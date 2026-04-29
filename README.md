@@ -85,6 +85,39 @@ Sentiment likely:
 
 ---
 
+### Deep Learning Experiments (LSTM)
+
+To test whether temporal dependencies contain predictive signal, a sequence modeling approach was implemented.
+
+#### Setup
+
+- Model: minimal LSTM (single layer)
+- Input: rolling sequences (length = 24)
+- Strict validation:
+  - per-pair sequence construction
+  - global chronological ordering
+  - train-only normalization
+  - evaluation via baseline / shift / shuffle
+
+#### Results
+
+- price_only → no stable predictive signal
+- price + sentiment → no improvement (slight degradation)
+- no temporal structure recovered
+
+#### Conclusion
+
+> Sequence models do not reveal predictive information in sentiment or price under current formulation.
+
+This is consistent with prior results:
+
+- no standalone signal
+- no additive signal
+- no conditional signal
+- no temporal signal
+
+---
+
 ## Incremental Value Testing (V28–V29)
 
 A focused experiment series was conducted to answer:

@@ -30,6 +30,23 @@ This holds across:
 
 ------
 
+## Deep Learning (LSTM)
+
+Sequence models were tested to evaluate whether temporal dependencies
+or path-dependent interactions contain predictive signal.
+
+Result:
+
+- No predictive signal recovered
+- No improvement from sentiment
+- No temporal structure detected
+
+Conclusion:
+
+> The absence of signal persists across sequence models.
+
+---
+
 ## Deep Learning Experiments (MLP)
 
 A structured set of deep learning experiments was conducted to test whether nonlinear models can extract predictive signal from sentiment.
@@ -70,7 +87,7 @@ Not yet falsified:
 - sequence-dependent effects
 - delayed or path-dependent interactions
 
-→ Next step: sequence models (LSTM)
+→ Sequence models (LSTM) tested — no predictive signal identified
 
 ---
 
@@ -115,17 +132,17 @@ The combined evidence supports:
 
 ### 1. No standalone signal
 
-[
-E[r_{t+1} | S_t] \approx 0
-]
+\[
+E[r_{t+1} \mid S_t] \approx 0
+\]
 
 ------
 
 ### 2. No incremental contribution
 
-[
+\[
 E[r_{t+1} | P_t, S_t] \approx E[r_{t+1} | P_t]
-]
+\]
 
 ------
 

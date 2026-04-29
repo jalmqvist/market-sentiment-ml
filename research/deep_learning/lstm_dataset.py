@@ -117,7 +117,7 @@ def build_sequences(
     X = np.stack(all_x, axis=0)  # (N, seq_len, n_features)
     y = np.array(all_y, dtype=np.float32)  # (N,)
 
-    t = np.array(all_t)
+    t = pd.to_datetime(all_t).values
     order = np.argsort(t)
     X = X[order]
     y = y[order]
