@@ -78,17 +78,16 @@ class RetailTrader:
         if len(price_history) < 2:
             return
 
-        signal = self._price_signal(price_history)
+        signal = np.tanh(5 * self._price_signal(price_history))
         herd = self.crowd_weight * crowd_sentiment
         noise = self.rng.normal(0.0, self.noise_scale)
+        persistence = 0.1 * self.position
 
-        score = signal + herd + noise
+        score = signal + herd + noise + persistence
 
-        # --- NEW: inertia ---
-        threshold = 0.2
+        threshold = 0.05
 
         if abs(score) < threshold:
-            # do nothing → keep position
             return
 
         if score > 0:

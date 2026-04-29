@@ -68,7 +68,11 @@ def calibrate_from_dataset(
         if subset.empty:
             raise ValueError(f"No rows found for pair={pair!r}")
 
-    subset = subset.sort_values("entry_time")
+    sort_col = next(
+        (c for c in ("entry_time", "snapshot_time") if c in subset.columns), None
+    )
+    if sort_col is not None:
+        subset = subset.sort_values(sort_col)
 
     series = subset[sentiment_col].dropna()
     n = len(series)
