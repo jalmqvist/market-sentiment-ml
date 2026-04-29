@@ -127,7 +127,7 @@ def main(argv=None) -> None:
 
     log_dir = cfg.REPO_ROOT / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     log_file = log_dir / f"abm_{args.pair}_{args.version}_{timestamp}.log"
     file_handler = logging.FileHandler(log_file)
     file_handler.setFormatter(
