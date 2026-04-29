@@ -6,10 +6,10 @@ Core simulation runner for the retail FX sentiment ABM.
 FXSentimentSimulation
 ---------------------
 Manages a heterogeneous population of :class:`~research.abm.agents.RetailTrader`
-agents and an exogenous price process.  At each step the simulation:
+agents and an exogenous real price series only (no internal price generation).
+At each step the simulation:
 
-1. Advances the price by one bar (geometric Brownian motion or externally
-   supplied series).
+1. Advances the price by one bar from the exogenous series.
 2. Computes the current aggregate net sentiment from agent positions.
 3. Asks each agent to update its position given the updated price history and
    current crowd sentiment.
@@ -46,11 +46,6 @@ import pandas as pd
 from research.abm.agents import RetailTrader
 
 logger = logging.getLogger(__name__)
-
-# Default GBM parameters for the endogenous price process.
-_DEFAULT_DRIFT = 0.0
-_DEFAULT_VOLATILITY = 0.001  # per-step log-return std (≈ hourly FX volatility)
-_DEFAULT_INITIAL_PRICE = 1.0
 
 
 class FXSentimentSimulation:

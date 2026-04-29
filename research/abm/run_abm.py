@@ -26,7 +26,6 @@ import numpy as np
 import pandas as pd
 
 import config as cfg
-from utils.io import setup_logging
 from research.abm.agents import Contrarian, NoiseTrader, TrendFollower
 from research.abm.calibration import calibrate_from_dataset, compare_to_data
 from research.abm.simulation import FXSentimentSimulation
@@ -132,6 +131,7 @@ def _write_config_snapshot(
     timestamp: str,
     args: argparse.Namespace,
     dataset_path: Path,
+    n_steps: int,
 ) -> Path:
     """Write JSON config snapshot alongside the log file."""
     config_file = log_dir / f"abm_{pair}_{version}_{timestamp}.json"
@@ -147,6 +147,8 @@ def _write_config_snapshot(
         "momentum_window": args.momentum_window,
         "dataset_path": str(dataset_path),
         "timestamp": timestamp,
+        "total_agents": args.n_trend + args.n_contrarian + args.n_noise,
+        "effective_steps": n_steps,
     }
     config_file.write_text(json.dumps(payload, indent=2))
     return config_file
@@ -162,28 +164,40 @@ def main(argv=None) -> None:
     if args.steps <= 0:
         raise ValueError("steps must be > 0")
 
-    setup_logging(args.log_level)
+    # --------------------------------------------------------
+    # Logging setup — clear any existing handlers to prevent
+    # duplication across multiple calls (e.g. in tests).
+    # --------------------------------------------------------
 
-    # --------------------------------------------------------
-    # File logging (unless --no-log-file)
-    # --------------------------------------------------------
+    root = logging.getLogger()
+    root.handlers.clear()
+    root.setLevel(getattr(logging, args.log_level.upper(), logging.INFO))
+
+    _fmt = logging.Formatter(
+        "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S",
+    )
 
     log_dir = cfg.REPO_ROOT / "logs"
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    log_file: Path | None = None
 
     if not args.no_log_file:
         log_dir.mkdir(parents=True, exist_ok=True)
         log_file = log_dir / f"abm_{args.pair}_{args.version}_{timestamp}.log"
-        file_handler = logging.FileHandler(log_file)
-        file_handler.setFormatter(
-            logging.Formatter(
-                "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
-                datefmt="%Y-%m-%dT%H:%M:%S",
-            )
-        )
-        logging.getLogger().addHandler(file_handler)
+        fh = logging.FileHandler(log_file)
+        fh.setFormatter(_fmt)
+        root.addHandler(fh)
+
+        sh = logging.StreamHandler()
+        sh.setLevel(logging.INFO)
+        sh.setFormatter(_fmt)
+        root.addHandler(sh)
+
         logger.info("Logging to %s", log_file)
+    else:
+        sh = logging.StreamHandler()
+        sh.setFormatter(_fmt)
+        root.addHandler(sh)
 
     logger.info("=== FX Sentiment ABM ===")
     logger.info(
@@ -206,16 +220,6 @@ def main(argv=None) -> None:
 
     df, dataset_path = _load_real_data(args.version, args.variant)
     logger.info("Dataset loaded: %d rows", len(df))
-
-    # --------------------------------------------------------
-    # Config snapshot (written at run start)
-    # --------------------------------------------------------
-
-    if not args.no_log_file:
-        config_file = _write_config_snapshot(
-            log_dir, args.pair, args.version, timestamp, args, dataset_path
-        )
-        logger.info("Config snapshot: %s", config_file)
 
     # --------------------------------------------------------
     # Filter to pair
@@ -273,6 +277,16 @@ def main(argv=None) -> None:
 
     n_steps = min(args.steps, max_steps)
 
+    # --------------------------------------------------------
+    # Config snapshot (written after n_steps is known)
+    # --------------------------------------------------------
+
+    if not args.no_log_file:
+        config_file = _write_config_snapshot(
+            log_dir, args.pair, args.version, timestamp, args, dataset_path, n_steps
+        )
+        logger.info("Config snapshot: %s", config_file)
+
     sim_df = sim.run(
         n_steps=n_steps,
         price_series=price_series,
@@ -311,16 +325,11 @@ def main(argv=None) -> None:
 
     if args.output is not None:
         args.output.parent.mkdir(parents=True, exist_ok=True)
-        missing_cols = [c for c in _OUTPUT_COLUMNS if c not in sim_df.columns]
-        if missing_cols:
-            logger.warning(
-                "Output CSV: missing columns %s — skipping those columns", missing_cols
-            )
-            cols = [c for c in _OUTPUT_COLUMNS if c in sim_df.columns]
-        else:
-            cols = _OUTPUT_COLUMNS
-        sim_df[cols].to_csv(args.output, index=False)
-        logger.info("Saved output CSV: %s  rows=%d  cols=%s", args.output, len(sim_df), cols)
+        assert set(_OUTPUT_COLUMNS).issubset(sim_df.columns), (
+            f"Output CSV schema broken: missing {set(_OUTPUT_COLUMNS) - set(sim_df.columns)}"
+        )
+        sim_df[_OUTPUT_COLUMNS].to_csv(args.output, index=False)
+        logger.info("Saved output CSV: %s  rows=%d", args.output, len(sim_df))
 
     logger.info("Done.")
 
