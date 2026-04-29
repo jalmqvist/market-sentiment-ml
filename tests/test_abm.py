@@ -194,9 +194,7 @@ class TestFXSentimentSimulation:
     def test_crowd_side_sign(self):
         sim = self._sim()
         df = sim.run(n_steps=100)
-        expected = df["net_sentiment"].apply(
-            lambda x: 1 if x > 0 else (-1 if x < 0 else 0)
-        ).astype(int)
+        expected = np.sign(df["net_sentiment"]).astype(int)
         pd.testing.assert_series_equal(
             df["crowd_side"].astype(int),
             expected,

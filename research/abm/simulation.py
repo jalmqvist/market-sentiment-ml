@@ -231,5 +231,8 @@ class FXSentimentSimulation:
         log_returns = self._rng.normal(
             self._drift, self._volatility, size=total_steps
         )
-        log_prices = np.concatenate([[np.log(self._initial_price)], log_returns.cumsum() + np.log(self._initial_price)])
+        log_initial = np.log(self._initial_price)
+        log_prices = np.empty(total_steps + 1)
+        log_prices[0] = log_initial
+        log_prices[1:] = log_initial + log_returns.cumsum()
         return np.exp(log_prices)
