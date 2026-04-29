@@ -9,6 +9,7 @@ Tests cover:
 3. FXSentimentSimulation output schema and invariants.
 4. FXSentimentSimulation with an external price series.
 5. Calibration helpers (calibrate_from_dataset, compare_to_data).
+6. run_abm CLI: validation, config JSON, log file, output CSV columns.
 
 Run with::
 
@@ -17,8 +18,10 @@ Run with::
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -358,3 +361,158 @@ class TestCompareToData:
         sim_df = self._sim_df().iloc[:0]
         with pytest.raises(ValueError):
             compare_to_data(sim_df, self._targets())
+
+
+# ---------------------------------------------------------------------------
+# run_abm CLI tests
+# ---------------------------------------------------------------------------
+
+def _make_minimal_dataset(n: int = 200, seed: int = 0) -> pd.DataFrame:
+    """Return a minimal dataframe that _load_real_data would return."""
+    rng = np.random.default_rng(seed)
+    times = pd.date_range("2022-01-01", periods=n, freq="h")
+    return pd.DataFrame({
+        "pair": ["eur-usd"] * n,
+        "entry_time": times,
+        "snapshot_time": times,
+        "entry_close": 1.10 + rng.standard_normal(n) * 0.001,
+        "net_sentiment": rng.uniform(-80, 80, size=n),
+    })
+
+
+class TestRunAbmCLI:
+    """Tests for the run_abm entry-point."""
+
+    def test_fails_without_pair(self):
+        """main() must fail when --pair is missing."""
+        from research.abm.run_abm import main
+
+        with pytest.raises(SystemExit):
+            main(["--version", "1.0.0"])
+
+    def test_fails_without_version(self):
+        """main() must fail when --version is missing."""
+        from research.abm.run_abm import main
+
+        with pytest.raises(SystemExit):
+            main(["--pair", "eur-usd"])
+
+    def test_fails_with_zero_steps(self, tmp_path):
+        """main() must raise ValueError when --steps 0 is passed."""
+        from research.abm.run_abm import main
+
+        with pytest.raises(ValueError, match="steps must be > 0"):
+            with patch(
+                "research.abm.run_abm._load_real_data",
+                return_value=(_make_minimal_dataset(), Path("/fake/dataset.csv")),
+            ):
+                main([
+                    "--version", "1.0.0",
+                    "--pair", "eur-usd",
+                    "--steps", "0",
+                    "--no-log-file",
+                ])
+
+    def test_config_json_is_written(self, tmp_path):
+        """A JSON config snapshot must appear in the log directory."""
+        import config as cfg
+        from research.abm.run_abm import main
+
+        with patch("research.abm.run_abm.cfg") as mock_cfg:
+            mock_cfg.LOG_LEVEL = "WARNING"
+            mock_cfg.REPO_ROOT = tmp_path
+            mock_cfg.OUTPUT_DIR = tmp_path / "data" / "output"
+
+            with patch(
+                "research.abm.run_abm._load_real_data",
+                return_value=(_make_minimal_dataset(), tmp_path / "fake.csv"),
+            ):
+                main([
+                    "--version", "1.0.0",
+                    "--pair", "eur-usd",
+                    "--steps", "10",
+                    "--seed", "0",
+                ])
+
+        json_files = list((tmp_path / "logs").glob("abm_eur-usd_1.0.0_*.json"))
+        assert len(json_files) == 1, "Expected exactly one JSON config snapshot"
+
+        payload = json.loads(json_files[0].read_text())
+        for key in ("version", "variant", "pair", "seed", "steps",
+                    "n_trend", "n_contrarian", "n_noise", "momentum_window"):
+            assert key in payload, f"Config JSON missing key: {key}"
+
+    def test_log_file_is_created(self, tmp_path):
+        """A .log file must appear in the log directory."""
+        from research.abm.run_abm import main
+
+        with patch("research.abm.run_abm.cfg") as mock_cfg:
+            mock_cfg.LOG_LEVEL = "WARNING"
+            mock_cfg.REPO_ROOT = tmp_path
+            mock_cfg.OUTPUT_DIR = tmp_path / "data" / "output"
+
+            with patch(
+                "research.abm.run_abm._load_real_data",
+                return_value=(_make_minimal_dataset(), tmp_path / "fake.csv"),
+            ):
+                main([
+                    "--version", "1.0.0",
+                    "--pair", "eur-usd",
+                    "--steps", "10",
+                ])
+
+        log_files = list((tmp_path / "logs").glob("abm_eur-usd_1.0.0_*.log"))
+        assert len(log_files) == 1, "Expected exactly one log file"
+
+    def test_no_log_file_flag(self, tmp_path):
+        """--no-log-file must suppress log file creation."""
+        from research.abm.run_abm import main
+
+        with patch("research.abm.run_abm.cfg") as mock_cfg:
+            mock_cfg.LOG_LEVEL = "WARNING"
+            mock_cfg.REPO_ROOT = tmp_path
+            mock_cfg.OUTPUT_DIR = tmp_path / "data" / "output"
+
+            with patch(
+                "research.abm.run_abm._load_real_data",
+                return_value=(_make_minimal_dataset(), tmp_path / "fake.csv"),
+            ):
+                main([
+                    "--version", "1.0.0",
+                    "--pair", "eur-usd",
+                    "--steps", "10",
+                    "--no-log-file",
+                ])
+
+        log_dir = tmp_path / "logs"
+        log_files = list(log_dir.glob("*.log")) if log_dir.exists() else []
+        assert len(log_files) == 0, "--no-log-file should not create any .log files"
+
+    def test_output_csv_columns(self, tmp_path):
+        """Output CSV must contain exactly the required columns."""
+        from research.abm.run_abm import main, _OUTPUT_COLUMNS
+
+        output_path = tmp_path / "out.csv"
+
+        with patch("research.abm.run_abm.cfg") as mock_cfg:
+            mock_cfg.LOG_LEVEL = "WARNING"
+            mock_cfg.REPO_ROOT = tmp_path
+            mock_cfg.OUTPUT_DIR = tmp_path / "data" / "output"
+
+            with patch(
+                "research.abm.run_abm._load_real_data",
+                return_value=(_make_minimal_dataset(), tmp_path / "fake.csv"),
+            ):
+                main([
+                    "--version", "1.0.0",
+                    "--pair", "eur-usd",
+                    "--steps", "10",
+                    "--no-log-file",
+                    "--output", str(output_path),
+                ])
+
+        assert output_path.exists(), "Output CSV was not created"
+        out_df = pd.read_csv(output_path)
+        for col in _OUTPUT_COLUMNS:
+            assert col in out_df.columns, f"Output CSV missing column: {col}"
+        assert len(out_df) > 0, "Output CSV is empty"

@@ -7,11 +7,13 @@ This version enforces:
 - real data only (no synthetic price)
 - per-pair simulation
 - strict causal alignment
+- reproducible config snapshots
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 from datetime import datetime, timezone
@@ -30,6 +32,9 @@ from research.abm.calibration import calibrate_from_dataset, compare_to_data
 from research.abm.simulation import FXSentimentSimulation
 
 logger = logging.getLogger(__name__)
+
+# Output CSV columns (strict contract)
+_OUTPUT_COLUMNS = ["timestamp", "price", "net_sentiment", "real_net_sentiment"]
 
 
 # ============================================================
@@ -68,6 +73,12 @@ def _parse_args(argv=None) -> argparse.Namespace:
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
     )
 
+    p.add_argument(
+        "--no-log-file",
+        action="store_true",
+        help="Disable file logging; write to stdout only",
+    )
+
     return p.parse_args(argv)
 
 
@@ -97,7 +108,7 @@ def _build_agents(
     return agents
 
 
-def _load_real_data(version: str, variant: str) -> pd.DataFrame:
+def _load_real_data(version: str, variant: str) -> tuple[pd.DataFrame, Path]:
     suffix = "" if variant == "full" else f"_{variant}"
     filename = f"master_research_dataset{suffix}.csv"
     path = cfg.OUTPUT_DIR / version / filename
@@ -107,10 +118,38 @@ def _load_real_data(version: str, variant: str) -> pd.DataFrame:
 
     logger.info("Loading dataset: %s", path)
 
-    return pd.read_csv(
+    df = pd.read_csv(
         path,
         parse_dates=["snapshot_time", "entry_time"],
     )
+    return df, path
+
+
+def _write_config_snapshot(
+    log_dir: Path,
+    pair: str,
+    version: str,
+    timestamp: str,
+    args: argparse.Namespace,
+    dataset_path: Path,
+) -> Path:
+    """Write JSON config snapshot alongside the log file."""
+    config_file = log_dir / f"abm_{pair}_{version}_{timestamp}.json"
+    payload = {
+        "version": args.version,
+        "variant": args.variant,
+        "pair": args.pair,
+        "seed": args.seed,
+        "steps": args.steps,
+        "n_trend": args.n_trend,
+        "n_contrarian": args.n_contrarian,
+        "n_noise": args.n_noise,
+        "momentum_window": args.momentum_window,
+        "dataset_path": str(dataset_path),
+        "timestamp": timestamp,
+    }
+    config_file.write_text(json.dumps(payload, indent=2))
+    return config_file
 
 
 # ============================================================
@@ -119,43 +158,68 @@ def _load_real_data(version: str, variant: str) -> pd.DataFrame:
 
 def main(argv=None) -> None:
     args = _parse_args(argv)
+
+    if args.steps <= 0:
+        raise ValueError("steps must be > 0")
+
     setup_logging(args.log_level)
 
     # --------------------------------------------------------
-    # File logging
+    # File logging (unless --no-log-file)
     # --------------------------------------------------------
 
     log_dir = cfg.REPO_ROOT / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    log_file = log_dir / f"abm_{args.pair}_{args.version}_{timestamp}.log"
-    file_handler = logging.FileHandler(log_file)
-    file_handler.setFormatter(
-        logging.Formatter(
-            "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
-            datefmt="%Y-%m-%dT%H:%M:%S",
+    log_file: Path | None = None
+
+    if not args.no_log_file:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / f"abm_{args.pair}_{args.version}_{timestamp}.log"
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setFormatter(
+            logging.Formatter(
+                "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+                datefmt="%Y-%m-%dT%H:%M:%S",
+            )
         )
-    )
-    logging.getLogger().addHandler(file_handler)
-    logger.info("Logging to %s", log_file)
+        logging.getLogger().addHandler(file_handler)
+        logger.info("Logging to %s", log_file)
 
     logger.info("=== FX Sentiment ABM ===")
     logger.info(
-        "seed=%d steps=%d trend=%d contrarian=%d noise=%d",
+        "version=%s variant=%s pair=%s seed=%d steps=%d "
+        "n_trend=%d n_contrarian=%d n_noise=%d momentum_window=%d",
+        args.version,
+        args.variant,
+        args.pair,
         args.seed,
         args.steps,
         args.n_trend,
         args.n_contrarian,
         args.n_noise,
+        args.momentum_window,
     )
 
-    rng = np.random.default_rng(args.seed)
-
     # --------------------------------------------------------
-    # Load dataset
+    # Load dataset (once)
     # --------------------------------------------------------
 
-    df = _load_real_data(args.version, args.variant)
+    df, dataset_path = _load_real_data(args.version, args.variant)
+    logger.info("Dataset loaded: %d rows", len(df))
+
+    # --------------------------------------------------------
+    # Config snapshot (written at run start)
+    # --------------------------------------------------------
+
+    if not args.no_log_file:
+        config_file = _write_config_snapshot(
+            log_dir, args.pair, args.version, timestamp, args, dataset_path
+        )
+        logger.info("Config snapshot: %s", config_file)
+
+    # --------------------------------------------------------
+    # Filter to pair
+    # --------------------------------------------------------
 
     sub = df[df["pair"] == args.pair].copy()
 
@@ -178,12 +242,14 @@ def main(argv=None) -> None:
         logger.error("Total agent count is 0")
         sys.exit(1)
 
+    rng = np.random.default_rng(args.seed)
+
     agents = _build_agents(
-        rng,
-        args.n_trend,
-        args.n_contrarian,
-        args.n_noise,
-        args.momentum_window,
+        rng=rng,
+        n_trend=args.n_trend,
+        n_contrarian=args.n_contrarian,
+        n_noise=args.n_noise,
+        momentum_window=args.momentum_window,
     )
 
     logger.info(
@@ -213,14 +279,16 @@ def main(argv=None) -> None:
         timestamps=timestamps,
     )
 
-    # Align real sentiment (tail-aligned)
-    sim_df["real_net_sentiment"] = real_sentiment[-len(sim_df):]
+    # Align real sentiment with simulation window (causal, no off-by-one)
+    warmup = sim._warmup_steps
+    sim_df["real_net_sentiment"] = real_sentiment[warmup + 1 : warmup + 1 + len(sim_df)]
 
     # --------------------------------------------------------
     # Summary
     # --------------------------------------------------------
 
     logger.info("--- Simulation summary ---")
+    logger.info("steps_run=%d n_agents=%d", len(sim_df), sim.n_agents)
     logger.info(
         "sim mean=%.2f std=%.2f abs_mean=%.2f",
         sim_df["net_sentiment"].mean(),
@@ -229,7 +297,7 @@ def main(argv=None) -> None:
     )
 
     # --------------------------------------------------------
-    # Calibration
+    # Calibration (uses already-loaded df)
     # --------------------------------------------------------
 
     targets = calibrate_from_dataset(df, pair=args.pair)
@@ -238,13 +306,21 @@ def main(argv=None) -> None:
     logger.info("--- Calibration comparison ---\n%s", comparison.to_string(index=False))
 
     # --------------------------------------------------------
-    # Save
+    # Save output CSV
     # --------------------------------------------------------
 
     if args.output is not None:
         args.output.parent.mkdir(parents=True, exist_ok=True)
-        sim_df.to_csv(args.output, index=False)
-        logger.info("Saved to %s", args.output)
+        missing_cols = [c for c in _OUTPUT_COLUMNS if c not in sim_df.columns]
+        if missing_cols:
+            logger.warning(
+                "Output CSV: missing columns %s — skipping those columns", missing_cols
+            )
+            cols = [c for c in _OUTPUT_COLUMNS if c in sim_df.columns]
+        else:
+            cols = _OUTPUT_COLUMNS
+        sim_df[cols].to_csv(args.output, index=False)
+        logger.info("Saved output CSV: %s  rows=%d  cols=%s", args.output, len(sim_df), cols)
 
     logger.info("Done.")
 
