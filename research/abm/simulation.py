@@ -61,35 +61,21 @@ class FXSentimentSimulation:
             forming the simulated population.
         rng: NumPy ``Generator`` for the price process.  Defaults to a fresh
             ``default_rng()`` if not supplied.
-        drift: Per-step log-return drift for the GBM price process.
-        volatility: Per-step log-return standard deviation (GBM).
-        initial_price: Starting price level.  Ignored when ``price_series``
-            is supplied to :meth:`run`.
         warmup_steps: Number of initial steps run before recording begins.
             Allows agent positions to stabilise before measurement.
     """
 
     def __init__(
-        self,
-        agents: Sequence[RetailTrader],
-        rng: np.random.Generator | None = None,
-        drift: float = _DEFAULT_DRIFT,
-        volatility: float = _DEFAULT_VOLATILITY,
-        initial_price: float = _DEFAULT_INITIAL_PRICE,
-        warmup_steps: int = 48,
+            self,
+            agents: Sequence[RetailTrader],
+            rng: np.random.Generator | None = None,
+            warmup_steps: int = 48,
     ) -> None:
         if not agents:
             raise ValueError("agents must be a non-empty sequence")
-        if volatility < 0:
-            raise ValueError(f"volatility must be >= 0, got {volatility}")
-        if initial_price <= 0:
-            raise ValueError(f"initial_price must be > 0, got {initial_price}")
 
         self._agents = list(agents)
         self._rng = rng if rng is not None else np.random.default_rng()
-        self._drift = drift
-        self._volatility = volatility
-        self._initial_price = initial_price
         self._warmup_steps = warmup_steps
 
     # ------------------------------------------------------------------
@@ -106,83 +92,74 @@ class FXSentimentSimulation:
     # ------------------------------------------------------------------
 
     def run(
-        self,
-        n_steps: int,
-        price_series: np.ndarray | None = None,
+            self,
+            n_steps: int,
+            price_series: np.ndarray,
+            timestamps: np.ndarray | None = None,
     ) -> pd.DataFrame:
-        """Run the simulation and return per-step results.
+        """
+        Run simulation using EXOGENOUS price series ONLY.
 
         Args:
-            n_steps: Number of recorded steps (excluding warmup).
-            price_series: Optional externally supplied price series.  When
-                provided it must have length >= ``warmup_steps + n_steps``;
-                the GBM process is not used.  When ``None`` a GBM price
-                path is generated internally.
+            n_steps: number of steps to record
+            price_series: REQUIRED real price series
+            timestamps: optional timestamps aligned with price_series
 
         Returns:
-            DataFrame with one row per recorded step and the following columns:
-
-            - ``step``: integer step index (0-based)
-            - ``price``: exogenous price level
-            - ``net_sentiment``: aggregate net positioning in [-100, +100]
-              (positive = crowd net long, negative = crowd net short)
-            - ``abs_sentiment``: absolute value of ``net_sentiment``
-            - ``crowd_side``: +1, -1, or 0 (sign of ``net_sentiment``)
-            - ``n_long``: number of long agents
-            - ``n_short``: number of short agents
-            - ``n_flat``: number of flat agents
-
-        Raises:
-            ValueError: If ``n_steps`` < 1.
-            ValueError: If ``price_series`` is too short.
+            DataFrame aligned with input time
         """
-        if n_steps < 1:
-            raise ValueError(f"n_steps must be >= 1, got {n_steps}")
+        if price_series is None:
+            raise ValueError("price_series must be provided (no GBM allowed)")
 
-        total_steps = self._warmup_steps + n_steps
-        prices = self._build_price_path(price_series, total_steps)
+        total_required = self._warmup_steps + n_steps + 1
+        if len(price_series) < total_required:
+            raise ValueError(
+                f"price_series too short: need {total_required}, got {len(price_series)}"
+            )
 
         logger.info(
-            "Running ABM: n_agents=%d  warmup=%d  recorded_steps=%d",
+            "Running ABM on real price: n_agents=%d warmup=%d steps=%d",
             self.n_agents,
             self._warmup_steps,
             n_steps,
         )
 
-        records: list[dict] = []
-        price_history: list[float] = [prices[0]]
+        records = []
+        price_history = [price_series[0]]
 
-        for t in range(1, total_steps + 1):
-            price = float(prices[t]) if t < len(prices) else price_history[-1]
+        for t in range(1, total_required):
+            price = float(price_series[t])
             price_history.append(price)
             ph = np.array(price_history, dtype=np.float64)
 
-            # Compute crowd sentiment BEFORE agents update (uses previous step).
+            # sentiment BEFORE update
             crowd_sentiment = self._aggregate_sentiment(normalised=True)
 
-            # All agents update simultaneously (synchronous update).
             for agent in self._agents:
                 agent.update(ph, crowd_sentiment)
 
-            # Record only after warmup.
             if t > self._warmup_steps:
-                step_idx = t - self._warmup_steps - 1
+                idx = t - self._warmup_steps - 1
+
                 net_sent = self._aggregate_sentiment(normalised=False)
-                records.append(
-                    {
-                        "step": step_idx,
-                        "price": price,
-                        "net_sentiment": net_sent,
-                        "abs_sentiment": abs(net_sent),
-                        "crowd_side": int(np.sign(net_sent)),
-                        "n_long": sum(a.position == 1 for a in self._agents),
-                        "n_short": sum(a.position == -1 for a in self._agents),
-                        "n_flat": sum(a.position == 0 for a in self._agents),
-                    }
-                )
+
+                row = {
+                    "step": idx,
+                    "price": price,
+                    "net_sentiment": net_sent,
+                    "abs_sentiment": abs(net_sent),
+                    "crowd_side": int(np.sign(net_sent)),
+                    "n_long": sum(a.position == 1 for a in self._agents),
+                    "n_short": sum(a.position == -1 for a in self._agents),
+                    "n_flat": sum(a.position == 0 for a in self._agents),
+                }
+
+                if timestamps is not None:
+                    row["timestamp"] = timestamps[t]
+
+                records.append(row)
 
         df = pd.DataFrame(records)
-        logger.info("Simulation complete: %d rows recorded", len(df))
         return df
 
     # ------------------------------------------------------------------
@@ -206,33 +183,3 @@ class FXSentimentSimulation:
         if normalised:
             return float(net_fraction)
         return float(net_fraction * 100.0)
-
-    def _build_price_path(
-        self,
-        price_series: np.ndarray | None,
-        total_steps: int,
-    ) -> np.ndarray:
-        """Return a price array of length ``total_steps + 1``.
-
-        If ``price_series`` is provided it is used directly (after validation).
-        Otherwise a GBM path is generated.
-        """
-        required = total_steps + 1
-        if price_series is not None:
-            arr = np.asarray(price_series, dtype=np.float64)
-            if len(arr) < required:
-                raise ValueError(
-                    f"price_series length {len(arr)} is too short; "
-                    f"need at least {required} (warmup + n_steps + 1)"
-                )
-            return arr[:required]
-
-        # Geometric Brownian Motion
-        log_returns = self._rng.normal(
-            self._drift, self._volatility, size=total_steps
-        )
-        log_initial = np.log(self._initial_price)
-        log_prices = np.empty(total_steps + 1)
-        log_prices[0] = log_initial
-        log_prices[1:] = log_initial + log_returns.cumsum()
-        return np.exp(log_prices)

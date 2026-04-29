@@ -159,7 +159,8 @@ class TestFXSentimentSimulation:
 
     def test_output_schema(self):
         sim = self._sim()
-        df = sim.run(n_steps=50)
+        prices = np.linspace(1.0, 1.1, 200)
+        df = sim.run(n_steps=50, price_series=prices)
         expected_cols = {"step", "price", "net_sentiment", "abs_sentiment",
                          "crowd_side", "n_long", "n_short", "n_flat"}
         assert expected_cols.issubset(df.columns)
@@ -204,7 +205,8 @@ class TestFXSentimentSimulation:
     def test_agent_counts_sum_to_total(self):
         agents, rng = _make_agents(n_trend=10, n_contrarian=10, n_noise=5)
         sim = FXSentimentSimulation(agents, rng=rng, warmup_steps=5)
-        df = sim.run(n_steps=50)
+        prices = np.linspace(1.0, 1.1, 200)
+        df = sim.run(n_steps=50, price_series=prices)
         totals = df["n_long"] + df["n_short"] + df["n_flat"]
         assert (totals == sim.n_agents).all()
 

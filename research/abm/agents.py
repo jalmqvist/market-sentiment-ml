@@ -46,12 +46,12 @@ class RetailTrader:
         self,
         rng: np.random.Generator,
         crowd_weight: float = 0.0,
-        noise_scale: float = 0.1,
+        noise_scale: float = 0.0,
     ) -> None:
         self.rng = rng
         self.crowd_weight = crowd_weight
         self.noise_scale = noise_scale
-        # Initialise at a random position.
+        # Initialize at a random position.
         self.position: int = int(rng.choice([-1, 0, 1]))
 
     # ------------------------------------------------------------------
@@ -75,32 +75,26 @@ class RetailTrader:
     # ------------------------------------------------------------------
 
     def update(self, price_history: np.ndarray, crowd_sentiment: float) -> None:
-        """Update position for the current simulation step.
-
-        The agent computes a score as a weighted combination of its intrinsic
-        price signal, crowd sentiment, and Gaussian noise.  The score's sign
-        determines the new position.
-
-        Args:
-            price_history: 1-D array of past price levels (most recent last).
-                Must have at least one element.
-            crowd_sentiment: Current aggregate net sentiment, normalised to
-                [-1, +1] (fraction-long minus fraction-short).
-        """
         if len(price_history) < 2:
-            return  # not enough history yet
+            return
 
         signal = self._price_signal(price_history)
         herd = self.crowd_weight * crowd_sentiment
         noise = self.rng.normal(0.0, self.noise_scale)
 
         score = signal + herd + noise
+
+        # --- NEW: inertia ---
+        threshold = 0.2
+
+        if abs(score) < threshold:
+            # do nothing → keep position
+            return
+
         if score > 0:
             self.position = 1
-        elif score < 0:
-            self.position = -1
         else:
-            self.position = 0
+            self.position = -1
 
 
 class TrendFollower(RetailTrader):
@@ -121,7 +115,7 @@ class TrendFollower(RetailTrader):
         rng: np.random.Generator,
         momentum_window: int = 12,
         crowd_weight: float = 0.1,
-        noise_scale: float = 0.2,
+        noise_scale: float = 0.0,
     ) -> None:
         super().__init__(rng, crowd_weight=crowd_weight, noise_scale=noise_scale)
         if momentum_window < 1:
@@ -154,7 +148,7 @@ class Contrarian(RetailTrader):
         rng: np.random.Generator,
         momentum_window: int = 12,
         crowd_weight: float = -0.05,
-        noise_scale: float = 0.2,
+        noise_scale: float = 0.0,
     ) -> None:
         super().__init__(rng, crowd_weight=crowd_weight, noise_scale=noise_scale)
         if momentum_window < 1:
