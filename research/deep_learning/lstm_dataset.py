@@ -77,6 +77,7 @@ def build_sequences(
 
     all_x: list[np.ndarray] = []
     all_y: list[float] = []
+    all_t = []
 
     for pair, group in df.groupby("pair", sort=True):
         group = group.sort_values("snapshot_time")
@@ -103,6 +104,7 @@ def build_sequences(
 
             all_x.append(X_seq)
             all_y.append(y_val)
+            all_t.append(group["snapshot_time"].iloc[end])
 
     if not all_x:
         logger.warning("build_sequences produced 0 valid sequences.")
@@ -115,6 +117,12 @@ def build_sequences(
     X = np.stack(all_x, axis=0)  # (N, seq_len, n_features)
     y = np.array(all_y, dtype=np.float32)  # (N,)
 
+    t = np.array(all_t)
+    order = np.argsort(t)
+    X = X[order]
+    y = y[order]
+
+    logger.info("Sequences sorted globally by timestamp")
     logger.info(
         "build_sequences: %d sequences  shape X=%s  y=%s",
         len(y), X.shape, y.shape,
