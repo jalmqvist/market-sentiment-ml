@@ -383,20 +383,6 @@ def _make_minimal_dataset(n: int = 200, seed: int = 0) -> pd.DataFrame:
 class TestRunAbmCLI:
     """Tests for the run_abm entry-point."""
 
-    def _run(self, argv, tmp_path, dataset=None):
-        """Helper that patches _load_real_data and calls main()."""
-        from research.abm.run_abm import main
-
-        if dataset is None:
-            dataset = _make_minimal_dataset()
-
-        # Patch dataset loading so tests don't need a real data file.
-        with patch(
-            "research.abm.run_abm._load_real_data",
-            return_value=(dataset, Path("/fake/dataset.csv")),
-        ):
-            main(argv)
-
     def test_fails_without_pair(self):
         """main() must fail when --pair is missing."""
         from research.abm.run_abm import main

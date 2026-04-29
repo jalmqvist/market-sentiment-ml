@@ -242,8 +242,10 @@ def main(argv=None) -> None:
         logger.error("Total agent count is 0")
         sys.exit(1)
 
+    rng = np.random.default_rng(args.seed)
+
     agents = _build_agents(
-        rng=np.random.default_rng(args.seed),
+        rng=rng,
         n_trend=args.n_trend,
         n_contrarian=args.n_contrarian,
         n_noise=args.n_noise,
@@ -262,7 +264,7 @@ def main(argv=None) -> None:
     # Simulation
     # --------------------------------------------------------
 
-    sim = FXSentimentSimulation(agents, rng=np.random.default_rng(args.seed))
+    sim = FXSentimentSimulation(agents, rng=rng)
 
     max_steps = len(price_series) - sim._warmup_steps - 1
     if max_steps <= 0:
