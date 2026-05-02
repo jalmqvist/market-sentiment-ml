@@ -19,6 +19,7 @@ from __future__ import annotations
 # ---------------------------------------------------------------------------
 
 TARGET: str = "ret_48b"
+TARGET_CLS: str = "target_cls"
 
 # ---------------------------------------------------------------------------
 # Price features
@@ -76,6 +77,32 @@ PRICE_TREND_FEATURES: list[str] = [
 PRICE_TREND_SENTIMENT_FEATURES: list[str] = PRICE_TREND_FEATURES + SENTIMENT_FEATURES
 
 # ---------------------------------------------------------------------------
+# DL v2: price + trend + sentiment (raw + derived)
+# ---------------------------------------------------------------------------
+
+# price_trend_sentiment_v2: combines core price, trend, vol, and sentiment v2
+# features. ret_1b / ret_12b / ret_48b are forward returns already in the
+# dataset and included here for DL experiments – confirm no unintended leakage
+# relative to target_cls before use in live research.
+PRICE_TREND_SENTIMENT_V2_FEATURES: list[str] = [
+    # price (forward returns available in dataset)
+    "ret_1b",
+    "ret_12b",
+    "ret_48b",
+    # trend
+    "trend_12b",
+    "trend_vol_adj_strength",
+    "is_trending",
+    # volatility
+    "vol_12b",
+    "vol_48b",
+    # sentiment (raw + derived)
+    "sentiment",
+    "sentiment_delta_12b",
+    "sentiment_z",
+]
+
+# ---------------------------------------------------------------------------
 # Convenience groupings
 # ---------------------------------------------------------------------------
 
@@ -86,4 +113,5 @@ FEATURE_SETS: dict[str, list[str]] = {
     "price_vol_sentiment": PRICE_VOL_SENTIMENT_FEATURES,
     "price_trend": PRICE_TREND_FEATURES,
     "price_trend_sentiment": PRICE_TREND_SENTIMENT_FEATURES,
+    "price_trend_sentiment_v2": PRICE_TREND_SENTIMENT_V2_FEATURES,
 }

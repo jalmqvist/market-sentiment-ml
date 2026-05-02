@@ -35,7 +35,7 @@ import numpy as np
 import pandas as pd
 
 import config as cfg
-from research.deep_learning.feature_sets import FEATURE_SETS, TARGET
+from research.deep_learning.feature_sets import FEATURE_SETS, TARGET, TARGET_CLS
 
 logger = logging.getLogger(__name__)
 
@@ -96,12 +96,16 @@ def load_dataset(
 def get_features(
     df: pd.DataFrame,
     feature_set: FeatureSet = "price_sentiment",
+    target: Optional[str] = None,
 ) -> Tuple[np.ndarray, np.ndarray, pd.DataFrame]:
     """Extract feature matrix X, target vector y, and the cleaned DataFrame.
 
     Args:
         df:          DataFrame returned by :func:`load_dataset`.
-        feature_set: ``"price_only"`` or ``"price_sentiment"``.
+        feature_set: ``"price_only"`` or ``"price_sentiment"``, etc.
+        target:      Target column name. Defaults to ``TARGET`` (``"ret_48b"``
+                     for regression). Pass ``TARGET_CLS`` (``"target_cls"``)
+                     for classification.
 
     Returns:
         Tuple of ``(X, y, df)`` where ``X`` and ``y`` are float32 numpy arrays
@@ -110,6 +114,9 @@ def get_features(
     Raises:
         ValueError: If ``feature_set`` is not recognised or columns are missing.
     """
+    if target is None:
+        target = TARGET
+
     if feature_set not in FEATURE_SETS:
         raise ValueError(
             f"feature_set must be one of {list(FEATURE_SETS)}, got {feature_set!r}"
@@ -120,15 +127,18 @@ def get_features(
     if missing:
         raise ValueError(f"Missing feature columns in DataFrame: {missing}")
 
+    if target not in df.columns:
+        raise ValueError(f"Target column '{target}' not found in DataFrame")
+
     df = df.copy()
     df = df.replace([np.inf, -np.inf], np.nan)
-    df = df.dropna(subset=columns + [TARGET])
+    df = df.dropna(subset=columns + [target])
     df = df.reset_index(drop=True)
 
     logger.info("After cleaning: %d rows", len(df))
 
     X = df[columns].to_numpy(dtype=np.float32)
-    y = df[TARGET].to_numpy(dtype=np.float32)
+    y = df[target].to_numpy(dtype=np.float32)
 
     assert np.isfinite(X).all(), "Non-finite values in features"
     assert np.isfinite(y).all(), "Non-finite values in target"

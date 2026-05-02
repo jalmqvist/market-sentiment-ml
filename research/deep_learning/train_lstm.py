@@ -15,7 +15,7 @@ import torch.optim as optim
 from utils.logging import setup_experiment_logging
 import config as cfg
 
-from research.deep_learning.feature_sets import FEATURE_SETS
+from research.deep_learning.feature_sets import FEATURE_SETS, TARGET, TARGET_CLS
 from research.deep_learning.lstm_dataset import (
     build_sequences,
     train_test_split_sequences,
@@ -71,6 +71,12 @@ def parse_args():
         action="store_true",
         help="Disable file logging; write to stdout only",
     )
+    p.add_argument(
+        "--mode",
+        default="classification",
+        choices=["regression", "classification"],
+        help="Training mode: 'classification' (default) or 'regression'",
+    )
     return p.parse_args()
 
 
@@ -103,13 +109,7 @@ def normalize_sequences(X_train: np.ndarray, X_test: np.ndarray):
     return X_train, X_test
 
 
-def compute_metrics(y_true, y_pred):
-    """
-    Same philosophy as MLP:
-    - Sharpe from sign(prediction)
-    - hit rate
-    - mse
-    """
+def compute_regression_metrics(y_true, y_pred):
     pred_sign = np.sign(y_pred)
     pnl = pred_sign * y_true
 
@@ -121,6 +121,33 @@ def compute_metrics(y_true, y_pred):
         "sharpe": float(sharpe),
         "hit_rate": float(hit),
         "mse": float(mse),
+        "n": len(y_true),
+    }
+
+
+def compute_classification_metrics(logits, y_true):
+    from sklearn.metrics import precision_score, recall_score, f1_score
+
+    pred_labels = (logits > 0).astype(int)
+    y = y_true.astype(int)
+
+    accuracy = float((pred_labels == y).mean())
+    precision = float(precision_score(y, pred_labels, zero_division=0))
+    recall = float(recall_score(y, pred_labels, zero_division=0))
+    f1 = float(f1_score(y, pred_labels, zero_division=0))
+
+    probs = 1.0 / (1.0 + np.exp(-logits))
+    position = np.where(probs > 0.5, 1.0, -1.0)
+    ret_proxy = position * (2.0 * y_true - 1.0)
+    std = ret_proxy.std()
+    sharpe = float(ret_proxy.mean() / std) if std > 1e-12 else 0.0
+
+    return {
+        "accuracy": accuracy,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "sharpe": sharpe,
         "n": len(y_true),
     }
 
@@ -148,6 +175,9 @@ def main():
     logger.info("experiment_type=lstm")
     logger.info("cli_command: %s", " ".join(sys.argv))
     logger.info(vars(args))
+    logger.info("feature_set: %s", args.feature_set)
+    logger.info("dataset_version: %s", args.dataset_version)
+    logger.info("mode: %s", args.mode)
 
     # -----------------------------------------------------------------
     # Load dataset
@@ -198,7 +228,8 @@ def main():
         logger.info("Config snapshot: %s", log_file.with_suffix(".json"))
 
     features = FEATURE_SETS[args.feature_set]
-    target = "ret_48b"
+    is_classification = args.mode == "classification"
+    target = TARGET_CLS if is_classification else TARGET
 
     # -----------------------------------------------------------------
     # Build sequences
@@ -206,6 +237,9 @@ def main():
     X, y = build_sequences(df, features, target, args.seq_len)
 
     logger.info(f"Sequences built: X={X.shape}, y={y.shape}")
+
+    if is_classification:
+        logger.info("class_balance: %.3f", y.mean())
 
     # -----------------------------------------------------------------
     # Train/test split (chronological)
@@ -233,7 +267,10 @@ def main():
     model = LSTMModel(input_dim=input_dim, hidden_dim=args.hidden_dim)
 
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
-    loss_fn = nn.MSELoss()
+    if is_classification:
+        loss_fn = nn.BCEWithLogitsLoss()
+    else:
+        loss_fn = nn.MSELoss()
 
     # -----------------------------------------------------------------
     # Training loop
@@ -255,11 +292,15 @@ def main():
     # -----------------------------------------------------------------
     model.eval()
     with torch.no_grad():
-        train_preds = model(X_train_t).numpy()
-        test_preds = model(X_test_t).numpy()
+        train_preds = model(X_train_t).numpy().squeeze()
+        test_preds = model(X_test_t).numpy().squeeze()
 
-    train_metrics = compute_metrics(y_train, train_preds)
-    test_metrics = compute_metrics(y_test, test_preds)
+    if is_classification:
+        train_metrics = compute_classification_metrics(train_preds, y_train)
+        test_metrics = compute_classification_metrics(test_preds, y_test)
+    else:
+        train_metrics = compute_regression_metrics(y_train, train_preds)
+        test_metrics = compute_regression_metrics(y_test, test_preds)
 
     logger.info(f"train metrics: {train_metrics}")
     logger.info(f"test metrics: {test_metrics}")
@@ -274,12 +315,20 @@ def main():
     out_dir = Path(cfg.OUTPUT_DIR) / args.dataset_version / "dl"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    out_path = out_dir / f"predictions_lstm_{args.feature_set}.csv"
+    mode_suffix = f"_{args.mode}"
+    out_path = out_dir / f"predictions_lstm_{args.feature_set}{mode_suffix}.csv"
 
-    df_out = pd.DataFrame({
-        "prediction": test_preds,
-        "ret_48b": y_test,
-    })
+    if is_classification:
+        df_out = pd.DataFrame({
+            "logit": test_preds,
+            "prediction": 1.0 / (1.0 + np.exp(-test_preds)),
+            "target_cls": y_test,
+        })
+    else:
+        df_out = pd.DataFrame({
+            "prediction": test_preds,
+            "ret_48b": y_test,
+        })
 
     df_out.to_csv(out_path, index=False)
 
