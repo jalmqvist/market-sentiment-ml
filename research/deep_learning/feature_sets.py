@@ -62,6 +62,20 @@ PRICE_VOL_FEATURES: list[str] = PRICE_FEATURES + [
 PRICE_VOL_SENTIMENT_FEATURES: list[str] = PRICE_VOL_FEATURES + SENTIMENT_FEATURES
 
 # ---------------------------------------------------------------------------
+# Trend + regime features
+# ---------------------------------------------------------------------------
+
+# Volatility-adjusted trend strength and regime flags (requires vol_12b + trend_12b)
+PRICE_TREND_FEATURES: list[str] = [
+    "trend_12b",        # 12-bar past return (pct_change, already in PRICE_FEATURES)
+    "trend_strength",   # abs(trend_12b) / (vol_12b + 1e-8)
+    "is_trending",      # trend_strength > TREND_THRESHOLD
+    "is_high_vol",      # vol_12b > vol_12b.median() (per pair)
+]
+
+PRICE_TREND_SENTIMENT_FEATURES: list[str] = PRICE_TREND_FEATURES + SENTIMENT_FEATURES
+
+# ---------------------------------------------------------------------------
 # Convenience groupings
 # ---------------------------------------------------------------------------
 
@@ -70,4 +84,6 @@ FEATURE_SETS: dict[str, list[str]] = {
     "price_sentiment": PRICE_FEATURES + SENTIMENT_FEATURES,
     "price_vol": PRICE_VOL_FEATURES,
     "price_vol_sentiment": PRICE_VOL_SENTIMENT_FEATURES,
+    "price_trend": PRICE_TREND_FEATURES,
+    "price_trend_sentiment": PRICE_TREND_SENTIMENT_FEATURES,
 }
