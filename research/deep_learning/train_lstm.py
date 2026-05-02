@@ -137,8 +137,9 @@ def compute_classification_metrics(logits, y_true):
     f1 = float(f1_score(y, pred_labels, zero_division=0))
 
     probs = 1.0 / (1.0 + np.exp(-logits))
+    # Convert binary labels (0/1) to position signs (-1/+1) for Sharpe computation
     position = np.where(probs > 0.5, 1.0, -1.0)
-    ret_proxy = position * (2.0 * y_true - 1.0)
+    ret_proxy = position * (2.0 * y_true - 1.0)  # (0/1) → (-1/+1)
     std = ret_proxy.std()
     sharpe = float(ret_proxy.mean() / std) if std > 1e-12 else 0.0
 

@@ -708,9 +708,10 @@ def build_master_dataset(
     # Add forward returns BEFORE splitting, so column parity stays easier to maintain
     master_valid = add_forward_returns(master_valid, prices, horizons=horizons)
 
-    # Add simple classification target (forward-looking, no leakage vs features)
-    # Note: build_dataset.py overrides this with the vol-adjusted formula once vol_48b is available.
-    master_valid["target_cls"] = (master_valid["ret_48b"] > 0).astype("Int8")
+    # Add simple classification target (forward-looking, no leakage vs features).
+    # build_dataset.py overrides this with the vol-adjusted formula once vol_48b is available.
+    # Using plain int (not Int8) for CSV compatibility; build_dataset.py also uses int.
+    master_valid["target_cls"] = (master_valid["ret_48b"] > 0).astype(int)
 
     # Add trend features (analysis-only, uses forward returns)
     print("Trend feature columns added:",

@@ -116,11 +116,13 @@ def main():
 
     df = pd.read_csv(args.predictions)
 
-    # Build signal from logit or prediction column
+    # Build signal: logits → sign; probabilities → {-1, +1} via >0.5 threshold
     if "logit" in df.columns:
         df["signal"] = np.sign(df["logit"])
     elif "prediction" in df.columns:
-        df["signal"] = np.sign(df["prediction"])
+        # prediction may be a probability [0,1] or raw score
+        # Use >0.5 threshold so signal is always ±1 (avoids np.sign returning 1 for all probs)
+        df["signal"] = np.where(df["prediction"] > 0.5, 1.0, -1.0)
     else:
         logger.error("Predictions file must contain 'logit' or 'prediction' column")
         sys.exit(1)

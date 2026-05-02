@@ -103,8 +103,9 @@ def _compute_classification_metrics(logits: np.ndarray, targets: np.ndarray) -> 
 
     # Sharpe using sigmoid probability as position proxy
     probs = 1.0 / (1.0 + np.exp(-logits))
+    # Convert binary labels (0/1) to position signs (-1/+1) for Sharpe computation
     position = np.where(probs > 0.5, 1.0, -1.0)
-    ret_proxy = position * (2.0 * targets - 1.0)
+    ret_proxy = position * (2.0 * targets - 1.0)  # (0/1) → (-1/+1)
     std = ret_proxy.std()
     sharpe = float(ret_proxy.mean() / std) if std > 1e-12 else 0.0
 
