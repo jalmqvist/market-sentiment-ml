@@ -1,339 +1,269 @@
-from __future__ import annotations
-
 import argparse
-import json
 import logging
-import sys
 from pathlib import Path
-
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-import torch.optim as optim
 
-from utils.logging import setup_experiment_logging
-import config as cfg
-
-from research.deep_learning.feature_sets import FEATURE_SETS, TARGET, TARGET_CLS
+from research.deep_learning.dataset_loader import load_dataset
 from research.deep_learning.lstm_dataset import (
     build_sequences,
     train_test_split_sequences,
 )
-from research.deep_learning.lstm_model import LSTMModel
 
 
-logger = logging.getLogger(__name__)
+# =========================
+# Base feature sets
+# =========================
+BASE_FEATURES = {
+    "price_trend": [
+        "trend_12b",
+        "trend_vol_adj_strength",
+        "is_trending",
+        "is_high_vol",
+    ],
+}
 
 
-# ---------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------
-def _normalize_pair(pair: str) -> str:
-    """Normalize a pair string to the dataset format (e.g. 'EURUSD' → 'eur-usd')."""
-    pair = pair.strip()
-    letters = "".join(c for c in pair if c.isalpha())
-    if len(letters) == 6:
-        return f"{letters[:3].lower()}-{letters[3:].lower()}"
-    return pair.lower().replace("_", "-")
+# =========================
+# Model
+# =========================
+class LSTMModel(nn.Module):
+    def __init__(self, input_dim, hidden_dim=32):
+        super().__init__()
+        self.lstm = nn.LSTM(input_dim, hidden_dim, batch_first=True)
+        self.fc = nn.Linear(hidden_dim, 1)
+
+    def forward(self, x):
+        out, _ = self.lstm(x)
+        out = out[:, -1, :]
+        out = self.fc(out)
+        return out.squeeze()  # (N,)
 
 
-# ---------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------
-def parse_args():
-    p = argparse.ArgumentParser()
-    p.add_argument("--dataset-version", required=True)
-    p.add_argument("--feature-set", required=True)
-    p.add_argument("--seq-len", type=int, default=24)
-    p.add_argument("--epochs", type=int, default=50)
-    p.add_argument("--hidden-dim", type=int, default=32)
-    p.add_argument("--lr", type=float, default=1e-3)
-    p.add_argument("--tag", default=None, help="Log/config file tag (default: feature-set)")
-    p.add_argument(
-        "--pairs",
-        default=None,
-        help="Comma-separated list of pairs to filter, e.g. 'EURUSD,GBPUSD,NZDUSD'",
+# =========================
+# Utils
+# =========================
+def setup_logging():
+    Path("logs").mkdir(exist_ok=True)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)-8s | %(message)s",
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler(f"logs/lstm_{pd.Timestamp.now('UTC'):%Y%m%d_%H%M%S}.log")
+        ]
     )
-    p.add_argument(
-        "--regime",
-        default=None,
-        choices=["HVTF", "LVTF", "HVR", "LVR"],
-        help="Filter dataset to a single market regime (requires dataset version >= 1.3.0)",
-    )
-    p.add_argument(
-        "--log-level",
-        default="INFO",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-    )
-    p.add_argument(
-        "--no-log-file",
-        action="store_true",
-        help="Disable file logging; write to stdout only",
-    )
-    p.add_argument(
-        "--mode",
-        default="classification",
-        choices=["regression", "classification"],
-        help="Training mode: 'classification' (default) or 'regression'",
-    )
-    return p.parse_args()
 
 
-# ---------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------
-def load_dataset(version: str) -> pd.DataFrame:
-    path = Path(cfg.OUTPUT_DIR) / version / "master_research_dataset_core.csv"
-    logger.info(f"Loading dataset: {path}")
-    df = pd.read_csv(path)
-
-    if "snapshot_time" in df.columns:
-        df["snapshot_time"] = pd.to_datetime(df["snapshot_time"])
-
-    return df
+def normalize_pair(pair: str) -> str:
+    pair = pair.lower().replace("/", "").replace("_", "")
+    return pair[:3] + "-" + pair[3:]
 
 
-def normalize_sequences(X_train: np.ndarray, X_test: np.ndarray):
-    """
-    Normalize using train statistics only (no leakage).
-    """
+def normalize_sequences(X_train, X_test):
     mean = X_train.mean(axis=(0, 1), keepdims=True)
     std = X_train.std(axis=(0, 1), keepdims=True) + 1e-8
-
-    X_train = (X_train - mean) / std
-    X_test = (X_test - mean) / std
-
-    logger.info("Sequence normalization applied (train stats)")
-
-    return X_train, X_test
+    return (X_train - mean) / std, (X_test - mean) / std
 
 
-def compute_regression_metrics(y_true, y_pred):
-    pred_sign = np.sign(y_pred)
-    pnl = pred_sign * y_true
+def compute_metrics(preds, y_true):
+    preds = np.array(preds)
+    y_true = np.array(y_true)
 
+    accuracy = (preds == y_true).mean()
+
+    tp = ((preds == 1) & (y_true == 1)).sum()
+    fp = ((preds == 1) & (y_true == 0)).sum()
+    fn = ((preds == 0) & (y_true == 1)).sum()
+
+    precision = tp / (tp + fp + 1e-8)
+    recall = tp / (tp + fn + 1e-8)
+    f1 = 2 * precision * recall / (precision + recall + 1e-8)
+
+    pnl = preds * y_true
     sharpe = pnl.mean() / (pnl.std() + 1e-8)
-    hit = (np.sign(y_true) == pred_sign).mean()
-    mse = ((y_true - y_pred) ** 2).mean()
 
     return {
+        "accuracy": float(accuracy),
+        "precision": float(precision),
+        "recall": float(recall),
+        "f1": float(f1),
         "sharpe": float(sharpe),
-        "hit_rate": float(hit),
-        "mse": float(mse),
-        "n": len(y_true),
+        "n": len(preds),
     }
 
 
-def compute_classification_metrics(logits, y_true):
-    from sklearn.metrics import precision_score, recall_score, f1_score
-
-    pred_labels = (logits > 0).astype(int)
-    y = y_true.astype(int)
-
-    accuracy = float((pred_labels == y).mean())
-    precision = float(precision_score(y, pred_labels, zero_division=0))
-    recall = float(recall_score(y, pred_labels, zero_division=0))
-    f1 = float(f1_score(y, pred_labels, zero_division=0))
-
-    probs = 1.0 / (1.0 + np.exp(-logits))
-    # Convert binary labels (0/1) to position signs (-1/+1) for Sharpe computation
-    position = np.where(probs > 0.5, 1.0, -1.0)
-    ret_proxy = position * (2.0 * y_true - 1.0)  # (0/1) → (-1/+1)
-    std = ret_proxy.std()
-    sharpe = float(ret_proxy.mean() / std) if std > 1e-12 else 0.0
-
-    return {
-        "accuracy": accuracy,
-        "precision": precision,
-        "recall": recall,
-        "f1": f1,
-        "sharpe": sharpe,
-        "n": len(y_true),
-    }
-
-
-# ---------------------------------------------------------------------
-# MAIN
-# ---------------------------------------------------------------------
+# =========================
+# Main
+# =========================
 def main():
-    args = parse_args()
+    parser = argparse.ArgumentParser()
 
-    tag = args.tag if args.tag is not None else args.feature_set
+    parser.add_argument("--dataset-version", required=True)
+    parser.add_argument("--feature-set", required=True)
+    parser.add_argument("--seq-len", type=int, default=24)
+    parser.add_argument("--epochs", type=int, default=50)
+    parser.add_argument("--hidden-dim", type=int, default=32)
+    parser.add_argument("--lr", type=float, default=1e-3)
 
-    log_file = setup_experiment_logging(
-        experiment_type="lstm",
-        tag=tag,
-        log_level=args.log_level,
-        no_log_file=args.no_log_file,
-        log_dir=cfg.REPO_ROOT / "logs",
-    )
+    parser.add_argument("--pairs", type=str, default=None)
+    parser.add_argument("--regime", type=str, default=None)
 
-    if log_file is not None:
-        logger.info("Logging to %s", log_file)
+    parser.add_argument("--mode", choices=["classification", "regression"], default="classification")
 
-    logger.info("=== LSTM Training ===")
-    logger.info("experiment_type=lstm")
-    logger.info("cli_command: %s", " ".join(sys.argv))
-    logger.info(vars(args))
-    logger.info("feature_set: %s", args.feature_set)
-    logger.info("dataset_version: %s", args.dataset_version)
-    logger.info("mode: %s", args.mode)
+    args = parser.parse_args()
 
-    # -----------------------------------------------------------------
+    setup_logging()
+
+    logging.info("=== LSTM Training ===")
+    logging.info(vars(args))
+
+    # =========================
     # Load dataset
-    # -----------------------------------------------------------------
-    df = load_dataset(args.dataset_version)
+    # =========================
+    df = load_dataset(args.dataset_version, variant="core")
 
-    dataset_path = str(Path(cfg.OUTPUT_DIR) / args.dataset_version / "master_research_dataset_core.csv")
-    logger.info("dataset_path: %s", dataset_path)
-
-    # -----------------------------------------------------------------
-    # Regime-aware filtering (BEFORE sequence building)
-    # -----------------------------------------------------------------
-    rows_before_filter = len(df)
+    # =========================
+    # Filter
+    # =========================
+    rows_before = len(df)
 
     if args.pairs:
-        parsed_pairs = [_normalize_pair(p) for p in args.pairs.split(",")]
-        df = df[df["pair"].isin(parsed_pairs)].reset_index(drop=True)
+        pairs = [normalize_pair(p) for p in args.pairs.split(",")]
+        df = df[df["pair"].isin(pairs)]
 
     if args.regime:
-        df = df[df["regime"] == args.regime].reset_index(drop=True)
+        df = df[df["regime"] == args.regime]
 
-    rows_after_filter = len(df)
-    logger.info("pairs: %s", args.pairs or "all")
-    logger.info("regime: %s", args.regime or "all")
-    logger.info("rows_before_filter: %d", rows_before_filter)
-    logger.info("rows_after_filter: %d", rows_after_filter)
+    logging.info(f"rows_before_filter: {rows_before}")
+    logging.info(f"rows_after_filter: {len(df)}")
 
-    # -----------------------------------------------------------------
-    # Config snapshot
-    # -----------------------------------------------------------------
-    if log_file is not None:
-        config_payload = {
-            "experiment_type": "lstm",
-            "cli_command": " ".join(sys.argv),
-            "dataset_path": dataset_path,
-            "dataset_version": args.dataset_version,
-            "feature_set": args.feature_set,
-            "seq_len": args.seq_len,
-            "epochs": args.epochs,
-            "hidden_dim": args.hidden_dim,
-            "lr": args.lr,
-            "pairs": args.pairs,
-            "regime": args.regime,
-            "rows_before_filter": rows_before_filter,
-            "rows_after_filter": rows_after_filter,
-        }
-        log_file.with_suffix(".json").write_text(json.dumps(config_payload, indent=2))
-        logger.info("Config snapshot: %s", log_file.with_suffix(".json"))
+    if len(df) == 0:
+        raise ValueError(
+            "Filtering resulted in 0 rows. "
+            "Check pair format and regime availability."
+        )
 
-    features = FEATURE_SETS[args.feature_set]
-    is_classification = args.mode == "classification"
-    target = TARGET_CLS if is_classification else TARGET
+    # =========================
+    # Feature selection
+    # =========================
+    if args.feature_set == "price_trend":
+        features = BASE_FEATURES["price_trend"]
 
-    # -----------------------------------------------------------------
+    elif args.feature_set == "price_trend_sentiment":
+        base = BASE_FEATURES["price_trend"]
+
+        sentiment_cols = [
+            c for c in df.columns if "sentiment" in c.lower()
+        ]
+
+        if not sentiment_cols:
+            raise ValueError("No sentiment columns found in dataset")
+
+        logging.info(f"Detected sentiment features: {sentiment_cols}")
+
+        features = base + sentiment_cols
+
+    else:
+        raise ValueError(f"Unknown feature_set: {args.feature_set}")
+
+    # =========================
+    # Target
+    # =========================
+    if args.mode == "classification":
+        if "target_direction" not in df.columns:
+            logging.info("Creating target_direction from ret_48b")
+            df["target_direction"] = (df["ret_48b"] > 0).astype(int)
+        target = "target_direction"
+    else:
+        target = "ret_48b"
+
+    df = df.dropna(subset=features + [target]).copy()
+
+    # =========================
     # Build sequences
-    # -----------------------------------------------------------------
+    # =========================
     X, y = build_sequences(df, features, target, args.seq_len)
 
-    logger.info(f"Sequences built: X={X.shape}, y={y.shape}")
+    logging.info(f"Sequences built: X={X.shape}, y={y.shape}")
 
-    if is_classification:
-        logger.info("class_balance: %.3f", y.mean())
+    if args.mode == "classification":
+        logging.info(f"class_balance: {y.mean():.3f}")
 
-    # -----------------------------------------------------------------
-    # Train/test split (chronological)
-    # -----------------------------------------------------------------
+    # =========================
+    # Split
+    # =========================
     (X_train, y_train), (X_test, y_test) = train_test_split_sequences(X, y)
 
-    # -----------------------------------------------------------------
-    # Normalize (train stats only)
-    # -----------------------------------------------------------------
+    # =========================
+    # Normalize
+    # =========================
     X_train, X_test = normalize_sequences(X_train, X_test)
 
-    # -----------------------------------------------------------------
-    # Convert to torch
-    # -----------------------------------------------------------------
+    # =========================
+    # Tensors
+    # =========================
     X_train_t = torch.tensor(X_train, dtype=torch.float32)
-    y_train_t = torch.tensor(y_train, dtype=torch.float32)
-
     X_test_t = torch.tensor(X_test, dtype=torch.float32)
-    y_test_t = torch.tensor(y_test, dtype=torch.float32)
 
-    # -----------------------------------------------------------------
+    y_train_t = torch.tensor(y_train, dtype=torch.float32).view(-1)
+    y_test_t = torch.tensor(y_test, dtype=torch.float32).view(-1)
+
+    # =========================
     # Model
-    # -----------------------------------------------------------------
-    input_dim = X_train.shape[2]
-    model = LSTMModel(input_dim=input_dim, hidden_dim=args.hidden_dim)
+    # =========================
+    model = LSTMModel(input_dim=X.shape[2], hidden_dim=args.hidden_dim)
 
-    optimizer = optim.Adam(model.parameters(), lr=args.lr)
-    if is_classification:
-        loss_fn = nn.BCEWithLogitsLoss()
-    else:
-        loss_fn = nn.MSELoss()
+    loss_fn = nn.BCEWithLogitsLoss() if args.mode == "classification" else nn.MSELoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
-    # -----------------------------------------------------------------
-    # Training loop
-    # -----------------------------------------------------------------
+    # =========================
+    # Training
+    # =========================
     for epoch in range(1, args.epochs + 1):
         model.train()
 
         optimizer.zero_grad()
+
         preds = model(X_train_t)
         loss = loss_fn(preds, y_train_t)
+
         loss.backward()
         optimizer.step()
 
         if epoch % 5 == 0:
-            logger.info(f"epoch {epoch}/{args.epochs} loss={loss.item():.6f}")
+            logging.info(f"epoch {epoch}/{args.epochs} loss={loss.item():.6f}")
 
-    # -----------------------------------------------------------------
+    # =========================
     # Evaluation
-    # -----------------------------------------------------------------
+    # =========================
     model.eval()
+
     with torch.no_grad():
-        train_preds = model(X_train_t).numpy().squeeze()
-        test_preds = model(X_test_t).numpy().squeeze()
+        train_preds = model(X_train_t).numpy()
+        test_preds = model(X_test_t).numpy()
 
-    if is_classification:
-        train_metrics = compute_classification_metrics(train_preds, y_train)
-        test_metrics = compute_classification_metrics(test_preds, y_test)
+    if args.mode == "classification":
+        train_probs = torch.sigmoid(torch.tensor(train_preds)).numpy()
+        test_probs = torch.sigmoid(torch.tensor(test_preds)).numpy()
+
+        train_preds_bin = (train_probs > 0.5).astype(int)
+        test_preds_bin = (test_probs > 0.5).astype(int)
+
+        train_metrics = compute_metrics(train_preds_bin, y_train)
+        test_metrics = compute_metrics(test_preds_bin, y_test)
     else:
-        train_metrics = compute_regression_metrics(y_train, train_preds)
-        test_metrics = compute_regression_metrics(y_test, test_preds)
+        train_metrics = compute_metrics(train_preds, y_train)
+        test_metrics = compute_metrics(test_preds, y_test)
 
-    logger.info(f"train metrics: {train_metrics}")
-    logger.info(f"test metrics: {test_metrics}")
+    logging.info(f"train metrics: {train_metrics}")
+    logging.info(f"test metrics: {test_metrics}")
 
     print("\n=== Test metrics ===")
     for k, v in test_metrics.items():
         print(f"{k}: {v}")
-
-    # -----------------------------------------------------------------
-    # Save predictions
-    # -----------------------------------------------------------------
-    out_dir = Path(cfg.OUTPUT_DIR) / args.dataset_version / "dl"
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    mode_suffix = f"_{args.mode}"
-    out_path = out_dir / f"predictions_lstm_{args.feature_set}{mode_suffix}.csv"
-
-    if is_classification:
-        df_out = pd.DataFrame({
-            "logit": test_preds,
-            "prediction": 1.0 / (1.0 + np.exp(-test_preds)),
-            "target_cls": y_test,
-        })
-    else:
-        df_out = pd.DataFrame({
-            "prediction": test_preds,
-            "ret_48b": y_test,
-        })
-
-    df_out.to_csv(out_path, index=False)
-
-    logger.info(f"Saved predictions → {out_path}")
 
 
 if __name__ == "__main__":

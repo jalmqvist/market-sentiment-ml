@@ -58,19 +58,21 @@ def _normalize_pair(pair: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _train(model, X_train, y_train, epochs, lr, criterion):
-    optimizer = optim.Adam(model.parameters(), lr=lr)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
-    model.train()
     for epoch in range(1, epochs + 1):
+        model.train()
+
         optimizer.zero_grad()
-        preds = model(X_train)
-        loss = criterion(preds, y_train)
+
+        preds = model(X_train).squeeze()   # 🔥 ensure (N,)
+        loss = criterion(preds, y_train)   # y_train must also be (N,)
+
         loss.backward()
         optimizer.step()
 
-        if epoch % max(1, epochs // 10) == 0 or epoch == epochs:
-            logger.info("epoch %d/%d  loss=%.6f", epoch, epochs, loss.item())
-
+        if epoch % 5 == 0:
+            logging.info(f"epoch {epoch}/{epochs} loss={loss.item():.6f}")
 
 def _compute_regression_metrics(predictions: np.ndarray, targets: np.ndarray) -> dict:
     position = np.sign(predictions)
@@ -223,6 +225,10 @@ def main():
 
     X_train_t, y_train_t = to_tensors(X_train, y_train)
     X_test_t, y_test_t = to_tensors(X_test, y_test)
+
+    if is_classification:
+        y_train_t = y_train_t.view(-1)  # flatten
+        y_test_t = y_test_t.view(-1)
 
     # ------------------------------------------------------------------
     # Loss function

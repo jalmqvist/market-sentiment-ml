@@ -85,17 +85,21 @@ PRICE_TREND_SENTIMENT_FEATURES: list[str] = PRICE_TREND_FEATURES + SENTIMENT_FEA
 # dataset and included here for DL experiments – confirm no unintended leakage
 # relative to target_cls before use in live research.
 PRICE_TREND_SENTIMENT_V2_FEATURES: list[str] = [
-    # price (forward returns available in dataset)
-    "ret_1b",
-    "ret_12b",
-    "ret_48b",
-    # trend
+    # price (causal only)
     "trend_12b",
-    "trend_vol_adj_strength",
-    "is_trending",
+    "trend_48b",
+    "trend_dir_12b",
+    "trend_strength_12b",
+
     # volatility
     "vol_12b",
     "vol_48b",
+
+    # regime
+    "trend_vol_adj_strength",
+    "is_trending",
+    "is_high_vol",
+
     # sentiment (raw + derived)
     "sentiment",
     "sentiment_delta_12b",

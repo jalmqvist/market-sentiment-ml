@@ -949,7 +949,7 @@ def add_sentiment_v2_features(df: pd.DataFrame) -> pd.DataFrame:
 
     # Extreme sentiment flag (net_sentiment is in percent units, e.g. 60–100)
     out["sentiment_extreme"] = (
-        (out["net_sentiment"] > 80) | (out["net_sentiment"] < 20)
+        (out["abs_sentiment"] > 80)
     ).astype(int)
 
     return out
