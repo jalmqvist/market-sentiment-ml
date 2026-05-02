@@ -35,7 +35,6 @@ from research.deep_learning.dataset_loader import (
     to_tensors,
     train_test_split,
 )
-from research.deep_learning.feature_sets import TARGET, TARGET_CLS
 from research.deep_learning.model import MLP
 
 logger = logging.getLogger(__name__)
@@ -144,6 +143,9 @@ def main():
         choices=["regression", "classification"],
         help="Training mode: 'classification' (default) or 'regression'",
     )
+    parser.add_argument("--target-horizon", type=int, default=24)
+    parser.add_argument("--label-quantile", type=float, default=0.6)
+    parser.add_argument("--label-mode", type=str, default="sign", choices=["sign", "threshold"])
     args = parser.parse_args()
 
     tag = args.tag if args.tag else args.feature_set
@@ -164,6 +166,11 @@ def main():
     logger.info("feature_set: %s", args.feature_set)
     logger.info("dataset_version: %s", args.dataset_version)
     logger.info("mode: %s", args.mode)
+    logger.info({
+        "target_horizon": args.target_horizon,
+        "label_mode": args.label_mode,
+        "label_quantile": args.label_quantile,
+    })
 
     torch.manual_seed(42)
     np.random.seed(42)
@@ -202,12 +209,30 @@ def main():
     # Features
     # ------------------------------------------------------------------
     is_classification = args.mode == "classification"
-    target = TARGET_CLS if is_classification else TARGET
 
-    X, y, df_clean = get_features(df, args.feature_set, target=target)
+    target = f"ret_{args.target_horizon}b"
+    if target not in df.columns:
+        raise ValueError(f"Missing target column: {target}")
 
     if is_classification:
-        logger.info("class_balance: %.3f", y.mean())
+        if args.label_mode == "sign":
+            df["target_direction"] = (df[target] > 0).astype(int)
+        elif args.label_mode == "threshold":
+            q = df[target].abs().quantile(args.label_quantile)
+            df["target_direction"] = np.nan
+            df.loc[df[target] > q, "target_direction"] = 1
+            df.loc[df[target] < -q, "target_direction"] = 0
+            before = len(df)
+            df = df.dropna(subset=["target_direction"])
+            after = len(df)
+            logger.info(f"label_threshold: {q:.6f}")
+            logger.info(f"rows_after_label_filter: {after} (dropped {before - after})")
+        logger.info(f"class_balance: {df['target_direction'].mean():.3f}")
+        target_col = "target_direction"
+    else:
+        target_col = target
+
+    X, y, df_clean = get_features(df, args.feature_set, target=target_col)
 
     (X_train, y_train), (X_test, y_test) = train_test_split(X, y, df_clean)
 
