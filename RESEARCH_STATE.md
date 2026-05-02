@@ -30,6 +30,103 @@ This holds across:
 
 ------
 
+## Agent-Based Modeling (ABM)
+
+### Objective
+
+Identify the minimal set of behavioral rules required to reproduce the statistical
+properties of retail FX sentiment.
+
+---
+
+### Empirical Targets
+
+The ABM is evaluated against:
+
+- mean absolute sentiment (|S|)
+- standard deviation
+- autocorrelation
+- frequency of extreme regimes
+
+No predictive objective is used.
+
+---
+
+### Working Model
+
+The following mechanisms are jointly sufficient:
+
+- **Position accumulation**  
+  Agents increase position size when aligned with price signal.
+
+- **Inertia (anchoring)**  
+  Agents resist switching positions.
+
+- **Asymmetric reinforcement**  
+  Agents strengthen positions when aligned with price.
+
+The system operates without:
+
+- decay
+- forced release
+- explicit equilibrium mechanisms
+
+---
+
+### Observed Dynamics
+
+The model exhibits:
+
+- strong persistence (high autocorrelation)
+- clustered sentiment regimes
+- heavy-tailed positioning
+- non-mean-reverting behavior
+
+The system is **path-dependent**.
+
+---
+
+### Stability Properties
+
+The ABM displays phase-transition behavior:
+
+- narrow parameter regime → stable, realistic output
+- outside regime → saturation or collapse
+
+This indicates sensitivity to behavioral balance rather than parameter tuning.
+
+---
+
+### Interpretation
+
+The results imply:
+
+- sentiment is driven by **position accumulation dynamics**
+- there is no strong endogenous mechanism enforcing reversion
+- crowd imbalance can persist without correction
+
+---
+
+### Relationship to Predictive Results
+
+This explains earlier findings:
+
+- sentiment contains no predictive signal
+- sentiment does not improve price-based models
+
+Because:
+
+> sentiment encodes **current positioning state**, not future returns
+
+---
+
+### Status
+
+- EUR/USD: validated (structural match achieved)
+- Other pairs: not yet tested
+
+---
+
 ## Deep Learning (LSTM)
 
 Sequence models were tested to evaluate whether temporal dependencies
@@ -152,7 +249,7 @@ E[r_{t+1} | P_t, S_t] \approx E[r_{t+1} | P_t]
 
 Likely explanation:
 
-- sentiment reflects price dynamics
+- sentiment reflects accumulated trader positioning responding to price dynamics
 - but does not lead them
 - and may introduce noise when used directly
 

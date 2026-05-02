@@ -58,6 +58,7 @@ class RetailTrader:
         self.crowd_weight = crowd_weight
         self.noise_scale = noise_scale
         # Initialize at a random position.
+        # start small, but allow accumulation later
         self.position: int = int(rng.choice([-1, 0, 1]))
 
     # ------------------------------------------------------------------
@@ -85,19 +86,69 @@ class RetailTrader:
             return
 
         signal = np.tanh(_SIGNAL_AMPLIFICATION * self._price_signal(price_history))
-        herd = self.crowd_weight * crowd_sentiment
+        # amplify crowd influence nonlinearly
+        herd = self.crowd_weight * np.tanh(3 * crowd_sentiment)
         noise = self.rng.normal(0.0, self.noise_scale)
         persistence = _PERSISTENCE_WEIGHT * self.position
 
         score = signal + herd + noise + persistence
 
+
+        # --- asymmetric behavior: hold losers, reinforce winners ---
+
+        if self.position != 0:
+            # Case 1: losing → resist change (hope)
+            if np.sign(score) != self.position:
+                if self.rng.random() < 0.7:
+                    return
+
+            # Case 2: winning → reinforce conviction
+            else:
+                score += 3.0 * self.position
+
+        # --- anchoring parameters (module-level tuning knobs) ---
+        _ANCHOR_STRENGTH = 2.0  # how strongly agents resist flipping
+        _SWITCH_BASE_PROB = 1.0  # baseline probability of switching
+
+        # If signal is too weak → do nothing
         if abs(score) < _INERTIA_THRESHOLD:
             return
 
-        if score > 0:
-            self.position = 1
-        else:
-            self.position = -1
+
+        direction = 1 if score > 0 else -1
+
+        # If flat → enter immediately (no anchoring yet)
+        if self.position == 0:
+            if self.rng.random() < 0.7:
+                self.position = direction
+            else:
+                self.position = -direction
+            return
+
+        # --- accumulation: add to winning positions ---
+        if np.sign(self.position) == direction:
+            # increase conviction (bounded)
+            if abs(self.position) < 5:
+                self.position += direction
+            return
+
+        # --- anchoring (this is the key change) ---
+        # Existing position creates resistance to switching
+        anchor_bias = _ANCHOR_STRENGTH * self.position
+
+        # Adjust switching score
+        switch_score = score - anchor_bias
+
+        # Convert to probability via logistic function
+        switch_prob = 1.0 / (1.0 + np.exp(-switch_score))
+
+        # Damp switching overall
+        switch_prob *= _SWITCH_BASE_PROB
+
+        # Probabilistic switch
+        if self.rng.random() < switch_prob:
+            # flip direction but reduce magnitude (not full reset)
+            self.position = direction
 
 
 class TrendFollower(RetailTrader):

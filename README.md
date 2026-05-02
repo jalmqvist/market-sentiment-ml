@@ -31,6 +31,73 @@ This is a meaningful and informative research outcome. The project now focuses o
 
 ------
 
+### Agent-Based Modeling — Behavioral Interpretation
+
+The project introduced an agent-based model (ABM) to understand how retail
+sentiment structure emerges, independent of prediction.
+
+The goal was not to forecast returns, but to answer:
+
+> What kind of trader behavior produces the sentiment we observe?
+
+---
+
+### Key Insight
+
+Retail sentiment behaves as a **path-dependent accumulation process**.
+
+A minimal behavioral system reproduces real-world sentiment when:
+
+- traders gradually build positions over time
+- traders resist changing positions once entered
+- traders reinforce positions when aligned with price
+
+Under these conditions, the model generates:
+
+- persistent crowd imbalance
+- clustered sentiment regimes
+- realistic magnitude of positioning
+
+Crucially, this happens **without producing any predictive signal**.
+
+---
+
+### Interpretation
+
+This provides a structural explanation for earlier results:
+
+- sentiment has no standalone predictive power
+- sentiment does not improve price-based signals
+- nonlinear and temporal models fail to extract signal
+
+Because:
+
+> sentiment reflects **accumulated positioning**, not forward expectations
+
+---
+
+### Implication
+
+Retail sentiment should not be treated as an alpha signal.
+
+Instead, it is better understood as:
+
+> a **state variable of market positioning**
+
+This reframes the problem:
+
+- from prediction → to structural understanding
+- from signal extraction → to behavioral modeling
+
+---
+
+### Current Status
+
+- Single-pair validation (EUR/USD): complete
+- Multi-pair validation: in progress
+
+---
+
 ## Deep Learning Experiments (MLP)
 
 A series of controlled deep learning experiments were conducted to test whether nonlinear models can extract predictive signal from sentiment.
@@ -75,7 +142,7 @@ This reinforces earlier findings:
 
 Sentiment likely:
 
-- reflects price dynamics
+- reflects accumulated positioning driven by price dynamics
 - reacts to market conditions
 - does not lead price in a predictive way
 
