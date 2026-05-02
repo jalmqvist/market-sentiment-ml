@@ -146,7 +146,7 @@ def main(argv=None) -> None:
                 manifest = json.load(f)
 
             manifest["features_added"] = {
-                "version": "1.3.0",
+                "version": version,
                 "volatility": ["vol_12b", "vol_48b"],
                 "trend": ["trend_strength"],
                 "regime_flags": ["is_trending", "is_high_vol"],
