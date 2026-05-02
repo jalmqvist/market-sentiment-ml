@@ -708,6 +708,11 @@ def build_master_dataset(
     # Add forward returns BEFORE splitting, so column parity stays easier to maintain
     master_valid = add_forward_returns(master_valid, prices, horizons=horizons)
 
+    # Add simple classification target (forward-looking, no leakage vs features).
+    # build_dataset.py overrides this with the vol-adjusted formula once vol_48b is available.
+    # Using plain int (not Int8) for CSV compatibility; build_dataset.py also uses int.
+    master_valid["target_cls"] = (master_valid["ret_48b"] > 0).astype(int)
+
     # Add trend features (analysis-only, uses forward returns)
     print("Trend feature columns added:",
           [c for c in master_valid.columns if c.startswith("trend_")][:5])
@@ -715,6 +720,7 @@ def build_master_dataset(
     # Stable sentiment side fields
     master_valid = add_crowd_side(master_valid)
     master_valid = add_trend_features(master_valid)
+    master_valid = add_sentiment_v2_features(master_valid)
 
     # ============================================
     # Crowd persistence feature (behavioral regime)
@@ -910,6 +916,44 @@ if __name__ == "__main__":
         horizons=HORIZONS,
         version=DEFAULT_VERSION,
     )
+
+# ============================================================
+# SENTIMENT V2 FEATURES (momentum, z-score, extreme flag)
+# ============================================================
+
+
+def add_sentiment_v2_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Add sentiment momentum, z-score, and extreme flag features.
+
+    Requires 'net_sentiment' and 'pair' columns. All features are
+    causal (backward-looking only).
+    """
+    out = df.copy()
+    out = out.sort_values(["pair", "snapshot_time"]).reset_index(drop=True)
+
+    # Sentiment alias (used in feature sets and derived features)
+    out["sentiment"] = out["net_sentiment"]
+
+    # Momentum: 12-bar change in sentiment
+    out["sentiment_delta_12b"] = out.groupby("pair")["sentiment"].diff(12)
+
+    # Z-score: rolling 100-bar mean/std per pair
+    roll_mean = out.groupby("pair")["sentiment"].transform(
+        lambda x: x.rolling(100, min_periods=1).mean()
+    )
+    roll_std = out.groupby("pair")["sentiment"].transform(
+        lambda x: x.rolling(100, min_periods=1).std()
+    )
+    out["sentiment_z"] = (out["sentiment"] - roll_mean) / (roll_std + 1e-8)
+
+    # Extreme sentiment flag (net_sentiment is in percent units, e.g. 60–100)
+    out["sentiment_extreme"] = (
+        (out["net_sentiment"] > 80) | (out["net_sentiment"] < 20)
+    ).astype(int)
+
+    return out
+
 
 # ============================================================
 # REGIME FEATURES (ABM-aligned, strictly causal)
