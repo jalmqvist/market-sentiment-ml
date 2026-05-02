@@ -9,7 +9,7 @@ Runs a grid search over three axes:
     - inertia_thresholds:   _INERTIA_THRESHOLD injected into agents.py
 
 Results are sorted by score (ascending, lower is better) and saved to
-``logs/abm_sweep_{timestamp}.csv``.
+``logs/abm_sweep_{pair}_{version}_{timestamp}.csv``.
 
 Usage::
 
@@ -22,6 +22,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 from datetime import datetime, timezone
@@ -34,6 +35,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 import config as cfg
+from utils.logging import setup_experiment_logging
 from research.abm import agents as agents_module
 from research.abm.calibration import calibrate_from_dataset, compare_to_data
 from research.abm.run_abm import _build_agents, _load_real_data
@@ -65,6 +67,7 @@ def run_sweep(
     n_steps: int,
     seed: int = 42,
     momentum_window: int = 12,
+    seed_base: int | None = None,
 ) -> pd.DataFrame:
     """Run parameter sweep and return results sorted by score ascending.
 
@@ -72,17 +75,20 @@ def run_sweep(
         df: Full dataset DataFrame (as returned by :func:`run_abm._load_real_data`).
         pair: FX pair to simulate (e.g. ``"eur-usd"``).
         n_steps: Maximum number of simulation steps per run.
-        seed: Random seed for reproducibility.
+        seed: Random seed for reproducibility (used when *seed_base* is ``None``).
         momentum_window: Momentum window passed to trend/contrarian agents.
+        seed_base: When provided, each run uses ``seed_base + run_index`` as its
+            seed instead of the fixed *seed*.
 
     Returns:
         DataFrame with one row per parameter combination, sorted by ``score``
         ascending.  Columns: ``trend_ratio``, ``persistence``, ``threshold``,
-        ``score``, ``std_diff``, ``autocorr_diff``.
+        ``score``, ``std_diff``, ``autocorr_diff``, ``abs_mean_diff``,
+        ``extreme_diff``.
     """
     _result_columns = [
         "trend_ratio", "persistence", "threshold",
-        "score", "std_diff", "autocorr_diff",
+        "score", "std_diff", "autocorr_diff", "abs_mean_diff", "extreme_diff",
     ]
 
     # Compute calibration targets once — reused for all runs
@@ -101,16 +107,17 @@ def run_sweep(
     results: list[dict] = []
 
     try:
-        for trend_ratio, persistence, threshold in product(
+        for run_index, (trend_ratio, persistence, threshold) in enumerate(product(
             _TREND_RATIOS, _PERSISTENCE_WEIGHTS, _INERTIA_THRESHOLDS
-        ):
+        )):
             agents_module._PERSISTENCE_WEIGHT = persistence
             agents_module._INERTIA_THRESHOLD = threshold
 
             n_trend = int(round(trend_ratio * _N_NON_NOISE))
             n_contrarian = _N_NON_NOISE - n_trend
 
-            rng = np.random.default_rng(seed)
+            run_seed = (seed_base + run_index) if seed_base is not None else seed
+            rng = np.random.default_rng(run_seed)
             agents = _build_agents(rng, n_trend, n_contrarian, _N_NOISE, momentum_window)
 
             sim = FXSentimentSimulation(agents, rng=rng)
@@ -145,6 +152,8 @@ def run_sweep(
                     "score": score,
                     "std_diff": extract_metric(comparison, "std"),
                     "autocorr_diff": extract_metric(comparison, "autocorr"),
+                    "abs_mean_diff": extract_metric(comparison, "abs_mean"),
+                    "extreme_diff": extract_metric(comparison, "extreme_freq"),
                 })
 
                 logger.info(
@@ -192,11 +201,18 @@ def _parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--pair", required=True, help="FX pair (e.g. 'eur-usd')")
     p.add_argument("--steps", type=int, default=500)
     p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--seed-base", type=int, default=None,
+                   help="When set, each run uses seed_base + run_index as its seed")
     p.add_argument("--momentum-window", type=int, default=12)
     p.add_argument(
         "--log-level",
         default=cfg.LOG_LEVEL,
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+    )
+    p.add_argument(
+        "--no-log-file",
+        action="store_true",
+        help="Disable file logging; write to stdout only",
     )
     return p.parse_args(argv)
 
@@ -204,20 +220,51 @@ def _parse_args(argv=None) -> argparse.Namespace:
 def main(argv=None) -> None:
     args = _parse_args(argv)
 
-    logging.basicConfig(
-        stream=sys.stdout,
-        level=getattr(logging, args.log_level.upper(), logging.INFO),
-        format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
-        datefmt="%Y-%m-%dT%H:%M:%S",
+    pair = args.pair
+
+    log_file = setup_experiment_logging(
+        experiment_type="abm",
+        tag=f"sweep-{pair}",
+        log_level=args.log_level,
+        no_log_file=args.no_log_file,
+        log_dir=cfg.REPO_ROOT / "logs",
     )
 
+    # Derive shared timestamp from the log filename so all outputs are aligned
+    if log_file is not None:
+        timestamp = log_file.stem.rsplit("_", 1)[-1]
+        logging.getLogger().info("Logging to %s", log_file)
+    else:
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
     logger.info("=== ABM Parameter Sweep ===")
+    logger.info("cli_command: %s", " ".join(sys.argv))
     logger.info(
         "pair=%s version=%s steps=%d seed=%d momentum_window=%d",
         args.pair, args.version, args.steps, args.seed, args.momentum_window,
     )
 
-    df, _ = _load_real_data(args.version, args.variant)
+    df, dataset_path = _load_real_data(args.version, args.variant)
+
+    # Write config snapshot alongside the log file
+    if log_file is not None:
+        config_payload = {
+            "experiment_type": "abm_sweep",
+            "cli_command": " ".join(sys.argv),
+            "dataset_path": str(dataset_path),
+            "dataset_version": args.version,
+            "pair": args.pair,
+            "steps": args.steps,
+            "seed": args.seed,
+            "seed_base": args.seed_base,
+            "momentum_window": args.momentum_window,
+            "trend_ratios": _TREND_RATIOS,
+            "persistence_weights": _PERSISTENCE_WEIGHTS,
+            "inertia_thresholds": _INERTIA_THRESHOLDS,
+        }
+        config_file = log_file.with_suffix(".json")
+        config_file.write_text(json.dumps(config_payload, indent=2))
+        logger.info("Config snapshot: %s", config_file)
 
     result_df = run_sweep(
         df=df,
@@ -225,12 +272,12 @@ def main(argv=None) -> None:
         n_steps=args.steps,
         seed=args.seed,
         momentum_window=args.momentum_window,
+        seed_base=args.seed_base,
     )
 
     log_dir = cfg.REPO_ROOT / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    out_path = log_dir / f"abm_sweep_{timestamp}.csv"
+    out_path = log_dir / f"abm_sweep_{pair}_{args.version}_{timestamp}.csv"
 
     result_df.to_csv(out_path, index=False)
     logger.info("Sweep results saved: %s  rows=%d", out_path, len(result_df))
