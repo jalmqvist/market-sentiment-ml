@@ -63,6 +63,45 @@ applied to validation/test sets. No leakage from future bars.
 
 ---
 
+## Reproducibility
+
+Every LSTM training run writes two files to `logs/`:
+
+### Log file naming
+
+```
+logs/lstm_{tag}_{timestamp}.log
+```
+
+Example: `logs/lstm_sequence-v1_20260502T123000Z.log`
+
+The tag defaults to the `--feature-set` value and can be overridden with `--tag`.
+
+### Config JSON
+
+```
+logs/lstm_{tag}_{timestamp}.json
+```
+
+The JSON snapshot includes `experiment_type`, `dataset_path`, `dataset_version`,
+`cli_command` (exact command used), and all hyperparameters.
+
+### Re-running an experiment
+
+Retrieve the exact command from the JSON snapshot:
+
+```bash
+cat logs/lstm_sequence-v1_20260502T123000Z.json | python -c "import json,sys; print(json.load(sys.stdin)['cli_command'])"
+```
+
+Then paste and run the printed command, for example:
+
+```bash
+python research/deep_learning/train_lstm.py --dataset-version 1.1.0 --feature-set price_only --seq-len 24 --epochs 50
+```
+
+---
+
 ## Conclusion
 
 LSTM models do not find predictive temporal structure in retail FX sentiment

@@ -5,7 +5,6 @@ import argparse
 import json
 import logging
 import sys
-from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -15,40 +14,15 @@ import torch.nn as nn
 import torch.optim as optim
 
 # ---------------------------------------------------------------------------
-# Logging
-# ---------------------------------------------------------------------------
-
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-
-
-def _setup_logging() -> None:
-    log_dir = _REPO_ROOT / "logs"
-    log_dir.mkdir(exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = log_dir / f"dl_{ts}.log"
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)-8s | %(message)s",
-        handlers=[logging.FileHandler(log_file)],
-    )
-    print(f"Logging to: {log_file}", flush=True)
-
-
-_setup_logging()
-logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Reproducibility
-# ---------------------------------------------------------------------------
-
-torch.manual_seed(42)
-np.random.seed(42)
-
-# ---------------------------------------------------------------------------
 # Imports
 # ---------------------------------------------------------------------------
 
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+import config as cfg
+from utils.logging import setup_experiment_logging
 from research.deep_learning.dataset_loader import (
     get_features,
     load_dataset,
@@ -56,6 +30,8 @@ from research.deep_learning.dataset_loader import (
     train_test_split,
 )
 from research.deep_learning.model import MLP
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -110,13 +86,64 @@ def main():
     parser.add_argument("--hidden-dim", type=int, default=32)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--variant", default="core")
+    parser.add_argument("--tag", default=None, help="Log/config file tag (default: feature-set)")
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+    )
+    parser.add_argument(
+        "--no-log-file",
+        action="store_true",
+        help="Disable file logging; write to stdout only",
+    )
     args = parser.parse_args()
 
-    logger.info("=== DL Training ===")
+    tag = args.tag if args.tag is not None else args.feature_set
+
+    log_file = setup_experiment_logging(
+        experiment_type="mlp",
+        tag=tag,
+        log_level=args.log_level,
+        no_log_file=args.no_log_file,
+        log_dir=cfg.REPO_ROOT / "logs",
+    )
+
+    if log_file is not None:
+        logger.info("Logging to %s", log_file)
+
+    logger.info("=== MLP Training ===")
+    logger.info("experiment_type=mlp")
+    logger.info("cli_command: %s", " ".join(sys.argv))
     logger.info(vars(args))
+
+    # Reproducibility
+    torch.manual_seed(42)
+    np.random.seed(42)
 
     # Load
     df = load_dataset(args.dataset_version, variant=args.variant)
+
+    suffix = "" if args.variant == "full" else f"_{args.variant}"
+    dataset_path = str(cfg.OUTPUT_DIR / args.dataset_version / f"master_research_dataset{suffix}.csv")
+    logger.info("dataset_path: %s", dataset_path)
+
+    # Config snapshot
+    if log_file is not None:
+        config_payload = {
+            "experiment_type": "mlp",
+            "cli_command": " ".join(sys.argv),
+            "dataset_path": dataset_path,
+            "dataset_version": args.dataset_version,
+            "feature_set": args.feature_set,
+            "epochs": args.epochs,
+            "hidden_dim": args.hidden_dim,
+            "lr": args.lr,
+            "variant": args.variant,
+        }
+        log_file.with_suffix(".json").write_text(json.dumps(config_payload, indent=2))
+        logger.info("Config snapshot: %s", log_file.with_suffix(".json"))
+
     X, y, df_clean = get_features(df, args.feature_set)
 
     (X_train, y_train), (X_test, y_test) = train_test_split(X, y, df_clean)

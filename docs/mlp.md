@@ -57,6 +57,45 @@ Regime-conditioned variants additionally included:
 
 ---
 
+## Reproducibility
+
+Every MLP training run writes two files to `logs/`:
+
+### Log file naming
+
+```
+logs/mlp_{tag}_{timestamp}.log
+```
+
+Example: `logs/mlp_price_sentiment_20260502T121500Z.log`
+
+The tag defaults to the `--feature-set` value and can be overridden with `--tag`.
+
+### Config JSON
+
+```
+logs/mlp_{tag}_{timestamp}.json
+```
+
+The JSON snapshot includes `experiment_type`, `dataset_path`, `dataset_version`,
+`cli_command` (exact command used), and all hyperparameters.
+
+### Re-running an experiment
+
+Retrieve the exact command from the JSON snapshot:
+
+```bash
+cat logs/mlp_price_sentiment_20260502T121500Z.json | python -c "import json,sys; print(json.load(sys.stdin)['cli_command'])"
+```
+
+Then paste and run the printed command, for example:
+
+```bash
+python research/deep_learning/train.py --dataset-version 1.1.0 --feature-set price_sentiment --epochs 50
+```
+
+---
+
 ## Conclusion
 
 MLPs do not extract predictive signal from retail FX sentiment features under

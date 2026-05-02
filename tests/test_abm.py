@@ -434,11 +434,12 @@ class TestRunAbmCLI:
                     "--seed", "0",
                 ])
 
-        json_files = list((tmp_path / "logs").glob("abm_eur-usd_1.0.0_*.json"))
+        json_files = list((tmp_path / "logs").glob("abm_eur-usd_*.json"))
         assert len(json_files) == 1, "Expected exactly one JSON config snapshot"
 
         payload = json.loads(json_files[0].read_text())
-        for key in ("version", "variant", "pair", "seed", "steps",
+        for key in ("experiment_type", "cli_command", "dataset_path", "dataset_version",
+                    "variant", "pair", "seed", "steps",
                     "n_trend", "n_contrarian", "n_noise", "momentum_window"):
             assert key in payload, f"Config JSON missing key: {key}"
 
@@ -461,7 +462,7 @@ class TestRunAbmCLI:
                     "--steps", "10",
                 ])
 
-        log_files = list((tmp_path / "logs").glob("abm_eur-usd_1.0.0_*.log"))
+        log_files = list((tmp_path / "logs").glob("abm_eur-usd_*.log"))
         assert len(log_files) == 1, "Expected exactly one log file"
 
     def test_no_log_file_flag(self, tmp_path):
