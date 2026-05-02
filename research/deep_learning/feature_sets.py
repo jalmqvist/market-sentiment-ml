@@ -68,7 +68,7 @@ PRICE_VOL_SENTIMENT_FEATURES: list[str] = PRICE_VOL_FEATURES + SENTIMENT_FEATURE
 # Volatility-adjusted trend strength and regime flags (requires vol_12b + trend_12b)
 PRICE_TREND_FEATURES: list[str] = [
     "trend_12b",        # 12-bar past return (pct_change)
-    "trend_strength",   # abs(trend_12b) / (vol_12b + 1e-8)
+    "trend_vol_adj_strength",   # abs(trend_12b) / (vol_12b + 1e-8)
     "is_trending",      # trend_strength > TREND_THRESHOLD
     "is_high_vol",      # vol_12b > vol_12b.median() (per pair)
 ]
