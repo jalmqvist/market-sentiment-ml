@@ -27,6 +27,18 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------
+def _normalize_pair(pair: str) -> str:
+    """Normalize a pair string to the dataset format (e.g. 'EURUSD' → 'eur-usd')."""
+    pair = pair.strip()
+    letters = "".join(c for c in pair if c.isalpha())
+    if len(letters) == 6:
+        return f"{letters[:3].lower()}-{letters[3:].lower()}"
+    return pair.lower().replace("_", "-")
+
+
+# ---------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------
 def parse_args():
@@ -38,6 +50,17 @@ def parse_args():
     p.add_argument("--hidden-dim", type=int, default=32)
     p.add_argument("--lr", type=float, default=1e-3)
     p.add_argument("--tag", default=None, help="Log/config file tag (default: feature-set)")
+    p.add_argument(
+        "--pairs",
+        default=None,
+        help="Comma-separated list of pairs to filter, e.g. 'EURUSD,GBPUSD,NZDUSD'",
+    )
+    p.add_argument(
+        "--regime",
+        default=None,
+        choices=["HVTF", "LVTF", "HVR", "LVR"],
+        help="Filter dataset to a single market regime (requires dataset version >= 1.3.0)",
+    )
     p.add_argument(
         "--log-level",
         default="INFO",
@@ -135,6 +158,24 @@ def main():
     logger.info("dataset_path: %s", dataset_path)
 
     # -----------------------------------------------------------------
+    # Regime-aware filtering (BEFORE sequence building)
+    # -----------------------------------------------------------------
+    rows_before_filter = len(df)
+
+    if args.pairs:
+        parsed_pairs = [_normalize_pair(p) for p in args.pairs.split(",")]
+        df = df[df["pair"].isin(parsed_pairs)].reset_index(drop=True)
+
+    if args.regime:
+        df = df[df["regime"] == args.regime].reset_index(drop=True)
+
+    rows_after_filter = len(df)
+    logger.info("pairs: %s", args.pairs or "all")
+    logger.info("regime: %s", args.regime or "all")
+    logger.info("rows_before_filter: %d", rows_before_filter)
+    logger.info("rows_after_filter: %d", rows_after_filter)
+
+    # -----------------------------------------------------------------
     # Config snapshot
     # -----------------------------------------------------------------
     if log_file is not None:
@@ -148,6 +189,10 @@ def main():
             "epochs": args.epochs,
             "hidden_dim": args.hidden_dim,
             "lr": args.lr,
+            "pairs": args.pairs,
+            "regime": args.regime,
+            "rows_before_filter": rows_before_filter,
+            "rows_after_filter": rows_after_filter,
         }
         log_file.with_suffix(".json").write_text(json.dumps(config_payload, indent=2))
         logger.info("Config snapshot: %s", log_file.with_suffix(".json"))

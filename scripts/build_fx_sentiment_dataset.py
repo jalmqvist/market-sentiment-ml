@@ -22,6 +22,7 @@ DEFAULT_VERSION = "v1"
 HORIZONS = [1, 2, 4, 6, 12, 24, 48]
 
 SCHEMA_VERSION = "1.0"
+TREND_THRESHOLD = 1.0  # Minimum volatility-adjusted trend strength to classify as trending
 CORE_MIN_ELIGIBLE_MATCH_RATIO = 0.95
 EXTENDED_MIN_ELIGIBLE_MATCH_RATIO = 0.90
 MERGE_TOLERANCE = "90min"
@@ -429,6 +430,62 @@ def add_trend_features(df: pd.DataFrame) -> pd.DataFrame:
         out[f"trend_strength_{h}b"] = out[f"trend_{h}b"].abs()
 
     return out
+
+def add_regime_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Add regime classification columns (causal, backward-looking only).
+
+    Requires ``vol_12b`` (from :func:`add_volatility_features`) and
+    ``trend_12b`` (from :func:`add_trend_features`) to already be present.
+
+    New columns:
+        trend_strength  -- ``abs(trend_12b) / (vol_12b + 1e-8)``
+        is_trending     -- ``trend_strength > TREND_THRESHOLD``
+        is_high_vol     -- ``vol_12b > vol_12b.median()`` (per pair)
+        regime          -- ``HVTF | LVTF | HVR | LVR``
+
+    All computations are grouped by ``pair`` to avoid cross-pair leakage.
+    """
+    for required in ("vol_12b", "trend_12b"):
+        if required not in df.columns:
+            raise ValueError(
+                f"Column '{required}' not found. "
+                f"Run add_volatility_features and add_trend_features first."
+            )
+
+    out = df.copy()
+    out = out.sort_values(["pair", "snapshot_time"]).reset_index(drop=True)
+
+    # Volatility-adjusted trend strength (causal: both inputs are backward-looking)
+    out["trend_strength"] = out["trend_12b"].abs() / (out["vol_12b"] + 1e-8)
+
+    # Trending flag
+    out["is_trending"] = (out["trend_strength"].fillna(0.0) > TREND_THRESHOLD).astype(bool)
+
+    # High-volatility flag (per-pair median; backward-looking relative to full pair history)
+    out["is_high_vol"] = (
+        out.groupby("pair")["vol_12b"]
+        .transform(lambda x: x > x.median(skipna=True))
+        .fillna(False)
+        .astype(bool)
+    )
+
+    # Regime label
+    conditions = [
+        out["is_high_vol"] & out["is_trending"],    # HVTF
+        ~out["is_high_vol"] & out["is_trending"],   # LVTF
+        out["is_high_vol"] & ~out["is_trending"],   # HVR
+        ~out["is_high_vol"] & ~out["is_trending"],  # LVR
+    ]
+    choices = ["HVTF", "LVTF", "HVR", "LVR"]
+    out["regime"] = np.select(conditions, choices, default="LVR")
+
+    # Mark rows with missing vol/trend data as NaN regime
+    nan_mask = out["vol_12b"].isna() | out["trend_12b"].isna()
+    out.loc[nan_mask, "trend_strength"] = np.nan
+    out.loc[nan_mask, "regime"] = np.nan
+
+    return out
+
 
 ### Manifest helpers
 

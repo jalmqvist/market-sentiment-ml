@@ -350,3 +350,83 @@ They should be interpreted as:
 
 - `RESEARCH_STATE.md` — current experiment status
 - `docs/RESEARCH_STRATEGY.md` — research philosophy
+
+---
+
+## Regime-Aware Experiments
+
+### Motivation
+
+ABM multi-pair validation revealed that the behavioral accumulation model
+reproduces sentiment structure only in **trend-dominated regimes**. It fails
+for JPY/CHF/carry pairs, which are governed by macro-driven flows.
+
+This motivates a hypothesis:
+
+> Predictive signal — if it exists — may be **regime-conditional**,
+> not universal.
+
+---
+
+### Regime Definitions
+
+Regimes are defined by two binary flags computed per pair from the 1.3.0 dataset:
+
+| Flag | Definition |
+|---|---|
+| `is_high_vol` | `vol_12b > vol_12b.median()` (per pair) |
+| `is_trending` | `trend_strength > 1.0` |
+
+Where `trend_strength = abs(trend_12b) / (vol_12b + 1e-8)`.
+
+| Regime | Condition |
+|---|---|
+| HVTF | High-vol + trending |
+| LVTF | Low-vol + trending |
+| HVR  | High-vol + ranging |
+| LVR  | Low-vol + ranging |
+
+All features are strictly backward-looking (no leakage).
+
+---
+
+### How to Run Filtered Experiments
+
+Build the 1.3.0 dataset (includes vol + regime features):
+
+```bash
+python scripts/build_dataset.py --version 1.3.0
+```
+
+Run a regime experiment (MLP + LSTM, HVTF regime, EUR/GBP/NZD pairs):
+
+```bash
+./scripts/run_dl_regime_experiment.sh 1.3.0 HVTF EURUSD,GBPUSD,NZDUSD 50
+```
+
+Run MLP with manual filtering:
+
+```bash
+python -m research.deep_learning.train \
+  --dataset-version 1.3.0 \
+  --feature-set price_trend \
+  --pairs EURUSD,GBPUSD,NZDUSD \
+  --regime HVTF \
+  --epochs 50
+```
+
+---
+
+### Filtering Order
+
+Filtering is applied **before** feature extraction and sequence building to
+ensure train/test splits and normalization reflect only the target regime:
+
+1. Load dataset
+2. Filter by pairs (if `--pairs` given)
+3. Filter by regime (if `--regime` given)
+4. Extract features / build sequences
+5. Chronological train/test split
+6. Normalize using train statistics only
+
+---

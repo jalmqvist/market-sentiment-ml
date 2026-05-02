@@ -17,9 +17,12 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 from pathlib import Path
+
+import pandas as pd
 
 # Ensure project root is on sys.path when run directly
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -103,6 +106,59 @@ def main(argv=None) -> None:
     core_path = output_dir / "master_research_dataset_core.csv"
     extended_path = output_dir / "master_research_dataset_extended.csv"
     manifest_path = output_dir / "DATASET_MANIFEST.json"
+
+    # ------------------------------------------------------------------
+    # Enrich all saved variants with volatility + regime features
+    # ------------------------------------------------------------------
+    try:
+        import scripts.build_dataset_vol as vol_module
+    except ImportError:
+        logger.error(
+            "Could not import build_dataset_vol. "
+            "Volatility and regime features will NOT be added."
+        )
+        vol_module = None
+
+    if vol_module is not None:
+        for variant_name, variant_path in [
+            ("full", full_path),
+            ("core", core_path),
+            ("extended", extended_path),
+        ]:
+            if not variant_path.exists():
+                logger.warning("Variant file not found, skipping: %s", variant_path)
+                continue
+
+            logger.info("Enriching %s variant with vol + regime features ...", variant_name)
+            df_v = pd.read_csv(variant_path)
+
+            df_v = vol_module.add_volatility_features(df_v)
+            df_v = builder.add_regime_features(df_v)
+
+            df_v.to_csv(variant_path, index=False)
+            logger.info(
+                "  %s variant: %d rows, vol+regime features added", variant_name, len(df_v)
+            )
+
+        # Update manifest with features_added metadata
+        if manifest_path.exists():
+            with open(manifest_path, encoding="utf-8") as f:
+                manifest = json.load(f)
+
+            manifest["features_added"] = {
+                "version": version,
+                "volatility": ["vol_12b", "vol_48b"],
+                "trend": ["trend_strength"],
+                "regime_flags": ["is_trending", "is_high_vol"],
+                "regime_label": ["regime"],
+                "regime_values": ["HVTF", "LVTF", "HVR", "LVR"],
+                "trend_threshold": builder.TREND_THRESHOLD,
+            }
+
+            with open(manifest_path, "w", encoding="utf-8") as f:
+                json.dump(manifest, f, indent=2)
+
+            logger.info("Updated dataset manifest with features_added: %s", manifest_path)
 
     logger.info("Dataset build complete")
     logger.info("  Version       : %s", version)

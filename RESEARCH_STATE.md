@@ -357,6 +357,59 @@ Understand how sentiment emerges from trader behavior.
 
 ------
 
+### 4. Regime-Aware Experiments
+
+#### Motivation
+
+ABM multi-pair validation showed that the behavioral accumulation model
+reproduces sentiment structure only in **trend-dominated markets**
+(EUR/USD, GBP/USD, NZD/USD) and fails in macro/carry-driven markets
+(JPY, CHF pairs). This regime dependence is the empirical basis for
+testing whether predictive signal exists conditionally within specific regimes.
+
+#### Regime Definitions (Dataset v1.3.0)
+
+Regimes are derived from two backward-looking, per-pair binary flags:
+
+| Flag | Computation |
+|---|---|
+| `is_trending` | `trend_strength > 1.0`, where `trend_strength = abs(trend_12b) / (vol_12b + 1e-8)` |
+| `is_high_vol` | `vol_12b > vol_12b.median()` (per pair) |
+
+| Label | Condition |
+|---|---|
+| HVTF | High-vol & trending |
+| LVTF | Low-vol & trending |
+| HVR  | High-vol & ranging |
+| LVR  | Low-vol & ranging |
+
+All features are strictly causal (backward-looking only, grouped by pair).
+
+#### How to Run
+
+Build dataset v1.3.0 (includes vol + regime features):
+
+```bash
+python scripts/build_dataset.py --version 1.3.0
+```
+
+Run regime experiment (MLP + LSTM):
+
+```bash
+./scripts/run_dl_regime_experiment.sh 1.3.0 HVTF EURUSD,GBPUSD,NZDUSD 50
+```
+
+Filtering is applied before feature extraction and sequence building to
+ensure deterministic train/test splits and leak-free normalization.
+
+#### Status
+
+- Dataset v1.3.0: defined (requires build)
+- Regime feature sets: `price_trend`, `price_trend_sentiment`
+- HVTF / LVTF experiments: pending
+
+------
+
 ## Conclusion
 
 > The project has transitioned from **signal discovery** to **structured exploration of model space**
