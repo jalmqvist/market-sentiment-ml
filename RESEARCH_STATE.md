@@ -34,7 +34,7 @@ This holds across:
 
 ### Objective
 
-Identify the minimal set of behavioral rules required to reproduce the statistical
+Identify the minimal behavioral rules required to reproduce the statistical
 properties of retail FX sentiment.
 
 ---
@@ -56,7 +56,7 @@ No predictive objective is used.
 
 The following mechanisms are jointly sufficient:
 
-- **Position accumulation**  
+- **Accumulation**  
   Agents increase position size when aligned with price signal.
 
 - **Inertia (anchoring)**  
@@ -65,17 +65,13 @@ The following mechanisms are jointly sufficient:
 - **Asymmetric reinforcement**  
   Agents strengthen positions when aligned with price.
 
-The system operates without:
-
-- decay
-- forced release
-- explicit equilibrium mechanisms
+No decay or release mechanism is required.
 
 ---
 
 ### Observed Dynamics
 
-The model exhibits:
+The model produces:
 
 - strong persistence (high autocorrelation)
 - clustered sentiment regimes
@@ -86,24 +82,42 @@ The system is **path-dependent**.
 
 ---
 
-### Stability Properties
+### Multi-Pair Validation
 
-The ABM displays phase-transition behavior:
+Results show clear regime dependence.
 
-- narrow parameter regime → stable, realistic output
-- outside regime → saturation or collapse
+#### Group A — Model matches data
 
-This indicates sensitivity to behavioral balance rather than parameter tuning.
+- EUR/USD, GBP/USD, NZD/USD
+- AUD/NZD
+
+Characteristics:
+- low abs_mean_diff
+- stable autocorrelation
+- realistic extreme frequency
+
+#### Group B — Model fails
+
+- All JPY pairs
+- CHF pairs
+- Some CAD pairs
+
+Failure mode:
+- excessive accumulation
+- distorted magnitude (high abs_mean_diff)
+- unstable persistence
 
 ---
 
 ### Interpretation
 
-The results imply:
+The ABM captures sentiment structure only in **trend-dominated regimes**.
 
-- sentiment is driven by **position accumulation dynamics**
-- there is no strong endogenous mechanism enforcing reversion
-- crowd imbalance can persist without correction
+It fails in markets characterized by:
+
+- macro-driven flows
+- carry dynamics
+- regime switching
 
 ---
 
@@ -111,19 +125,34 @@ The results imply:
 
 This explains earlier findings:
 
-- sentiment contains no predictive signal
+- sentiment has no predictive signal globally
 - sentiment does not improve price-based models
 
 Because:
 
-> sentiment encodes **current positioning state**, not future returns
+> sentiment reflects **current positioning state**, not future returns
+
+However, the regime dependence suggests:
+
+> predictive signal may exist **within specific market subsets**
+
+---
+
+### Conclusion
+
+Retail sentiment is:
+
+- path-dependent
+- regime-dependent
+- structurally non-equilibrium
 
 ---
 
 ### Status
 
-- EUR/USD: validated (structural match achieved)
-- Other pairs: not yet tested
+- EUR/USD: validated
+- Multi-pair: validated with regime segmentation
+- Generalization: conditional, not universal
 
 ---
 

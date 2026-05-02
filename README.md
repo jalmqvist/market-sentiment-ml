@@ -33,12 +33,12 @@ This is a meaningful and informative research outcome. The project now focuses o
 
 ### Agent-Based Modeling — Behavioral Interpretation
 
-The project introduced an agent-based model (ABM) to understand how retail
-sentiment structure emerges, independent of prediction.
+We developed an agent-based model (ABM) to explain how retail FX sentiment
+structure emerges from trader behavior.
 
-The goal was not to forecast returns, but to answer:
+The goal was not prediction, but explanation:
 
-> What kind of trader behavior produces the sentiment we observe?
+> What behavioral rules generate the sentiment we observe?
 
 ---
 
@@ -46,55 +46,73 @@ The goal was not to forecast returns, but to answer:
 
 Retail sentiment behaves as a **path-dependent accumulation process**.
 
-A minimal behavioral system reproduces real-world sentiment when:
+A minimal model reproduces real-world sentiment when:
 
-- traders gradually build positions over time
-- traders resist changing positions once entered
-- traders reinforce positions when aligned with price
+- traders build positions over time (accumulation)
+- traders resist switching positions (inertia)
+- traders reinforce positions when aligned with price (asymmetry)
 
-Under these conditions, the model generates:
+This produces:
 
 - persistent crowd imbalance
 - clustered sentiment regimes
-- realistic magnitude of positioning
+- realistic sentiment magnitude
 
-Crucially, this happens **without producing any predictive signal**.
+Crucially, this occurs **without generating predictive signal**.
+
+---
+
+### New Finding: Regime Dependence
+
+Multi-pair validation shows that this mechanism is **not universal**.
+
+The model reproduces sentiment structure in:
+
+- EUR, GBP, NZD pairs
+- some AUD/NZD crosses
+
+But fails in:
+
+- JPY pairs
+- CHF pairs
+- some CAD pairs
 
 ---
 
 ### Interpretation
 
-This provides a structural explanation for earlier results:
+This indicates that retail sentiment depends on **market regime**:
 
-- sentiment has no standalone predictive power
-- sentiment does not improve price-based signals
-- nonlinear and temporal models fail to extract signal
+- **Trend-dominated markets** → accumulation dynamics dominate → model works
+- **Macro / flow-driven markets** → regime switching dominates → model fails
 
-Because:
+In other words:
 
-> sentiment reflects **accumulated positioning**, not forward expectations
+> Retail sentiment is structurally different across currency regimes
 
 ---
 
 ### Implication
 
-Retail sentiment should not be treated as an alpha signal.
+This refines earlier conclusions:
 
-Instead, it is better understood as:
+- sentiment has no global predictive power
+- sentiment reflects **accumulated positioning**, not expectations
 
-> a **state variable of market positioning**
+But:
 
-This reframes the problem:
+> predictive signal may exist **conditionally**, within specific regimes
 
-- from prediction → to structural understanding
-- from signal extraction → to behavioral modeling
+This is an open direction for further research.
 
 ---
 
-### Current Status
+### Status
 
-- Single-pair validation (EUR/USD): complete
-- Multi-pair validation: in progress
+- Single-pair validation: complete (EUR/USD)
+- Multi-pair validation: complete (majors + crosses)
+- Regime classification: identified
+- Conditional predictability: open question
 
 ---
 

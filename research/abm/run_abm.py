@@ -32,7 +32,6 @@ from research.abm.simulation import FXSentimentSimulation
 
 logger = logging.getLogger(__name__)
 
-# Output CSV columns (strict contract)
 _OUTPUT_COLUMNS = ["timestamp", "price", "net_sentiment", "real_net_sentiment"]
 
 
@@ -46,14 +45,9 @@ def _parse_args(argv=None) -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
-    p.add_argument("--version", required=True, help="Dataset version (e.g. '1.1.0')")
-    p.add_argument(
-        "--variant",
-        default="core",
-        choices=["full", "core", "extended"],
-        help="Dataset variant",
-    )
-    p.add_argument("--pair", required=True, help="FX pair (e.g. 'eur-usd')")
+    p.add_argument("--version", required=True)
+    p.add_argument("--variant", default="core", choices=["full", "core", "extended"])
+    p.add_argument("--pair", required=True)
 
     p.add_argument("--steps", type=int, default=500)
     p.add_argument("--seed", type=int, default=42)
@@ -72,11 +66,7 @@ def _parse_args(argv=None) -> argparse.Namespace:
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
     )
 
-    p.add_argument(
-        "--no-log-file",
-        action="store_true",
-        help="Disable file logging; write to stdout only",
-    )
+    p.add_argument("--no-log-file", action="store_true")
 
     return p.parse_args(argv)
 
@@ -87,6 +77,7 @@ def _parse_args(argv=None) -> argparse.Namespace:
 
 def _build_agents(
     rng: np.random.Generator,
+    pair: str,
     n_trend: int,
     n_contrarian: int,
     n_noise: int,
@@ -95,14 +86,17 @@ def _build_agents(
     agents = []
 
     agents.extend(
-        TrendFollower(rng, momentum_window=momentum_window)
+        TrendFollower(rng, pair=pair, momentum_window=momentum_window)
         for _ in range(n_trend)
     )
     agents.extend(
-        Contrarian(rng, momentum_window=momentum_window)
+        Contrarian(rng, pair=pair, momentum_window=momentum_window)
         for _ in range(n_contrarian)
     )
-    agents.extend(NoiseTrader(rng) for _ in range(n_noise))
+    agents.extend(
+        NoiseTrader(rng, pair=pair)
+        for _ in range(n_noise)
+    )
 
     return agents
 
@@ -130,7 +124,6 @@ def _write_config_snapshot(
     dataset_path: Path,
     n_steps: int,
 ) -> Path:
-    """Write JSON config snapshot alongside the log file."""
     config_file = log_file.with_suffix(".json")
     payload = {
         "experiment_type": "abm",
@@ -162,10 +155,6 @@ def main(argv=None) -> None:
     if args.steps <= 0:
         raise ValueError("steps must be > 0")
 
-    # --------------------------------------------------------
-    # Logging setup via shared utility
-    # --------------------------------------------------------
-
     log_file = setup_experiment_logging(
         experiment_type="abm",
         tag=args.pair,
@@ -193,16 +182,8 @@ def main(argv=None) -> None:
         args.momentum_window,
     )
 
-    # --------------------------------------------------------
-    # Load dataset (once)
-    # --------------------------------------------------------
-
     df, dataset_path = _load_real_data(args.version, args.variant)
     logger.info("Dataset loaded: %d rows", len(df))
-
-    # --------------------------------------------------------
-    # Filter to pair
-    # --------------------------------------------------------
 
     sub = df[df["pair"] == args.pair].copy()
 
@@ -216,10 +197,6 @@ def main(argv=None) -> None:
     timestamps = sub["entry_time"].values
     real_sentiment = sub["net_sentiment"].values
 
-    # --------------------------------------------------------
-    # Build agents
-    # --------------------------------------------------------
-
     total_agents = args.n_trend + args.n_contrarian + args.n_noise
     if total_agents == 0:
         logger.error("Total agent count is 0")
@@ -229,6 +206,7 @@ def main(argv=None) -> None:
 
     agents = _build_agents(
         rng=rng,
+        pair=args.pair,
         n_trend=args.n_trend,
         n_contrarian=args.n_contrarian,
         n_noise=args.n_noise,
@@ -243,10 +221,6 @@ def main(argv=None) -> None:
         total_agents,
     )
 
-    # --------------------------------------------------------
-    # Simulation
-    # --------------------------------------------------------
-
     sim = FXSentimentSimulation(agents, rng=rng)
 
     max_steps = len(price_series) - sim._warmup_steps - 1
@@ -255,10 +229,6 @@ def main(argv=None) -> None:
         sys.exit(1)
 
     n_steps = min(args.steps, max_steps)
-
-    # --------------------------------------------------------
-    # Config snapshot (written after n_steps is known)
-    # --------------------------------------------------------
 
     if log_file is not None:
         config_file = _write_config_snapshot(log_file, args, dataset_path, n_steps)
@@ -270,13 +240,10 @@ def main(argv=None) -> None:
         timestamps=timestamps,
     )
 
-    # Align real sentiment with simulation window (causal, no off-by-one)
     warmup = sim._warmup_steps
-    sim_df["real_net_sentiment"] = real_sentiment[warmup + 1 : warmup + 1 + len(sim_df)]
-
-    # --------------------------------------------------------
-    # Summary
-    # --------------------------------------------------------
+    sim_df["real_net_sentiment"] = real_sentiment[
+        warmup + 1 : warmup + 1 + len(sim_df)
+    ]
 
     logger.info("--- Simulation summary ---")
     logger.info("steps_run=%d n_agents=%d", len(sim_df), sim.n_agents)
@@ -287,24 +254,14 @@ def main(argv=None) -> None:
         sim_df["net_sentiment"].abs().mean(),
     )
 
-    # --------------------------------------------------------
-    # Calibration (uses already-loaded df)
-    # --------------------------------------------------------
-
     targets = calibrate_from_dataset(df, pair=args.pair)
     comparison = compare_to_data(sim_df, targets)
 
     logger.info("--- Calibration comparison ---\n%s", comparison.to_string(index=False))
 
-    # --------------------------------------------------------
-    # Save output CSV
-    # --------------------------------------------------------
-
     if args.output is not None:
         args.output.parent.mkdir(parents=True, exist_ok=True)
-        assert set(_OUTPUT_COLUMNS).issubset(sim_df.columns), (
-            f"Output CSV schema broken: missing {set(_OUTPUT_COLUMNS) - set(sim_df.columns)}"
-        )
+        assert set(_OUTPUT_COLUMNS).issubset(sim_df.columns)
         sim_df[_OUTPUT_COLUMNS].to_csv(args.output, index=False)
         logger.info("Saved output CSV: %s  rows=%d", args.output, len(sim_df))
 

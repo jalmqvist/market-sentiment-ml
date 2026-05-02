@@ -118,7 +118,14 @@ def run_sweep(
 
             run_seed = (seed_base + run_index) if seed_base is not None else seed
             rng = np.random.default_rng(run_seed)
-            agents = _build_agents(rng, n_trend, n_contrarian, _N_NOISE, momentum_window)
+            agents = _build_agents(
+                rng,
+                pair=pair,
+                n_trend=n_trend,
+                n_contrarian=n_contrarian,
+                n_noise=_N_NOISE,
+                momentum_window=momentum_window,
+            )
 
             sim = FXSentimentSimulation(agents, rng=rng)
 
