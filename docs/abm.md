@@ -85,11 +85,11 @@ lock-in.
 ## Outputs
 
 ### Log file
-`logs/abm_{pair}_{version}_{timestamp}Z.log` — full run log with parameters,
+`logs/abm_{pair}_{timestamp}Z.log` — full run log with parameters,
 summary statistics, and calibration comparison table.
 
 ### Config snapshot
-`logs/abm_{pair}_{version}_{timestamp}Z.json` — machine-readable record of
+`logs/abm_{pair}_{timestamp}Z.json` — machine-readable record of
 every parameter used in the run.
 
 ### Output CSV (if `--output` provided)
@@ -104,7 +104,42 @@ Columns:
 
 ---
 
-## Interpretation Guidelines
+## Reproducibility
+
+Every ABM run writes two files to `logs/`:
+
+### Log file naming
+
+```
+logs/abm_{pair}_{timestamp}.log
+```
+
+Example: `logs/abm_eur-usd_20260502T120000Z.log`
+
+### Config JSON
+
+```
+logs/abm_{pair}_{timestamp}.json
+```
+
+The JSON snapshot includes `experiment_type`, `dataset_path`, `dataset_version`,
+`cli_command` (exact command used), and all hyperparameters.
+
+### Re-running an experiment
+
+Retrieve the exact command from the JSON snapshot:
+
+```bash
+cat logs/abm_eur-usd_20260502T120000Z.json | python -c "import json,sys; print(json.load(sys.stdin)['cli_command'])"
+```
+
+Then paste and run the printed command, for example:
+
+```bash
+python research/abm/run_abm.py --version 1.1.0 --pair eur-usd --steps 500 --seed 42
+```
+
+
 
 - **Mean close to 0**: population is balanced; no systematic directional bias.
 - **High autocorr**: sentiment is persistent (sticky positions).

@@ -16,7 +16,6 @@ import argparse
 import json
 import logging
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 # Ensure project root is on sys.path when run directly.
@@ -26,6 +25,7 @@ import numpy as np
 import pandas as pd
 
 import config as cfg
+from utils.logging import setup_experiment_logging
 from research.abm.agents import Contrarian, NoiseTrader, TrendFollower
 from research.abm.calibration import calibrate_from_dataset, compare_to_data
 from research.abm.simulation import FXSentimentSimulation
@@ -125,18 +125,18 @@ def _load_real_data(version: str, variant: str) -> tuple[pd.DataFrame, Path]:
 
 
 def _write_config_snapshot(
-    log_dir: Path,
-    pair: str,
-    version: str,
-    timestamp: str,
+    log_file: Path,
     args: argparse.Namespace,
     dataset_path: Path,
     n_steps: int,
 ) -> Path:
     """Write JSON config snapshot alongside the log file."""
-    config_file = log_dir / f"abm_{pair}_{version}_{timestamp}.json"
+    config_file = log_file.with_suffix(".json")
     payload = {
-        "version": args.version,
+        "experiment_type": "abm",
+        "cli_command": " ".join(sys.argv),
+        "dataset_path": str(dataset_path),
+        "dataset_version": args.version,
         "variant": args.variant,
         "pair": args.pair,
         "seed": args.seed,
@@ -145,8 +145,6 @@ def _write_config_snapshot(
         "n_contrarian": args.n_contrarian,
         "n_noise": args.n_noise,
         "momentum_window": args.momentum_window,
-        "dataset_path": str(dataset_path),
-        "timestamp": timestamp,
         "total_agents": args.n_trend + args.n_contrarian + args.n_noise,
         "effective_steps": n_steps,
     }
@@ -165,41 +163,22 @@ def main(argv=None) -> None:
         raise ValueError("steps must be > 0")
 
     # --------------------------------------------------------
-    # Logging setup — clear any existing handlers to prevent
-    # duplication across multiple calls (e.g. in tests).
+    # Logging setup via shared utility
     # --------------------------------------------------------
 
-    root = logging.getLogger()
-    root.handlers.clear()
-    root.setLevel(getattr(logging, args.log_level.upper(), logging.INFO))
-
-    _fmt = logging.Formatter(
-        "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
-        datefmt="%Y-%m-%dT%H:%M:%S",
+    log_file = setup_experiment_logging(
+        experiment_type="abm",
+        tag=args.pair,
+        log_level=args.log_level,
+        no_log_file=args.no_log_file,
+        log_dir=cfg.REPO_ROOT / "logs",
     )
 
-    log_dir = cfg.REPO_ROOT / "logs"
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-
-    if not args.no_log_file:
-        log_dir.mkdir(parents=True, exist_ok=True)
-        log_file = log_dir / f"abm_{args.pair}_{args.version}_{timestamp}.log"
-        fh = logging.FileHandler(log_file)
-        fh.setFormatter(_fmt)
-        root.addHandler(fh)
-
-        sh = logging.StreamHandler()
-        sh.setLevel(logging.INFO)
-        sh.setFormatter(_fmt)
-        root.addHandler(sh)
-
-        logger.info("Logging to %s", log_file)
-    else:
-        sh = logging.StreamHandler()
-        sh.setFormatter(_fmt)
-        root.addHandler(sh)
+    if log_file is not None:
+        logging.getLogger().info("Logging to %s", log_file)
 
     logger.info("=== FX Sentiment ABM ===")
+    logger.info("cli_command: %s", " ".join(sys.argv))
     logger.info(
         "version=%s variant=%s pair=%s seed=%d steps=%d "
         "n_trend=%d n_contrarian=%d n_noise=%d momentum_window=%d",
@@ -281,10 +260,8 @@ def main(argv=None) -> None:
     # Config snapshot (written after n_steps is known)
     # --------------------------------------------------------
 
-    if not args.no_log_file:
-        config_file = _write_config_snapshot(
-            log_dir, args.pair, args.version, timestamp, args, dataset_path, n_steps
-        )
+    if log_file is not None:
+        config_file = _write_config_snapshot(log_file, args, dataset_path, n_steps)
         logger.info("Config snapshot: %s", config_file)
 
     sim_df = sim.run(

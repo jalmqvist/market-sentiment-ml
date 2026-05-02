@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -10,7 +12,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from utils.io import setup_logging
+from utils.logging import setup_experiment_logging
 import config as cfg
 
 from research.deep_learning.feature_sets import FEATURE_SETS
@@ -35,6 +37,17 @@ def parse_args():
     p.add_argument("--epochs", type=int, default=50)
     p.add_argument("--hidden-dim", type=int, default=32)
     p.add_argument("--lr", type=float, default=1e-3)
+    p.add_argument("--tag", default=None, help="Log/config file tag (default: feature-set)")
+    p.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+    )
+    p.add_argument(
+        "--no-log-file",
+        action="store_true",
+        help="Disable file logging; write to stdout only",
+    )
     return p.parse_args()
 
 
@@ -94,15 +107,50 @@ def compute_metrics(y_true, y_pred):
 # ---------------------------------------------------------------------
 def main():
     args = parse_args()
-    setup_logging("INFO")
+
+    tag = args.tag if args.tag is not None else args.feature_set
+
+    log_file = setup_experiment_logging(
+        experiment_type="lstm",
+        tag=tag,
+        log_level=args.log_level,
+        no_log_file=args.no_log_file,
+        log_dir=cfg.REPO_ROOT / "logs",
+    )
+
+    if log_file is not None:
+        logger.info("Logging to %s", log_file)
 
     logger.info("=== LSTM Training ===")
+    logger.info("experiment_type=lstm")
+    logger.info("cli_command: %s", " ".join(sys.argv))
     logger.info(vars(args))
 
     # -----------------------------------------------------------------
     # Load dataset
     # -----------------------------------------------------------------
     df = load_dataset(args.dataset_version)
+
+    dataset_path = str(Path(cfg.OUTPUT_DIR) / args.dataset_version / "master_research_dataset_core.csv")
+    logger.info("dataset_path: %s", dataset_path)
+
+    # -----------------------------------------------------------------
+    # Config snapshot
+    # -----------------------------------------------------------------
+    if log_file is not None:
+        config_payload = {
+            "experiment_type": "lstm",
+            "cli_command": " ".join(sys.argv),
+            "dataset_path": dataset_path,
+            "dataset_version": args.dataset_version,
+            "feature_set": args.feature_set,
+            "seq_len": args.seq_len,
+            "epochs": args.epochs,
+            "hidden_dim": args.hidden_dim,
+            "lr": args.lr,
+        }
+        log_file.with_suffix(".json").write_text(json.dumps(config_payload, indent=2))
+        logger.info("Config snapshot: %s", log_file.with_suffix(".json"))
 
     features = FEATURE_SETS[args.feature_set]
     target = "ret_48b"
