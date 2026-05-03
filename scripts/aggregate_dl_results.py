@@ -66,6 +66,7 @@ def parse_logs():
                         "horizon": config.get("target_horizon"),
                         "quantile": config.get("label_quantile"),
                         "regime": config.get("regime"),
+                        "pair": str(config.get("pairs")).split(",")[0],
                         **metrics,
                     }
                     rows.append(row)
@@ -89,7 +90,6 @@ def filter_collapsed(df):
         | (df["recall"] > 0)
     ]
 
-
 def main():
     df = parse_logs()
 
@@ -100,25 +100,26 @@ def main():
     df = compute_score(df)
     df_valid = filter_collapsed(df)
 
+    # === INSERT HERE ===
+    print("\n=== PAIR × REGIME (mean F1) ===\n")
+
+    heatmap = (
+        df_valid
+        .groupby(["pair", "regime"])["f1"]
+        .mean()
+        .unstack()
+        .round(3)
+    )
+
+    print(heatmap)
+
+    # Existing output
     print("\n=== TOP RESULTS (NON-COLLAPSED) ===\n")
     print(
         df_valid.sort_values("score", ascending=False)
         .head(20)
         .to_string(index=False)
     )
-
-    print("\n=== DIAGNOSTICS ===")
-    print(f"Total runs: {len(df)}")
-    print(f"Collapsed runs: {len(df) - len(df_valid)}")
-
-    print("\n=== BEST PER (model, feature_set, regime) ===\n")
-    print(
-        df_valid.sort_values("score", ascending=False)
-        .groupby(["model", "feature_set", "regime"])
-        .head(1)
-        .to_string(index=False)
-    )
-
 
 if __name__ == "__main__":
     main()
