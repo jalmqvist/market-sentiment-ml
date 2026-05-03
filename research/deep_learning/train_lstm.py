@@ -103,7 +103,7 @@ def main():
 
     parser.add_argument("--dataset-version", required=True)
     parser.add_argument("--feature-set", required=True)
-    parser.add_argument("--seq-len", type=int, default=24)
+    parser.add_argument("--seq-len", type=int, default=None)
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--hidden-dim", type=int, default=32)
     parser.add_argument("--lr", type=float, default=1e-3)
@@ -112,13 +112,25 @@ def main():
     parser.add_argument("--regime", type=str, default=None)
 
     parser.add_argument("--mode", choices=["classification", "regression"], default="classification")
+    parser.add_argument("--target-horizon", type=int, default=24)
+    parser.add_argument("--label-quantile", type=float, default=0.6)
+    parser.add_argument("--label-mode", type=str, default="sign", choices=["sign", "threshold"])
 
     args = parser.parse_args()
+
+    # Default seq_len to target_horizon when not explicitly provided
+    if args.seq_len is None:
+        args.seq_len = args.target_horizon
 
     setup_logging()
 
     logging.info("=== LSTM Training ===")
     logging.info(vars(args))
+    logging.info({
+        "target_horizon": args.target_horizon,
+        "label_mode": args.label_mode,
+        "label_quantile": args.label_quantile,
+    })
 
     # =========================
     # Load dataset
@@ -172,13 +184,25 @@ def main():
     # =========================
     # Target
     # =========================
+    target = f"ret_{args.target_horizon}b"
+    if target not in df.columns:
+        raise ValueError(f"Missing target column: {target}")
+
     if args.mode == "classification":
-        if "target_direction" not in df.columns:
-            logging.info("Creating target_direction from ret_48b")
-            df["target_direction"] = (df["ret_48b"] > 0).astype(int)
+        if args.label_mode == "sign":
+            df["target_direction"] = (df[target] > 0).astype(int)
+        elif args.label_mode == "threshold":
+            q = df[target].abs().quantile(args.label_quantile)
+            df["target_direction"] = np.nan
+            df.loc[df[target] > q, "target_direction"] = 1
+            df.loc[df[target] < -q, "target_direction"] = 0
+            before = len(df)
+            df = df.dropna(subset=["target_direction"])
+            after = len(df)
+            logging.info(f"label_threshold: {q:.6f}")
+            logging.info(f"rows_after_label_filter: {after} (dropped {before - after})")
+        logging.info(f"class_balance: {df['target_direction'].mean():.3f}")
         target = "target_direction"
-    else:
-        target = "ret_48b"
 
     df = df.dropna(subset=features + [target]).copy()
 
@@ -188,9 +212,6 @@ def main():
     X, y = build_sequences(df, features, target, args.seq_len)
 
     logging.info(f"Sequences built: X={X.shape}, y={y.shape}")
-
-    if args.mode == "classification":
-        logging.info(f"class_balance: {y.mean():.3f}")
 
     # =========================
     # Split
