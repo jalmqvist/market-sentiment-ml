@@ -1,138 +1,122 @@
+import ast
 import re
-import pandas as pd
 from pathlib import Path
+import pandas as pd
+
 
 LOG_DIR = Path("logs")
 
 
-def parse_log_file(path: Path):
+def clean_np(val):
+    """Convert np.float64(x) → x"""
+    if isinstance(val, str) and "np.float64" in val:
+        return float(val.split("(")[1].rstrip(")"))
+    return val
+
+
+def parse_metrics_dict(line):
     """
-    Extract metrics + metadata from a log file.
+    Extract dict from:
+    test metrics: {...}
     """
+    try:
+        dict_str = line.split("test metrics:")[1].strip()
 
-    text = path.read_text()
+        # Replace np.float64(...) with plain float
+        dict_str = re.sub(r"np\.float64\((.*?)\)", r"\1", dict_str)
 
-    def extract(pattern, default=None, cast=float):
-        m = re.search(pattern, text)
-        if not m:
-            return default
-        return cast(m.group(1))
-
-    # --- metadata ---
-    model = "LSTM" if "lstm" in path.name else "MLP"
-
-    feature_set = extract(r"feature_set': '([^']+)'", default="unknown", cast=str)
-    horizon = extract(r"target_horizon': (\d+)", default=None, cast=int)
-
-    # --- metrics ---
-    accuracy = extract(r"'accuracy': ([0-9\.]+)")
-    precision = extract(r"'precision': ([0-9\.]+)")
-    recall = extract(r"'recall': ([0-9\.]+)")
-    f1 = extract(r"'f1': ([0-9\.]+)")
-    sharpe = extract(r"'sharpe': ([0-9\.\-]+)")
-    n = extract(r"'n': (\d+)", cast=int)
-
-    return {
-        "model": model,
-        "feature_set": feature_set,
-        "horizon": horizon,
-        "accuracy": accuracy,
-        "precision": precision,
-        "recall": recall,
-        "f1": f1,
-        "sharpe": sharpe,
-        "n": n,
-        "file": path.name,
-    }
+        return ast.literal_eval(dict_str)
+    except Exception:
+        return None
 
 
-def main():
+def parse_logs():
     rows = []
 
     for file in LOG_DIR.glob("*.log"):
-        try:
-            rows.append(parse_log_file(file))
-        except Exception as e:
-            print(f"Skipping {file}: {e}")
+        with open(file, "r") as f:
+            lines = f.readlines()
 
-    if not rows:
-        print("No logs found.")
-        return
+        model = None
+        config = None
 
-    df = pd.DataFrame(rows)
+        for line in lines:
 
-    # --- drop incomplete rows ---
-    df = df.dropna(subset=["accuracy", "precision", "recall", "f1"])
+            # Model
+            if "=== MLP Training ===" in line:
+                model = "MLP"
+            elif "=== LSTM Training ===" in line:
+                model = "LSTM"
 
-    # --- detect collapsed models ---
-    df["collapsed"] = (df["precision"] == 0) & (df["recall"] == 0)
+            # Config
+            if "dataset_version" in line and "{" in line:
+                try:
+                    config = ast.literal_eval(line.split("|")[-1].strip())
+                except:
+                    continue
 
-    # --- remove collapsed ---
-    df_clean = df[~df["collapsed"]].copy()
+            # Metrics
+            if "test metrics:" in line:
+                metrics = parse_metrics_dict(line)
 
-    if df_clean.empty:
-        print("\n⚠️ All models collapsed (predicting single class).")
-        print("This means NO SIGNAL at current setup.\n")
-        return
+                if metrics and config:
+                    row = {
+                        "model": model,
+                        "feature_set": config.get("feature_set"),
+                        "horizon": config.get("target_horizon"),
+                        "quantile": config.get("label_quantile"),
+                        "regime": config.get("regime"),
+                        **metrics,
+                    }
+                    rows.append(row)
 
-    # --- ranking score ---
-    # prioritize predictive quality + tradability
-    df_clean["score"] = (
-        df_clean["f1"].fillna(0) * 0.6 +
-        df_clean["sharpe"].fillna(0) * 0.4
+    return pd.DataFrame(rows)
+
+
+def compute_score(df):
+    df = df.copy()
+    df["score"] = (
+        0.4 * df["f1"]
+        + 0.3 * df["precision"]
+        + 0.3 * df["recall"]
     )
+    return df
 
-    # --- sort ---
-    df_clean = df_clean.sort_values("score", ascending=False)
+
+def filter_collapsed(df):
+    return df[
+        (df["precision"] > 0)
+        | (df["recall"] > 0)
+    ]
+
+
+def main():
+    df = parse_logs()
+
+    if df.empty:
+        print("❌ No results found (unexpected now)")
+        return
+
+    df = compute_score(df)
+    df_valid = filter_collapsed(df)
 
     print("\n=== TOP RESULTS (NON-COLLAPSED) ===\n")
     print(
-        df_clean[
-            [
-                "model",
-                "feature_set",
-                "horizon",
-                "accuracy",
-                "precision",
-                "recall",
-                "f1",
-                "sharpe",
-                "n",
-                "score",
-            ]
-        ].head(15).to_string(index=False)
+        df_valid.sort_values("score", ascending=False)
+        .head(20)
+        .to_string(index=False)
     )
-
-    # --- diagnostics ---
-    total = len(df)
-    collapsed = df["collapsed"].sum()
 
     print("\n=== DIAGNOSTICS ===")
-    print(f"Total runs: {total}")
-    print(f"Collapsed runs: {collapsed} ({collapsed/total:.1%})")
+    print(f"Total runs: {len(df)}")
+    print(f"Collapsed runs: {len(df) - len(df_valid)}")
 
-    # --- best by group ---
-    print("\n=== BEST PER (model, feature_set) ===\n")
-    best = (
-        df_clean.sort_values("score", ascending=False)
-        .groupby(["model", "feature_set"])
-        .first()
-        .reset_index()
-    )
-
+    print("\n=== BEST PER (model, feature_set, regime) ===\n")
     print(
-        best[
-            [
-                "model",
-                "feature_set",
-                "horizon",
-                "precision",
-                "recall",
-                "f1",
-                "sharpe",
-                "score",
-            ]
-        ].to_string(index=False)
+        df_valid.sort_values("score", ascending=False)
+        .groupby(["model", "feature_set", "regime"])
+        .head(1)
+        .to_string(index=False)
     )
 
 

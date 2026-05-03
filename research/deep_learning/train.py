@@ -10,33 +10,11 @@ import torch.nn as nn
 from research.deep_learning.dataset_loader import load_dataset
 
 
-# =========================
-# Logging
-# =========================
-def setup_logging(name: str):
-    log_dir = Path("logs")
-    log_dir.mkdir(exist_ok=True)
-
-    ts = pd.Timestamp.now(tz="UTC").strftime("%Y%m%dT%H%M%SZ")
-    log_path = log_dir / f"{name}_{ts}.log"
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
-        handlers=[
-            logging.FileHandler(log_path),
-            logging.StreamHandler()
-        ]
-    )
-
-    logging.info(f"Logging to {log_path}")
-
-
-# =========================
+# ---------------------------
 # Model
-# =========================
+# ---------------------------
 class MLP(nn.Module):
-    def __init__(self, input_dim, hidden_dim):
+    def __init__(self, input_dim, hidden_dim=32):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
@@ -48,75 +26,80 @@ class MLP(nn.Module):
         return self.net(x).squeeze(-1)
 
 
-# =========================
+# ---------------------------
 # Metrics
-# =========================
+# ---------------------------
 def compute_metrics(y_true, y_pred):
-    y_pred_bin = (y_pred > 0).astype(int)
+    if len(y_true) == 0:
+        return {"accuracy": np.nan, "precision": 0.0, "recall": 0.0, "f1": 0.0}
 
-    accuracy = (y_true == y_pred_bin).mean()
+    y_true = y_true.astype(int)
+    y_pred = y_pred.astype(int)
 
-    tp = ((y_true == 1) & (y_pred_bin == 1)).sum()
-    fp = ((y_true == 0) & (y_pred_bin == 1)).sum()
-    fn = ((y_true == 1) & (y_pred_bin == 0)).sum()
+    tp = ((y_true == 1) & (y_pred == 1)).sum()
+    fp = ((y_true == 0) & (y_pred == 1)).sum()
+    fn = ((y_true == 1) & (y_pred == 0)).sum()
 
     precision = tp / (tp + fp + 1e-8)
     recall = tp / (tp + fn + 1e-8)
     f1 = 2 * precision * recall / (precision + recall + 1e-8)
-
-    returns = y_true * y_pred_bin
-    sharpe = returns.mean() / (returns.std() + 1e-8)
+    accuracy = (y_true == y_pred).mean()
 
     return {
-        "accuracy": float(accuracy),
-        "precision": float(precision),
-        "recall": float(recall),
-        "f1": float(f1),
-        "sharpe": float(sharpe),
-        "n": int(len(y_true)),
+        "accuracy": accuracy,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
     }
 
 
-# =========================
+# ---------------------------
+# Pair normalization
+# ---------------------------
+def normalize_pairs(pair_str):
+    def norm(p):
+        p = p.strip().lower()
+        return f"{p[:3]}-{p[3:]}" if "-" not in p else p
+
+    return [norm(p) for p in pair_str.split(",")]
+
+
+# ---------------------------
 # Main
-# =========================
+# ---------------------------
 def main():
     parser = argparse.ArgumentParser()
-
     parser.add_argument("--dataset-version", required=True)
     parser.add_argument("--feature-set", default="price_trend")
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--hidden-dim", type=int, default=32)
-    parser.add_argument("--lr", type=float, default=0.001)
-    parser.add_argument("--pairs")
-    parser.add_argument("--regime")
+    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--pairs", type=str)
+    parser.add_argument("--regime", type=str)
     parser.add_argument("--target-horizon", type=int, default=24)
+    parser.add_argument("--label-quantile", type=float, default=0.5)
 
     args = parser.parse_args()
 
-    setup_logging(f"mlp_{args.feature_set}")
+    Path("logs").mkdir(exist_ok=True)
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(message)s",
+        handlers=[
+            logging.FileHandler(f"logs/mlp_{pd.Timestamp.now(tz='UTC'):%Y%m%dT%H%M%SZ}.log"),
+            logging.StreamHandler()
+        ],
+    )
 
     logging.info("=== MLP Training ===")
     logging.info(vars(args))
 
-    # -------------------------
-    # Load
-    # -------------------------
     df = load_dataset(args.dataset_version, variant="core")
 
-    # -------------------------
-    # Timestamp
-    # -------------------------
-    df["timestamp"] = pd.to_datetime(
-        df.get("timestamp", df.get("time")),
-        errors="coerce"
-    )
-
-    # -------------------------
-    # Filtering
-    # -------------------------
     if args.pairs:
-        pairs = [p.lower().replace("usd", "-usd") for p in args.pairs.split(",")]
+        pairs = normalize_pairs(args.pairs)
+        logging.info(f"normalized_pairs: {pairs}")
         df = df[df["pair"].isin(pairs)]
 
     if args.regime:
@@ -124,110 +107,96 @@ def main():
 
     logging.info(f"rows_after_filter: {len(df)}")
 
-    # -------------------------
-    # Target (SIGN-BASED ✅)
-    # -------------------------
+    if len(df) < 200:
+        logging.warning("Too little data — exiting")
+        return
+
     ret_col = f"ret_{args.target_horizon}b"
-
     if ret_col not in df.columns:
-        available = [c for c in df.columns if c.startswith("ret_")]
-        raise ValueError(f"{ret_col} not found. Available: {available}")
+        logging.warning(f"{ret_col} missing → fallback to ret_24b")
+        ret_col = "ret_24b"
 
-    df["target_direction"] = (df[ret_col] > 0).astype(int)
+    threshold = float(df[ret_col].abs().quantile(args.label_quantile))
+    logging.info(f"label_threshold: {threshold:.6f}")
 
-    # -------------------------
-    # Features
-    # -------------------------
-    base_features = [
-        "trend_12b",
-        "trend_vol_adj_strength",
-        "is_trending",
-        "is_high_vol",
+    df["target_direction"] = (df[ret_col] > threshold).astype(int)
+
+    BASE_FEATURES = [
+        "trend_12b", "trend_24b", "trend_48b",
+        "vol_12b", "vol_48b",
+        "net_sentiment", "abs_sentiment",
+        "sentiment_change", "sentiment_z"
     ]
 
-    sentiment_features = [c for c in df.columns if "sentiment" in c]
+    features = [c for c in BASE_FEATURES if c in df.columns]
+    logging.info(f"using_features: {features}")
 
-    if args.feature_set == "price_trend_sentiment":
-        features = base_features + sentiment_features
-    else:
-        features = base_features
+    df = df.copy()
+    for col in features:
+        df[col] = df[col].fillna(0.0)
 
-    features = [f for f in features if f in df.columns]
+    df = df.dropna(subset=["target_direction"])
 
-    df = df.dropna(subset=features + ["target_direction"]).copy()
+    X = df[features].values.astype("float32")
+    y = df["target_direction"].values.astype("float32")
 
-    # -------------------------
-    # Split
-    # -------------------------
-    df = df.sort_values("timestamp")
+    split = int(len(X) * 0.8)
 
-    split_idx = int(len(df) * 0.8)
-    df_train = df.iloc[:split_idx]
-    df_test = df.iloc[split_idx:]
+    X_train, X_test = X[:split], X[split:]
+    y_train, y_test = y[:split], y[split:]
 
-    X_train = df_train[features].values.astype(np.float32)
-    y_train = df_train["target_direction"].values.astype(np.float32)
+    logging.info(f"train_size: {len(X_train)} | test_size: {len(X_test)}")
 
-    X_test = df_test[features].values.astype(np.float32)
-    y_test = df_test["target_direction"].values.astype(np.float32)
+    if len(X_test) == 0:
+        logging.warning("Empty test set — exiting")
+        return
 
-    logging.info(f"class_balance_train: {y_train.mean():.3f}")
-    logging.info(f"class_balance_test: {y_test.mean():.3f}")
-
-    # -------------------------
     # Normalize
-    # -------------------------
     mean = X_train.mean(axis=0, keepdims=True)
-    std = X_train.std(axis=0, keepdims=True) + 1e-8
+    std = X_train.std(axis=0, keepdims=True)
+    std[std < 1e-8] = 1e-8
 
     X_train = (X_train - mean) / std
     X_test = (X_test - mean) / std
 
-    # -------------------------
-    # Torch
-    # -------------------------
-    X_train_t = torch.tensor(X_train)
-    y_train_t = torch.tensor(y_train)
+    # Class imbalance handling
+    pos_weight_val = (len(y_train) - y_train.sum()) / (y_train.sum() + 1e-8)
+    pos_weight = torch.tensor(pos_weight_val, dtype=torch.float32)
+    logging.info(f"pos_weight: {pos_weight.item():.3f}")
 
-    X_test_t = torch.tensor(X_test)
-    y_test_t = torch.tensor(y_test)
-
-    model = MLP(X_train.shape[1], args.hidden_dim)
-
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    loss_fn = nn.BCEWithLogitsLoss()
-
-    # -------------------------
     # Train
-    # -------------------------
-    for epoch in range(args.epochs):
-        preds = model(X_train_t)
-        loss = loss_fn(preds, y_train_t)
+    model = MLP(X.shape[1], args.hidden_dim)
+    opt = torch.optim.Adam(model.parameters(), lr=args.lr)
+    loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
-        optimizer.zero_grad()
+    Xt = torch.tensor(X_train)
+    yt = torch.tensor(y_train).float()
+
+    for epoch in range(args.epochs):
+        preds = model(Xt)
+        loss = loss_fn(preds, yt)
+
+        opt.zero_grad()
         loss.backward()
-        optimizer.step()
+        opt.step()
 
         if (epoch + 1) % 5 == 0:
-            logging.info(f"epoch {epoch+1} loss={loss.item():.6f}")
+            logging.info(f"epoch {epoch+1}/{args.epochs} loss={loss.item():.6f}")
 
-    # -------------------------
-    # Eval
-    # -------------------------
     with torch.no_grad():
-        train_preds = model(X_train_t).numpy()
-        test_preds = model(X_test_t).numpy()
+        logits = model(torch.tensor(X_test))
+        probs = torch.sigmoid(logits).numpy()
+        preds = (probs > 0.5).astype(int)
 
-    logging.info(f"pred_positive_rate_test: {(test_preds > 0).mean():.3f}")
+    logging.info(f"pred_positive_rate_test: {preds.mean():.3f}")
 
-    train_metrics = compute_metrics(y_train, train_preds)
-    test_metrics = compute_metrics(y_test, test_preds)
+    metrics = compute_metrics(y_test, preds)
+    metrics["n"] = len(y_test)
 
-    logging.info(f"train metrics: {train_metrics}")
-    logging.info(f"test metrics: {test_metrics}")
+    logging.info(f"test metrics: {metrics}")
 
     print("\n=== Test metrics ===")
-    for k, v in test_metrics.items():
+    for k, v in metrics.items():
         print(f"{k}: {v}")
 
 
