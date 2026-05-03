@@ -4,468 +4,207 @@
 
 Determine whether retail FX sentiment contains **causal, exploitable predictive signal**.
 
-------
-
-## Deep Learning Signal Cartography (Preliminary)
-
-We performed a systematic evaluation of shallow MLP and LSTM models across:
-
-- Multiple FX pairs (majors + crosses)
-- Regimes (HVTF, LVTF, HVR, LVR)
-- Prediction horizons and label thresholds
-
-### Key Findings
-
-- A **weak but consistent predictive signal** exists (F1 ≈ 0.25–0.5)
-- Signal is **strongly regime-dependent**:
-  - **LVR (Low Volatility Regime)** → strongest signal
-  - **HVTF (High Volatility Trend-Following)** → weakest / near-random
-- **Regime effects dominate pair effects**
-- JPY pairs are **not universally failing**; performance varies by regime
-
-### Interpretation
-
-This suggests that:
-
-- Predictability emerges in **slow, stable market conditions**
-- Signal deteriorates under **fast, macro-driven regimes**
-- Retail sentiment likely has **conditional predictive value**, not universal
-
-### Relation to ABM
-
-Current ABM assumptions:
-
-- Trend-dominated markets → accumulation → signal
-- Macro-driven markets → regime switching → breakdown
-
-DL results partially align but suggest a refinement:
-
-- Predictability is tied more to **volatility/persistence structure**
-   than to trend direction alone
-
-### Status
-
-- Results are exploratory
-- Models are intentionally simple
-- No hyperparameter tuning beyond coarse grid
-- Further controlled experiments required
-
 ---
 
 ## Current Status
 
-| Area                 | Status                                |
-| -------------------- | ------------------------------------- |
-| Data quality         | ✅ Verified                            |
-| Pipeline correctness | ✅ Verified                            |
-| Validation framework | ✅ Strong                              |
-| Price signal         | ✅ Stable (~0.14 Sharpe)               |
-| Sentiment signal     | ❌ No standalone or incremental signal |
+| Area                 | Status                          |
+| -------------------- | ------------------------------- |
+| Data quality         | ✅ verified                      |
+| Pipeline correctness | ✅ verified                      |
+| Validation framework | ✅ strong                        |
+| Price signal         | ✅ stable (~0.14 Sharpe)         |
+| Sentiment signal     | ❌ no standalone/additive signal |
+| DL signal            | ⚠ weak, regime-dependent        |
 
-------
+---
 
 ## Core Finding
 
-> **Retail sentiment provides no standalone or additive predictive value.  
-> However, weak conditional signal exists under sequence modeling and regime filtering.**
-
-------
-
-## Agent-Based Modeling (ABM)
-
-### Objective
-
-Identify the minimal behavioral rules required to reproduce the statistical
-properties of retail FX sentiment.
+> Retail sentiment has **no standalone or additive predictive value**,  
+> but exhibits **weak conditional signal under regime filtering**.
 
 ---
 
-### Empirical Targets
+## Deep Learning — Controlled Signal Cartography
 
-The ABM is evaluated against:
+### Setup
 
-- mean absolute sentiment (|S|)
-- standard deviation
-- autocorrelation
-- frequency of extreme regimes
-
-No predictive objective is used.
-
----
-
-### Working Model
-
-The following mechanisms are jointly sufficient:
-
-- **Accumulation**  
-  Agents increase position size when aligned with price signal.
-
-- **Inertia (anchoring)**  
-  Agents resist switching positions.
-
-- **Asymmetric reinforcement**  
-  Agents strengthen positions when aligned with price.
-
-No decay or release mechanism is required.
+- Fixed configuration:
+  - horizon = 24
+  - quantile = 0.50
+- Models:
+  - MLP (baseline)
+  - LSTM (sequence)
+- Evaluation:
+  - per pair × regime
+  - weighted F1
 
 ---
 
-### Observed Dynamics
+### Key Results
 
-The model produces:
-
-- strong persistence (high autocorrelation)
-- clustered sentiment regimes
-- heavy-tailed positioning
-- non-mean-reverting behavior
-
-The system is **path-dependent**.
+- Weak signal exists (F1 ≈ 0.25–0.50)
+- Structure is **stable across models**
+- Signal is **strongly regime-dependent**
 
 ---
 
-### Multi-Pair Validation
+### Regime Hierarchy (Empirical)
 
-Results show clear regime dependence.
+| Regime | Interpretation    |
+| ------ | ----------------- |
+| LVTF   | strongest, stable |
+| HVR    | moderate          |
+| LVR    | unstable / sparse |
+| HVTF   | weak / noise      |
 
-#### Group A — Model matches data
+---
 
-- EUR/USD, GBP/USD, NZD/USD
-- AUD/NZD
+### Pair Effects
 
-Characteristics:
-- low abs_mean_diff
-- stable autocorrelation
-- realistic extreme frequency
-
-#### Group B — Model fails
-
-- All JPY pairs
-- CHF pairs
-- Some CAD pairs
-
-Failure mode:
-- excessive accumulation
-- distorted magnitude (high abs_mean_diff)
-- unstable persistence
+- Secondary to regime effects
+- Stronger structure in:
+  - USDJPY
+  - USDCHF
+  - EURJPY
+- Weak / flat:
+  - EURGBP
+  - GBPJPY
 
 ---
 
 ### Interpretation
 
-The ABM captures sentiment structure only in **trend-dominated regimes**.
+Predictability requires:
 
-It fails in markets characterized by:
+- directional structure (trend)
+- **and stability (low volatility)**
 
-- macro-driven flows
-- carry dynamics
-- regime switching
+Signal fails when:
 
----
-
-### Relationship to Predictive Results
-
-This explains earlier findings:
-
-- sentiment has no predictive signal globally
-- sentiment does not improve price-based models
-
-Because:
-
-> sentiment reflects **current positioning state**, not future returns
-
-However, the regime dependence suggests:
-
-> predictive signal may exist **within specific market subsets**
+- volatility dominates
+- market driven by macro/flows
 
 ---
 
-### Conclusion
+## Agent-Based Modeling (ABM)
 
-Retail sentiment is:
+### Current Model
 
-- path-dependent
-- regime-dependent
-- structurally non-equilibrium
+Captures:
 
----
+- accumulation
+- inertia
+- asymmetric reinforcement
 
-### Status
+Produces:
 
-- EUR/USD: validated
-- Multi-pair: validated with regime segmentation
-- Generalization: conditional, not universal
-
----
-
-## Deep Learning (LSTM)
-
-Sequence models were tested to evaluate whether temporal dependencies
-or path-dependent interactions contain predictive signal.
-
-Result (DL v2):
-
-- Weak predictive signal recovered under:
-  - LSTM sequence models
-  - HVTF regime filtering
-  - ~24-bar horizon
-- price + sentiment outperforms price-only
-
-Conclusion:
-
-> A **weak, time-dependent signal exists**, but is:
-- regime-dependent
-- sensitive to specification
-- not yet robust
-
-This revises earlier conclusions that no temporal signal exists.
+- persistence
+- clustering
+- path dependence
 
 ---
 
-## Deep Learning Experiments (MLP)
+### Limitation
 
-A structured set of deep learning experiments was conducted to test whether nonlinear models can extract predictive signal from sentiment.
+Fails in:
 
-### Models Tested
-
-- price_only
-- price + sentiment
-- price + volatility
-- price + volatility + sentiment
-
-### Results
-
-- price_only: small but stable predictive signal
-- price + sentiment: no improvement
-- price + volatility: performance degrades
-- price + volatility + sentiment: no recovery
-
-### Conclusion
-
-> No predictive signal is recovered by nonlinear models.
-
-This extends previous findings:
-
-- no standalone signal
-- no additive signal
-- no conditional signal
-- no nonlinear interaction signal
-
-### Implication
-
-Sentiment does not contain exploitable directional information under current representation.
-
-### Remaining Hypothesis
-
-Not yet falsified:
-
-- sequence-dependent effects
-- delayed or path-dependent interactions
-
-→ Sequence models (LSTM) tested — no predictive signal identified
+- JPY
+- CHF
+- some CAD pairs
 
 ---
 
-## Incremental Value Tests (V28–V29)
+### Updated Understanding
 
-### V28 — Additive Model
+ABM currently models:
 
-Test:
+trend → accumulation → sentiment structure
 
-> Does sentiment improve a price-based signal when added linearly?
+DL results imply:
 
-Result:
+trend + stability → predictive signal
 
-- Price Sharpe ≈ 0.14
-- Price + sentiment → Sharpe ≈ 0
+trend + high volatility → breakdown
 
-Conclusion:
+---
 
-> Sentiment introduces noise and degrades signal quality.
+### Required Update
 
-------
+ABM must incorporate:
 
-### V29 — Conditional Model
+- volatility dynamics
+- regime switching / persistence
 
-Test:
+---
 
-> Does sentiment improve performance in extreme regimes?
+## DL ↔ ABM Relationship
 
-Result:
+DL is not validating ABM directly.
 
-- Identical performance to price-only signal
+Instead:
 
-Conclusion:
+> DL provides empirical constraints on ABM
 
-> No measurable conditional benefit under this formulation.
+ABM must reproduce:
 
-------
+- LVTF > HVTF signal difference
+- regime-conditioned predictability
+- pair-dependent variation
 
-## Interpretation
+---
 
-The combined evidence supports:
+## What Has Been Ruled Out
 
-### 1. No standalone signal
-
-\[
-E[r_{t+1} \mid S_t] \approx 0
-\]
-
-------
-
-### 2. No incremental contribution
-
-\[
-E[r_{t+1} | P_t, S_t] \approx E[r_{t+1} | P_t]
-\]
-
-------
-
-### 3. Informational redundancy
-
-> Sentiment does not add new information beyond price.
-
-Likely explanation:
-
-- sentiment reflects accumulated trader positioning responding to price dynamics
-- but does not lead them
-- and may introduce noise when used directly
-
-------
-
-## Key Lessons
-
-### 1. Strong validation is essential
-
-Pipeline-based signals (V19–V21):
-
-- appeared robust
-- failed under independent validation
-
-------
-
-### 2. Simpler models reveal truth faster
-
-Minimal, causal implementations:
-
-- exposed artifacts
-- eliminated false positives
-
-------
-
-### 3. Negative results define the search space
-
-We have now ruled out:
-
-- linear relationships
-- additive models
+- raw sentiment signal
+- additive sentiment signal
 - simple conditional filters
+- nonlinear static interactions
 
-This significantly narrows future research directions.
+---
 
-------
+## What Remains Open
 
-## Hypotheses Tested (Falsified)
+- regime-driven predictability mechanisms
+- persistence / autocorrelation structure
+- behavioral explanation of volatility gating
+- cross-pair structural differences
 
-- Raw sentiment predicts returns
-- Extremes produce contrarian alpha
-- Additive sentiment improves price signals (V28)
-- Conditional sentiment improves regimes (V29)
-- Pipeline-derived signals are valid
+---
 
-------
+## Next Steps
 
-## What remains open
+### 1. ABM Refinement (primary)
 
-Not ruled out:
+- introduce volatility/stability dynamics
+- reproduce DL regime map
 
-- nonlinear / higher-order interactions
-- alternative targets (volatility, drawdowns)
-- sequence-based effects
-- structural behavioral dynamics
+### 2. Regime Diagnostics
 
-------
+- feature persistence
+- sentiment autocorrelation
+- return predictability decay
 
-## Active Research Directions
+### 3. Controlled DL (minimal)
 
-### 1. Hypothesis Testing
+- no further grid search
+- confirm robustness under fixed config
 
-Continue systematic falsification of simple behavioral models.
+---
 
-------
+## Research Phase
 
-### 2. Deep Learning
+The project has transitioned to:
 
-Test whether sequence models can capture nonlinear dependencies.
+> **structure discovery and model reconciliation**
 
-------
-
-### 3. Agent-Based Modeling
-
-Understand how sentiment emerges from trader behavior.
-
-------
-
-### 4. Regime-Aware Experiments
-
-#### Motivation
-
-ABM multi-pair validation showed that the behavioral accumulation model
-reproduces sentiment structure only in **trend-dominated markets**
-(EUR/USD, GBP/USD, NZD/USD) and fails in macro/carry-driven markets
-(JPY, CHF pairs). This regime dependence is the empirical basis for
-testing whether predictive signal exists conditionally within specific regimes.
-
-#### Regime Definitions (Dataset v1.3.0)
-
-Regimes are derived from two backward-looking, per-pair binary flags:
-
-| Flag | Computation |
-|---|---|
-| `is_trending` | `trend_strength > 1.0`, where `trend_strength = abs(trend_12b) / (vol_12b + 1e-8)` |
-| `is_high_vol` | `vol_12b > vol_12b.median()` (per pair) |
-
-| Label | Condition |
-|---|---|
-| HVTF | High-vol & trending |
-| LVTF | Low-vol & trending |
-| HVR  | High-vol & ranging |
-| LVR  | Low-vol & ranging |
-
-All features are strictly causal (backward-looking only, grouped by pair).
-
-#### How to Run
-
-Build dataset v1.3.0 (includes vol + regime features):
-
-```bash
-python scripts/build_dataset.py --version 1.3.0
-```
-
-Run regime experiment (MLP + LSTM):
-
-```bash
-./scripts/run_dl_regime_experiment.sh 1.3.0 HVTF EURUSD,GBPUSD,NZDUSD 50
-```
-
-Filtering is applied before feature extraction and sequence building to
-ensure deterministic train/test splits and leak-free normalization.
-
-#### Status
-
-- Dataset v1.3.0: defined (requires build)
-- Regime feature sets: `price_trend`, `price_trend_sentiment`
-- HVTF / LVTF experiments: pending
-
-------
+---
 
 ## Conclusion
 
-> The project has transitioned from **signal discovery** to **structured exploration of model space**
+- No global predictive signal
+- No additive value from sentiment
+- Weak signal exists **conditionally**
 
-The absence of signal is:
-
-- consistent
-- reproducible
-- informative
-
-It provides a solid foundation for future work.
+> Predictability is governed by **regime structure**, not sentiment alone.
