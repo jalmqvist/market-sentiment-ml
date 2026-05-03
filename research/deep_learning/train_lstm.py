@@ -25,7 +25,6 @@ def normalize_pairs(pair_str):
     def norm(p):
         p = p.strip().lower()
         return f"{p[:3]}-{p[3:]}" if "-" not in p else p
-
     return [norm(p) for p in pair_str.split(",")]
 
 
@@ -59,12 +58,7 @@ def compute_metrics(y_true, y_pred):
     f1 = 2 * precision * recall / (precision + recall + 1e-8)
     accuracy = (y_true == y_pred).mean()
 
-    return {
-        "accuracy": accuracy,
-        "precision": precision,
-        "recall": recall,
-        "f1": f1,
-    }
+    return dict(accuracy=accuracy, precision=precision, recall=recall, f1=f1)
 
 
 def main():
@@ -84,28 +78,20 @@ def main():
 
     Path("logs").mkdir(exist_ok=True)
 
-    pair_str = args.pairs.strip().lower().replace(",", "-") if args.pairs and args.pairs.strip() else "all"
-    regime_str = args.regime.strip().lower() if args.regime and args.regime.strip() else "all"
-    timestamp_str = pd.Timestamp.now(tz="UTC").strftime("%Y%m%dT%H%M%SZ")
-    log_filename = (
-        f"logs/lstm_{pair_str}_{regime_str}"
-        f"_h{args.target_horizon}_q{args.label_quantile}_{timestamp_str}.log"
-    )
+    pair_str = args.pairs.strip().lower().replace(",", "-") if args.pairs else "all"
+    regime_str = args.regime.strip().lower() if args.regime else "all"
+    ts = pd.Timestamp.now(tz="UTC").strftime("%Y%m%dT%H%M%SZ")
+
+    log_file = f"logs/lstm_{pair_str}_{regime_str}_h{args.target_horizon}_q{args.label_quantile}_{ts}.log"
 
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s | %(levelname)s | %(message)s",
-        handlers=[
-            logging.FileHandler(log_filename),
-            logging.StreamHandler()
-        ],
+        handlers=[logging.FileHandler(log_file), logging.StreamHandler()],
     )
 
     logging.info("=== LSTM Training ===")
-    logging.info(
-        f"CONFIG | model=lstm pair={args.pairs} regime={args.regime} "
-        f"horizon={args.target_horizon} quantile={args.label_quantile}"
-    )
+    logging.info(f"CONFIG | model=lstm pair={args.pairs} regime={args.regime} horizon={args.target_horizon} quantile={args.label_quantile}")
 
     df = load_dataset(args.dataset_version, variant="core")
 
@@ -119,12 +105,13 @@ def main():
 
     logging.info(f"rows_after_filter: {len(df)}")
 
-    if len(df) < 500:
+    if len(df) < 50:
         logging.warning(f"SKIP | reason=too_few_rows | rows={len(df)}")
         return
 
     ret_col = f"ret_{args.target_horizon}b"
     if ret_col not in df.columns:
+        logging.warning(f"{ret_col} missing → fallback to ret_24b")
         ret_col = "ret_24b"
 
     threshold = float(df[ret_col].abs().quantile(args.label_quantile))
@@ -142,12 +129,11 @@ def main():
     features = [c for c in BASE_FEATURES if c in df.columns]
     numeric_cols = set(df.select_dtypes(include=[np.number]).columns)
     features = [c for c in features if c in numeric_cols]
+
     logging.info(f"using_features: {features}")
 
     df = df.copy()
-    for col in features:
-        df[col] = df[col].fillna(0.0)
-
+    df[features] = df[features].fillna(0.0)
     df = df.dropna(subset=["target_direction"])
 
     X, y = build_sequences(df, features, "target_direction", args.seq_len)
@@ -156,17 +142,21 @@ def main():
         logging.warning(f"SKIP | reason=too_few_sequences | seqs={len(X)}")
         return
 
-    logging.info(f"Sequences shape: {X.shape}")
-
     split = int(len(X) * 0.8)
-
     X_train, X_test = X[:split], X[split:]
     y_train, y_test = y[:split], y[split:]
+
+    if len(X_test) == 0:
+        logging.warning("SKIP | reason=empty_test_set | rows=0")
+        return
+
+    if y_train.sum() == 0:
+        logging.warning("SKIP | reason=no_positive_class")
+        return
 
     logging.info(f"class_balance_train: {y_train.mean():.3f}")
     logging.info(f"class_balance_test: {y_test.mean():.3f}")
 
-    # Normalize
     X_train = X_train.astype("float32")
     X_test = X_test.astype("float32")
 
@@ -177,12 +167,9 @@ def main():
     X_train = (X_train - mean) / std
     X_test = (X_test - mean) / std
 
-    # Class imbalance
     pos_weight_val = (len(y_train) - y_train.sum()) / (y_train.sum() + 1e-8)
     pos_weight = torch.tensor(pos_weight_val, dtype=torch.float32)
-    logging.info(f"pos_weight: {pos_weight.item():.3f}")
 
-    # Train
     model = LSTMModel(X.shape[2], args.hidden_dim)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
     loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
@@ -205,6 +192,8 @@ def main():
         logits = model(torch.tensor(X_test))
         probs = torch.sigmoid(logits).numpy()
         preds = (probs > 0.5).astype(int)
+
+    logging.info(f"pred_positive_rate_test: {preds.mean():.3f}")
 
     metrics = compute_metrics(y_test, preds)
     metrics["n"] = len(y_test)

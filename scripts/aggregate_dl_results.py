@@ -1,35 +1,66 @@
-import ast
 import re
 from pathlib import Path
 import pandas as pd
 
-
 LOG_DIR = Path("logs")
 
 
-def clean_np(val):
-    """Convert np.float64(x) → x"""
-    if isinstance(val, str) and "np.float64" in val:
-        return float(val.split("(")[1].rstrip(")"))
-    return val
-
-
-def parse_metrics_dict(line):
-    """
-    Extract dict from:
-    test metrics: {...}
-    """
+# ---------------------------
+# Parse CONFIG line
+# ---------------------------
+def parse_config_line(line):
     try:
-        dict_str = line.split("test metrics:")[1].strip()
+        line = line.split("CONFIG |")[-1].strip()
+        pattern = r"(\w+)=([^\s]+)"
+        matches = dict(re.findall(pattern, line))
 
-        # Replace np.float64(...) with plain float
-        dict_str = re.sub(r"np\.float64\((.*?)\)", r"\1", dict_str)
-
-        return ast.literal_eval(dict_str)
+        return {
+            "model": matches.get("model", "").upper(),
+            "pair": matches.get("pair"),
+            "regime": matches.get("regime"),
+            "horizon": int(matches.get("horizon", 0)),
+            "quantile": float(matches.get("quantile", 0)),
+        }
     except Exception:
         return None
 
 
+# ---------------------------
+# Parse metrics block
+# ---------------------------
+def parse_metrics_block(lines, i):
+    metrics = {}
+
+    for j in range(i + 1, min(i + 10, len(lines))):
+        line = lines[j].strip()
+
+        if ":" not in line:
+            continue
+
+        # Strip logging prefix
+        if "|" in line:
+            line = line.split("|")[-1].strip()
+
+        if ":" not in line:
+            continue
+
+        key, val = line.split(":", 1)
+        key = key.strip()
+        val = val.strip()
+
+        try:
+            val = float(val)
+        except:
+            continue
+
+        metrics[key] = val
+
+    return metrics if metrics else None
+
+
+# ---------------------------
+# Parse all logs
+# ---------------------------
 def parse_logs():
     rows = []
 
@@ -37,43 +68,25 @@ def parse_logs():
         with open(file, "r") as f:
             lines = f.readlines()
 
-        model = None
         config = None
 
-        for line in lines:
+        for i, line in enumerate(lines):
 
-            # Model
-            if "=== MLP Training ===" in line:
-                model = "MLP"
-            elif "=== LSTM Training ===" in line:
-                model = "LSTM"
+            if "CONFIG |" in line:
+                config = parse_config_line(line)
 
-            # Config
-            if "dataset_version" in line and "{" in line:
-                try:
-                    config = ast.literal_eval(line.split("|")[-1].strip())
-                except:
-                    continue
-
-            # Metrics
-            if "test metrics:" in line:
-                metrics = parse_metrics_dict(line)
+            if "=== Test metrics ===" in line:
+                metrics = parse_metrics_block(lines, i)
 
                 if metrics and config:
-                    row = {
-                        "model": model,
-                        "feature_set": config.get("feature_set"),
-                        "horizon": config.get("target_horizon"),
-                        "quantile": config.get("label_quantile"),
-                        "regime": config.get("regime"),
-                        "pair": str(config.get("pairs")).split(",")[0],
-                        **metrics,
-                    }
-                    rows.append(row)
+                    rows.append({**config, **metrics})
 
     return pd.DataFrame(rows)
 
 
+# ---------------------------
+# Score
+# ---------------------------
 def compute_score(df):
     df = df.copy()
     df["score"] = (
@@ -84,42 +97,66 @@ def compute_score(df):
     return df
 
 
+# ---------------------------
+# Remove collapsed models
+# ---------------------------
 def filter_collapsed(df):
     return df[
         (df["precision"] > 0)
         | (df["recall"] > 0)
     ]
 
+
+# ---------------------------
+# Weighted heatmap (NEW)
+# ---------------------------
+def weighted_heatmap(df):
+    df = df.copy()
+
+    df["weighted_f1"] = df["f1"] * df["n"]
+
+    grouped = (
+        df
+        .groupby(["pair", "regime"])
+        .agg(
+            total_n=("n", "sum"),
+            weighted_f1=("weighted_f1", "sum"),
+        )
+    )
+
+    grouped["f1"] = grouped["weighted_f1"] / grouped["total_n"]
+
+    return grouped["f1"].unstack().round(3)
+
+
+# ---------------------------
+# Main
+# ---------------------------
 def main():
     df = parse_logs()
 
     if df.empty:
-        print("❌ No results found (unexpected now)")
+        print("❌ No results found")
         return
 
     df = compute_score(df)
     df_valid = filter_collapsed(df)
 
-    # === INSERT HERE ===
-    print("\n=== PAIR × REGIME (mean F1) ===\n")
+    print("\n=== PAIR × REGIME (WEIGHTED F1) ===\n")
+    print(weighted_heatmap(df_valid))
 
-    heatmap = (
-        df_valid
-        .groupby(["pair", "regime"])["f1"]
-        .mean()
-        .unstack()
-        .round(3)
-    )
-
-    print(heatmap)
-
-    # Existing output
     print("\n=== TOP RESULTS (NON-COLLAPSED) ===\n")
     print(
-        df_valid.sort_values("score", ascending=False)
+        df_valid
+        .sort_values("score", ascending=False)
         .head(20)
         .to_string(index=False)
     )
+
+    print("\n=== DIAGNOSTICS ===")
+    print(f"Total runs: {len(df)}")
+    print(f"Valid runs: {len(df_valid)}")
+
 
 if __name__ == "__main__":
     main()

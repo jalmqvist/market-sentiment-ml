@@ -6,6 +6,52 @@ Determine whether retail FX sentiment contains **causal, exploitable predictive 
 
 ------
 
+## Deep Learning Signal Cartography (Preliminary)
+
+We performed a systematic evaluation of shallow MLP and LSTM models across:
+
+- Multiple FX pairs (majors + crosses)
+- Regimes (HVTF, LVTF, HVR, LVR)
+- Prediction horizons and label thresholds
+
+### Key Findings
+
+- A **weak but consistent predictive signal** exists (F1 ≈ 0.25–0.5)
+- Signal is **strongly regime-dependent**:
+  - **LVR (Low Volatility Regime)** → strongest signal
+  - **HVTF (High Volatility Trend-Following)** → weakest / near-random
+- **Regime effects dominate pair effects**
+- JPY pairs are **not universally failing**; performance varies by regime
+
+### Interpretation
+
+This suggests that:
+
+- Predictability emerges in **slow, stable market conditions**
+- Signal deteriorates under **fast, macro-driven regimes**
+- Retail sentiment likely has **conditional predictive value**, not universal
+
+### Relation to ABM
+
+Current ABM assumptions:
+
+- Trend-dominated markets → accumulation → signal
+- Macro-driven markets → regime switching → breakdown
+
+DL results partially align but suggest a refinement:
+
+- Predictability is tied more to **volatility/persistence structure**
+   than to trend direction alone
+
+### Status
+
+- Results are exploratory
+- Models are intentionally simple
+- No hyperparameter tuning beyond coarse grid
+- Further controlled experiments required
+
+---
+
 ## Current Status
 
 | Area                 | Status                                |

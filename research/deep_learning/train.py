@@ -83,21 +83,16 @@ def main():
 
     Path("logs").mkdir(exist_ok=True)
 
-    pair_str = args.pairs.strip().lower().replace(",", "-") if args.pairs and args.pairs.strip() else "all"
-    regime_str = args.regime.strip().lower() if args.regime and args.regime.strip() else "all"
-    timestamp_str = pd.Timestamp.now(tz="UTC").strftime("%Y%m%dT%H%M%SZ")
-    log_filename = (
-        f"logs/mlp_{pair_str}_{regime_str}"
-        f"_h{args.target_horizon}_q{args.label_quantile}_{timestamp_str}.log"
-    )
+    pair_str = args.pairs.strip().lower().replace(",", "-") if args.pairs else "all"
+    regime_str = args.regime.strip().lower() if args.regime else "all"
+    ts = pd.Timestamp.now(tz="UTC").strftime("%Y%m%dT%H%M%SZ")
+
+    log_file = f"logs/mlp_{pair_str}_{regime_str}_h{args.target_horizon}_q{args.label_quantile}_{ts}.log"
 
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s | %(levelname)s | %(message)s",
-        handlers=[
-            logging.FileHandler(log_filename),
-            logging.StreamHandler()
-        ],
+        handlers=[logging.FileHandler(log_file), logging.StreamHandler()],
     )
 
     logging.info("=== MLP Training ===")
@@ -142,19 +137,17 @@ def main():
     features = [c for c in BASE_FEATURES if c in df.columns]
     numeric_cols = set(df.select_dtypes(include=[np.number]).columns)
     features = [c for c in features if c in numeric_cols]
+
     logging.info(f"using_features: {features}")
 
     df = df.copy()
-    for col in features:
-        df[col] = df[col].fillna(0.0)
-
+    df[features] = df[features].fillna(0.0)
     df = df.dropna(subset=["target_direction"])
 
     X = df[features].values.astype("float32")
     y = df["target_direction"].values.astype("float32")
 
     split = int(len(X) * 0.8)
-
     X_train, X_test = X[:split], X[split:]
     y_train, y_test = y[:split], y[split:]
 
@@ -162,6 +155,10 @@ def main():
 
     if len(X_test) == 0:
         logging.warning("SKIP | reason=empty_test_set | rows=0")
+        return
+
+    if y_train.sum() == 0:
+        logging.warning("SKIP | reason=no_positive_class")
         return
 
     # Normalize
