@@ -84,17 +84,28 @@ def main():
 
     Path("logs").mkdir(exist_ok=True)
 
+    pair_str = args.pairs.strip().lower().replace(",", "-") if args.pairs and args.pairs.strip() else "all"
+    regime_str = args.regime.strip().lower() if args.regime and args.regime.strip() else "all"
+    timestamp_str = pd.Timestamp.now(tz="UTC").strftime("%Y%m%dT%H%M%SZ")
+    log_filename = (
+        f"logs/lstm_{pair_str}_{regime_str}"
+        f"_h{args.target_horizon}_q{args.label_quantile}_{timestamp_str}.log"
+    )
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s | %(levelname)s | %(message)s",
         handlers=[
-            logging.FileHandler(f"logs/lstm_{pd.Timestamp.now(tz='UTC'):%Y%m%dT%H%M%SZ}.log"),
+            logging.FileHandler(log_filename),
             logging.StreamHandler()
         ],
     )
 
     logging.info("=== LSTM Training ===")
-    logging.info(vars(args))
+    logging.info(
+        f"CONFIG | model=lstm pair={args.pairs} regime={args.regime} "
+        f"horizon={args.target_horizon} quantile={args.label_quantile}"
+    )
 
     df = load_dataset(args.dataset_version, variant="core")
 
@@ -109,7 +120,7 @@ def main():
     logging.info(f"rows_after_filter: {len(df)}")
 
     if len(df) < 500:
-        logging.warning("Too little data — exiting")
+        logging.warning(f"SKIP | reason=too_few_rows | rows={len(df)}")
         return
 
     ret_col = f"ret_{args.target_horizon}b"
@@ -129,6 +140,8 @@ def main():
     ]
 
     features = [c for c in BASE_FEATURES if c in df.columns]
+    numeric_cols = set(df.select_dtypes(include=[np.number]).columns)
+    features = [c for c in features if c in numeric_cols]
     logging.info(f"using_features: {features}")
 
     df = df.copy()
@@ -139,8 +152,8 @@ def main():
 
     X, y = build_sequences(df, features, "target_direction", args.seq_len)
 
-    if len(X) < 200:
-        logging.warning(f"Low sequence count: {len(X)} — exiting")
+    if len(X) < 50:
+        logging.warning(f"SKIP | reason=too_few_sequences | seqs={len(X)}")
         return
 
     logging.info(f"Sequences shape: {X.shape}")
@@ -196,11 +209,9 @@ def main():
     metrics = compute_metrics(y_test, preds)
     metrics["n"] = len(y_test)
 
-    logging.info(f"test metrics: {metrics}")
-
-    print("\n=== Test metrics ===")
+    logging.info("=== Test metrics ===")
     for k, v in metrics.items():
-        print(f"{k}: {v}")
+        logging.info(f"{k}: {v}")
 
 
 if __name__ == "__main__":
