@@ -77,17 +77,14 @@ Empirical results show that:
 
 Retail sentiment appears to:
 
-- reflect market behavior rather than predict it
-- provide limited incremental information beyond price
+- reflect market behavior rather than predict it (dominant effect)
+- provide limited incremental information in static settings
+- contain **weak temporal structure detectable via sequence models**
 
-However, preliminary evidence suggests:
+This suggests:
 
-> sentiment may influence the *quality or persistence* of price signals under specific conditions
-
-This motivates a shift toward:
-
-- interaction-based modeling
-- conditional signal discovery
+> sentiment may influence **how price evolves over time**,  
+> rather than directly predicting returns
 
 ---
 

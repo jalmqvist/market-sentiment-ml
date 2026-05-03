@@ -1,317 +1,230 @@
-#!/usr/bin/env python3
-from __future__ import annotations
-
 import argparse
-import json
 import logging
-import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-import torch.optim as optim
 
-# ---------------------------------------------------------------------------
-# Repo root (NO config dependency)
-# ---------------------------------------------------------------------------
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-LOG_DIR = REPO_ROOT / "logs"
-OUTPUT_DIR = REPO_ROOT / "data" / "output"
-
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-
-# ---------------------------------------------------------------------------
-# Imports
-# ---------------------------------------------------------------------------
-
-from utils.logging import setup_experiment_logging
-from research.deep_learning.dataset_loader import (
-    get_features,
-    load_dataset,
-    to_tensors,
-    train_test_split,
-)
-from research.deep_learning.model import MLP
-
-logger = logging.getLogger(__name__)
+from research.deep_learning.dataset_loader import load_dataset
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+# =========================
+# Logging
+# =========================
+def setup_logging(name: str):
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
 
-def _normalize_pair(pair: str) -> str:
-    pair = pair.strip()
-    letters = "".join(c for c in pair if c.isalpha())
-    if len(letters) == 6:
-        return f"{letters[:3].lower()}-{letters[3:].lower()}"
-    return pair.lower().replace("_", "-")
+    ts = pd.Timestamp.now(tz="UTC").strftime("%Y%m%dT%H%M%SZ")
+    log_path = log_dir / f"{name}_{ts}.log"
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+        handlers=[
+            logging.FileHandler(log_path),
+            logging.StreamHandler()
+        ]
+    )
+
+    logging.info(f"Logging to {log_path}")
 
 
-# ---------------------------------------------------------------------------
-# Training
-# ---------------------------------------------------------------------------
+# =========================
+# Model
+# =========================
+class MLP(nn.Module):
+    def __init__(self, input_dim, hidden_dim):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, 1)
+        )
 
-def _train(model, X_train, y_train, epochs, lr, criterion):
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    def forward(self, x):
+        return self.net(x).squeeze(-1)
 
-    for epoch in range(1, epochs + 1):
-        model.train()
 
-        optimizer.zero_grad()
+# =========================
+# Metrics
+# =========================
+def compute_metrics(y_true, y_pred):
+    y_pred_bin = (y_pred > 0).astype(int)
 
-        preds = model(X_train).squeeze()   # 🔥 ensure (N,)
-        loss = criterion(preds, y_train)   # y_train must also be (N,)
+    accuracy = (y_true == y_pred_bin).mean()
 
-        loss.backward()
-        optimizer.step()
+    tp = ((y_true == 1) & (y_pred_bin == 1)).sum()
+    fp = ((y_true == 0) & (y_pred_bin == 1)).sum()
+    fn = ((y_true == 1) & (y_pred_bin == 0)).sum()
 
-        if epoch % 5 == 0:
-            logging.info(f"epoch {epoch}/{epochs} loss={loss.item():.6f}")
+    precision = tp / (tp + fp + 1e-8)
+    recall = tp / (tp + fn + 1e-8)
+    f1 = 2 * precision * recall / (precision + recall + 1e-8)
 
-def _compute_regression_metrics(predictions: np.ndarray, targets: np.ndarray) -> dict:
-    position = np.sign(predictions)
-    pnl = position * targets
-
-    mean = pnl.mean()
-    std = pnl.std()
-    sharpe = float(mean / std) if std > 1e-12 else 0.0
-    hit_rate = float((pnl > 0).mean())
-    mse = float(np.mean((predictions - targets) ** 2))
+    returns = y_true * y_pred_bin
+    sharpe = returns.mean() / (returns.std() + 1e-8)
 
     return {
-        "sharpe": sharpe,
-        "hit_rate": hit_rate,
-        "mse": mse,
-        "n": int(len(pnl)),
+        "accuracy": float(accuracy),
+        "precision": float(precision),
+        "recall": float(recall),
+        "f1": float(f1),
+        "sharpe": float(sharpe),
+        "n": int(len(y_true)),
     }
 
 
-def _compute_classification_metrics(logits: np.ndarray, targets: np.ndarray) -> dict:
-    from sklearn.metrics import precision_score, recall_score, f1_score
-
-    pred_labels = (logits > 0).astype(int)
-    y = targets.astype(int)
-
-    accuracy = float((pred_labels == y).mean())
-    precision = float(precision_score(y, pred_labels, zero_division=0))
-    recall = float(recall_score(y, pred_labels, zero_division=0))
-    f1 = float(f1_score(y, pred_labels, zero_division=0))
-
-    # Sharpe using sigmoid probability as position proxy
-    probs = 1.0 / (1.0 + np.exp(-logits))
-    # Convert binary labels (0/1) to position signs (-1/+1) for Sharpe computation
-    position = np.where(probs > 0.5, 1.0, -1.0)
-    ret_proxy = position * (2.0 * targets - 1.0)  # (0/1) → (-1/+1)
-    std = ret_proxy.std()
-    sharpe = float(ret_proxy.mean() / std) if std > 1e-12 else 0.0
-
-    return {
-        "accuracy": accuracy,
-        "precision": precision,
-        "recall": recall,
-        "f1": f1,
-        "sharpe": sharpe,
-        "n": int(len(targets)),
-    }
-
-
-# ---------------------------------------------------------------------------
+# =========================
 # Main
-# ---------------------------------------------------------------------------
-
+# =========================
 def main():
     parser = argparse.ArgumentParser()
+
     parser.add_argument("--dataset-version", required=True)
-    parser.add_argument("--feature-set", default="price_sentiment")
+    parser.add_argument("--feature-set", default="price_trend")
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--hidden-dim", type=int, default=32)
-    parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--variant", default="core")
-    parser.add_argument("--tag", default=None)
-    parser.add_argument("--pairs", default=None)
-    parser.add_argument("--regime", default=None, choices=["HVTF", "LVTF", "HVR", "LVR"])
-    parser.add_argument("--log-level", default="INFO")
-    parser.add_argument("--no-log-file", action="store_true")
-    parser.add_argument(
-        "--mode",
-        default="classification",
-        choices=["regression", "classification"],
-        help="Training mode: 'classification' (default) or 'regression'",
-    )
+    parser.add_argument("--lr", type=float, default=0.001)
+    parser.add_argument("--pairs")
+    parser.add_argument("--regime")
     parser.add_argument("--target-horizon", type=int, default=24)
-    parser.add_argument("--label-quantile", type=float, default=0.6)
-    parser.add_argument("--label-mode", type=str, default="sign", choices=["sign", "threshold"])
+
     args = parser.parse_args()
 
-    tag = args.tag if args.tag else args.feature_set
+    setup_logging(f"mlp_{args.feature_set}")
 
-    log_file = setup_experiment_logging(
-        experiment_type="mlp",
-        tag=tag,
-        log_level=args.log_level,
-        no_log_file=args.no_log_file,
-        log_dir=LOG_DIR,
+    logging.info("=== MLP Training ===")
+    logging.info(vars(args))
+
+    # -------------------------
+    # Load
+    # -------------------------
+    df = load_dataset(args.dataset_version, variant="core")
+
+    # -------------------------
+    # Timestamp
+    # -------------------------
+    df["timestamp"] = pd.to_datetime(
+        df.get("timestamp", df.get("time")),
+        errors="coerce"
     )
 
-    if log_file:
-        logger.info("Logging to %s", log_file)
-
-    logger.info("=== MLP Training ===")
-    logger.info(vars(args))
-    logger.info("feature_set: %s", args.feature_set)
-    logger.info("dataset_version: %s", args.dataset_version)
-    logger.info("mode: %s", args.mode)
-    logger.info({
-        "target_horizon": args.target_horizon,
-        "label_mode": args.label_mode,
-        "label_quantile": args.label_quantile,
-    })
-
-    torch.manual_seed(42)
-    np.random.seed(42)
-
-    # ------------------------------------------------------------------
-    # Load dataset
-    # ------------------------------------------------------------------
-    df = load_dataset(args.dataset_version, variant=args.variant)
-
-    suffix = "" if args.variant == "full" else f"_{args.variant}"
-    dataset_path = OUTPUT_DIR / args.dataset_version / f"master_research_dataset{suffix}.csv"
-    logger.info("dataset_path: %s", dataset_path)
-
-    # ------------------------------------------------------------------
+    # -------------------------
     # Filtering
-    # ------------------------------------------------------------------
-    rows_before = len(df)
-
+    # -------------------------
     if args.pairs:
-        pairs = [_normalize_pair(p) for p in args.pairs.split(",")]
+        pairs = [p.lower().replace("usd", "-usd") for p in args.pairs.split(",")]
         df = df[df["pair"].isin(pairs)]
 
     if args.regime:
         df = df[df["regime"] == args.regime]
 
-    df = df.reset_index(drop=True)
+    logging.info(f"rows_after_filter: {len(df)}")
 
-    rows_after = len(df)
+    # -------------------------
+    # Target (SIGN-BASED ✅)
+    # -------------------------
+    ret_col = f"ret_{args.target_horizon}b"
 
-    logger.info("pairs: %s", args.pairs or "all")
-    logger.info("regime: %s", args.regime or "all")
-    logger.info("rows_before_filter: %d", rows_before)
-    logger.info("rows_after_filter: %d", rows_after)
+    if ret_col not in df.columns:
+        available = [c for c in df.columns if c.startswith("ret_")]
+        raise ValueError(f"{ret_col} not found. Available: {available}")
 
-    # ------------------------------------------------------------------
+    df["target_direction"] = (df[ret_col] > 0).astype(int)
+
+    # -------------------------
     # Features
-    # ------------------------------------------------------------------
-    is_classification = args.mode == "classification"
+    # -------------------------
+    base_features = [
+        "trend_12b",
+        "trend_vol_adj_strength",
+        "is_trending",
+        "is_high_vol",
+    ]
 
-    target = f"ret_{args.target_horizon}b"
-    if target not in df.columns:
-        raise ValueError(f"Missing target column: {target}")
+    sentiment_features = [c for c in df.columns if "sentiment" in c]
 
-    if is_classification:
-        if args.label_mode == "sign":
-            df["target_direction"] = (df[target] > 0).astype(int)
-        elif args.label_mode == "threshold":
-            q = df[target].abs().quantile(args.label_quantile)
-            df["target_direction"] = np.nan
-            df.loc[df[target] > q, "target_direction"] = 1
-            df.loc[df[target] < -q, "target_direction"] = 0
-            before = len(df)
-            df = df.dropna(subset=["target_direction"])
-            after = len(df)
-            logger.info(f"label_threshold: {q:.6f}")
-            logger.info(f"rows_after_label_filter: {after} (dropped {before - after})")
-        logger.info(f"class_balance: {df['target_direction'].mean():.3f}")
-        target_col = "target_direction"
+    if args.feature_set == "price_trend_sentiment":
+        features = base_features + sentiment_features
     else:
-        target_col = target
+        features = base_features
 
-    X, y, df_clean = get_features(df, args.feature_set, target=target_col)
+    features = [f for f in features if f in df.columns]
 
-    (X_train, y_train), (X_test, y_test) = train_test_split(X, y, df_clean)
+    df = df.dropna(subset=features + ["target_direction"]).copy()
 
-    # ------------------------------------------------------------------
-    # Normalization
-    # ------------------------------------------------------------------
-    mean = X_train.mean(axis=0)
-    std = X_train.std(axis=0)
-    std = np.where(std < 1e-8, 1.0, std)
+    # -------------------------
+    # Split
+    # -------------------------
+    df = df.sort_values("timestamp")
+
+    split_idx = int(len(df) * 0.8)
+    df_train = df.iloc[:split_idx]
+    df_test = df.iloc[split_idx:]
+
+    X_train = df_train[features].values.astype(np.float32)
+    y_train = df_train["target_direction"].values.astype(np.float32)
+
+    X_test = df_test[features].values.astype(np.float32)
+    y_test = df_test["target_direction"].values.astype(np.float32)
+
+    logging.info(f"class_balance_train: {y_train.mean():.3f}")
+    logging.info(f"class_balance_test: {y_test.mean():.3f}")
+
+    # -------------------------
+    # Normalize
+    # -------------------------
+    mean = X_train.mean(axis=0, keepdims=True)
+    std = X_train.std(axis=0, keepdims=True) + 1e-8
 
     X_train = (X_train - mean) / std
     X_test = (X_test - mean) / std
 
-    logger.info("feature normalization applied")
+    # -------------------------
+    # Torch
+    # -------------------------
+    X_train_t = torch.tensor(X_train)
+    y_train_t = torch.tensor(y_train)
 
-    X_train_t, y_train_t = to_tensors(X_train, y_train)
-    X_test_t, y_test_t = to_tensors(X_test, y_test)
+    X_test_t = torch.tensor(X_test)
+    y_test_t = torch.tensor(y_test)
 
-    if is_classification:
-        y_train_t = y_train_t.view(-1)  # flatten
-        y_test_t = y_test_t.view(-1)
+    model = MLP(X_train.shape[1], args.hidden_dim)
 
-    # ------------------------------------------------------------------
-    # Loss function
-    # ------------------------------------------------------------------
-    if is_classification:
-        criterion = nn.BCEWithLogitsLoss()
-    else:
-        criterion = nn.MSELoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    loss_fn = nn.BCEWithLogitsLoss()
 
-    # ------------------------------------------------------------------
-    # Model
-    # ------------------------------------------------------------------
-    model = MLP(input_dim=X_train.shape[1], hidden_dim=args.hidden_dim)
+    # -------------------------
+    # Train
+    # -------------------------
+    for epoch in range(args.epochs):
+        preds = model(X_train_t)
+        loss = loss_fn(preds, y_train_t)
 
-    _train(model, X_train_t, y_train_t, args.epochs, args.lr, criterion)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
 
-    # ------------------------------------------------------------------
-    # Evaluate
-    # ------------------------------------------------------------------
-    model.eval()
+        if (epoch + 1) % 5 == 0:
+            logging.info(f"epoch {epoch+1} loss={loss.item():.6f}")
+
+    # -------------------------
+    # Eval
+    # -------------------------
     with torch.no_grad():
-        train_preds = model(X_train_t).numpy().squeeze()
-        test_preds = model(X_test_t).numpy().squeeze()
+        train_preds = model(X_train_t).numpy()
+        test_preds = model(X_test_t).numpy()
 
-    if is_classification:
-        train_metrics = _compute_classification_metrics(train_preds, y_train)
-        test_metrics = _compute_classification_metrics(test_preds, y_test)
-    else:
-        train_metrics = _compute_regression_metrics(train_preds, y_train)
-        test_metrics = _compute_regression_metrics(test_preds, y_test)
+    logging.info(f"pred_positive_rate_test: {(test_preds > 0).mean():.3f}")
 
-    logger.info("train metrics: %s", train_metrics)
-    logger.info("test metrics: %s", test_metrics)
+    train_metrics = compute_metrics(y_train, train_preds)
+    test_metrics = compute_metrics(y_test, test_preds)
 
-    # ------------------------------------------------------------------
-    # Save
-    # ------------------------------------------------------------------
-    out_dir = OUTPUT_DIR / args.dataset_version / "dl"
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    pred_df = df_clean.iloc[len(X_train):].copy().reset_index(drop=True)
-    if is_classification:
-        # Save raw logits; sigmoid gives probability
-        pred_df["logit"] = test_preds
-        pred_df["prediction"] = 1.0 / (1.0 + np.exp(-test_preds))
-    else:
-        pred_df["prediction"] = test_preds
-
-    mode_suffix = f"_{args.mode}"
-    pred_path = out_dir / f"predictions_{args.feature_set}{mode_suffix}.csv"
-    pred_df.to_csv(pred_path, index=False)
-
-    metrics_path = out_dir / f"metrics_{args.feature_set}{mode_suffix}.json"
-    metrics_path.write_text(json.dumps({
-        "config": vars(args),
-        "train": train_metrics,
-        "test": test_metrics,
-    }, indent=2))
+    logging.info(f"train metrics: {train_metrics}")
+    logging.info(f"test metrics: {test_metrics}")
 
     print("\n=== Test metrics ===")
     for k, v in test_metrics.items():

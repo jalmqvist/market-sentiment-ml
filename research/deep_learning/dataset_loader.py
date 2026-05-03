@@ -80,7 +80,12 @@ def load_dataset(
         )
 
     logger.info("Loading dataset version=%s variant=%s from %s", version, variant, path)
-    df = pd.read_csv(path, parse_dates=["snapshot_time", "entry_time"])
+    df = pd.read_csv(path)
+
+    # parse only if present
+    for col in ["snapshot_time", "entry_time", "time", "timestamp"]:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], format="mixed", errors="coerce")
     df = df.sort_values("snapshot_time").reset_index(drop=True)
 
     before = len(df)

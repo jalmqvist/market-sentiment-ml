@@ -6,16 +6,55 @@ A quantitative research project studying whether retail FX sentiment contains pr
 
 ## Executive Summary
 
-**Current status: no validated standalone or incremental alpha.**
+**Current status: no validated standalone or additive alpha.  
+However, weak conditional signal has been identified.**
 
-Extensive experimentation and strict out-of-sample validation have produced a clear and well-supported result:
+Extensive experimentation and strict out-of-sample validation have produced a refined result:
 
 - Raw retail FX sentiment = noise
 - Pipeline-based signals (V20–V21) were invalidated (pipeline artifacts)
-- Price-based signals show stable predictive power (~0.14 Sharpe)
-- Sentiment provides **no incremental value beyond price** under tested formulations
+- Price-based signals show small but stable predictive power (~0.14 Sharpe)
+- Sentiment provides **no additive value in static models**
 
-This is a meaningful and informative research outcome. The project now focuses on understanding structural relationships and exploring alternative modeling approaches.
+### Updated Finding (DL v2)
+
+Recent deep learning experiments (LSTM, regime-filtered) show:
+
+> A **weak, time-dependent predictive signal** emerges when:
+> - using sequence models (LSTM)
+> - conditioning on regime (HVTF)
+> - predicting shorter horizons (~24 bars)
+
+Observed performance (best configuration):
+
+- precision ~0.56  
+- recall ~0.40  
+- f1 ~0.47  
+- Sharpe ~0.49  
+
+### Interpretation
+
+- Sentiment alone is not predictive
+- Static models (MLP) do not extract signal
+- However, **temporal structure + regime filtering reveals weak signal**
+
+This suggests:
+
+> Retail sentiment contains **conditional, time-dependent structure**,  
+> not usable as a standalone or additive feature
+
+### Status
+
+- Not production-ready
+- Sensitive to setup (horizon, labeling, regime)
+- Requires further validation (costs, robustness, generalization)
+
+---
+
+This refines earlier conclusions:
+
+> No global predictive signal  
+> → but **possible conditional signal in specific regimes**
 
 ------
 
@@ -184,22 +223,27 @@ To test whether temporal dependencies contain predictive signal, a sequence mode
   - train-only normalization
   - evaluation via baseline / shift / shuffle
 
-#### Results
+#### Results (Updated DL v2)
 
-- price_only → no stable predictive signal
-- price + sentiment → no improvement (slight degradation)
-- no temporal structure recovered
+- price_only → weak / unstable signal
+- price + sentiment → **improves performance under regime filtering**
+- signal strongest at ~24-bar horizon in HVTF regime
 
 #### Conclusion
 
-> Sequence models do not reveal predictive information in sentiment or price under current formulation.
+> Sequence models reveal **weak, regime-dependent predictive structure**
 
-This is consistent with prior results:
+This updates earlier findings:
 
-- no standalone signal
-- no additive signal
-- no conditional signal
-- no temporal signal
+- no standalone signal (still true)
+- no additive signal (still true in static models)
+- **temporal + regime-conditioned signal exists**
+
+However:
+
+- signal is small and fragile
+- not yet robust across all pairs/regimes
+- requires further validation
 
 ---
 
@@ -324,7 +368,21 @@ market-sentiment-ml/
 
 > Simpler models with strict causality are preferred over complex pipelines prone to artifacts.
 
-------
+---
+
+## Research Update (DL v2)
+
+Recent work indicates that earlier conclusions were **too strong**:
+
+- absence of signal holds for static and additive models
+- but **conditional, sequence-based signal exists**
+
+This highlights:
+
+> model class matters — signal can exist in one representation  
+> and be invisible in another
+
+---
 
 ## Signal Discovery Archive (V1–V29)
 

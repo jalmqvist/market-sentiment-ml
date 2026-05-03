@@ -102,3 +102,16 @@ MLPs do not extract predictive signal from retail FX sentiment features under
 any tested configuration. This is consistent with the broader finding that
 retail sentiment is a contrarian indicator at best and not actionable at
 standard ML model horizons.
+
+---
+
+## Update (DL v2 Context)
+
+Subsequent experiments using sequence models (LSTM) indicate that:
+
+- weak predictive signal may exist in **temporal structure**
+- this signal is not accessible to static models (MLP)
+
+This reinforces the conclusion that:
+
+> MLP failure does not imply absence of signal, only absence of **static signal**

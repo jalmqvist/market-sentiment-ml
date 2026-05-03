@@ -20,13 +20,8 @@ Determine whether retail FX sentiment contains **causal, exploitable predictive 
 
 ## Core Finding
 
-> **Retail sentiment provides no predictive value for returns under tested conditions.**
-
-This holds across:
-
-- standalone signals
-- additive combinations with price
-- conditional / regime-based models
+> **Retail sentiment provides no standalone or additive predictive value.  
+> However, weak conditional signal exists under sequence modeling and regime filtering.**
 
 ------
 
@@ -161,15 +156,22 @@ Retail sentiment is:
 Sequence models were tested to evaluate whether temporal dependencies
 or path-dependent interactions contain predictive signal.
 
-Result:
+Result (DL v2):
 
-- No predictive signal recovered
-- No improvement from sentiment
-- No temporal structure detected
+- Weak predictive signal recovered under:
+  - LSTM sequence models
+  - HVTF regime filtering
+  - ~24-bar horizon
+- price + sentiment outperforms price-only
 
 Conclusion:
 
-> The absence of signal persists across sequence models.
+> A **weak, time-dependent signal exists**, but is:
+- regime-dependent
+- sensitive to specification
+- not yet robust
+
+This revises earlier conclusions that no temporal signal exists.
 
 ---
 

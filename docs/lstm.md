@@ -104,8 +104,25 @@ python research/deep_learning/train_lstm.py --dataset-version 1.1.0 --feature-se
 
 ## Conclusion
 
-LSTM models do not find predictive temporal structure in retail FX sentiment
-sequences. The negative result is robust across window lengths (24, 48 bars),
-hidden sizes (32, 64, 128), and FX pair subsets. No further LSTM experiments
-are planned unless new features with demonstrated autocorrelation are
-identified.
+Initial experiments found no temporal signal.
+
+### Updated Result (DL v2)
+
+Refined experiments (regime-filtered, improved labeling) show:
+
+- weak predictive signal in LSTM models
+- strongest for:
+  - price + sentiment features
+  - ~24-bar horizon
+  - HVTF regime
+
+### Interpretation
+
+- temporal structure exists, but is weak
+- signal is conditional, not universal
+- requires careful setup to detect
+
+### Status
+
+- not robust enough for deployment
+- requires further validation (costs, stability, cross-pair generalization)
