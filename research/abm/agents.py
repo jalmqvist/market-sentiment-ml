@@ -31,6 +31,17 @@ _MEAN_REVERSION_STRENGTH : float
     Fractional pull of the aggregate net sentiment toward zero each step,
     applied in simulation.py after collecting agent positions.
     Recommended range: 0.01–0.05.
+_POSITION_INERTIA : float
+    Bias added to the raw decision signal in the direction of the agent's
+    current position, making it harder to flip to the opposite side.
+    A value of 0.05 requires the opposing signal to exceed the decision
+    threshold plus this bias before a flip occurs.
+    Recommended range: 0.03–0.10.
+_DECISION_THRESHOLD : float
+    Minimum absolute value of the raw combined signal required to take a
+    directional position.  Values below this magnitude result in a flat (0)
+    position, expanding the neutral zone and reducing overreaction.
+    Recommended range: 0.08–0.15.
 """
 
 from __future__ import annotations
@@ -58,6 +69,15 @@ _FLIP_PROB: float = 0.02
 # Fractional mean-reversion of aggregate net_sentiment toward zero each step
 # (applied in simulation.py).  Keeps the crowd from drifting persistently.
 _MEAN_REVERSION_STRENGTH: float = 0.02
+
+# Inertia bias toward the current position.  Added to the raw combined signal
+# in the direction of the agent's existing position, so that flipping requires
+# a stronger opposing signal than simply initiating a new position.
+_POSITION_INERTIA: float = 0.05
+
+# Minimum absolute raw signal required to take a directional position.
+# Increasing this value expands the neutral zone and reduces overreaction.
+_DECISION_THRESHOLD: float = 0.10
 
 
 # ---------------------------------------------------------------------------
@@ -96,10 +116,17 @@ class BaseAgent:
         # Volatility feedback: scale agent noise by current market volatility
         effective_noise = self.noise_scale * (1.0 + _VOL_FEEDBACK_SCALE * volatility)
         noise = self.rng.normal(0.0, effective_noise)
-        raw = float(price_sig) + self.crowd_weight * float(crowd_sentiment) + noise
-        if raw > 0.05:
+
+        # Crowd influence is saturated with tanh to prevent extreme herding
+        crowd_influence = np.tanh(self.crowd_weight * float(crowd_sentiment))
+
+        # Inertia bias: lean toward the current position to make flipping harder
+        inertia = _POSITION_INERTIA * self.position
+
+        raw = float(price_sig) + crowd_influence + noise + inertia
+        if raw > _DECISION_THRESHOLD:
             self.position = 1
-        elif raw < -0.05:
+        elif raw < -_DECISION_THRESHOLD:
             self.position = -1
         else:
             self.position = 0
@@ -137,7 +164,7 @@ class TrendFollower(BaseAgent):
         p1 = price_history[-1]
         if p0 <= 0:
             return 0.0
-        return float(np.tanh((p1 / p0 - 1.0) * 10.0))
+        return float(np.tanh((p1 / p0 - 1.0) * 5.0))
 
 
 class Contrarian(BaseAgent):
@@ -163,7 +190,7 @@ class Contrarian(BaseAgent):
         p1 = price_history[-1]
         if p0 <= 0:
             return 0.0
-        return float(-np.tanh((p1 / p0 - 1.0) * 10.0))
+        return float(-np.tanh((p1 / p0 - 1.0) * 5.0))
 
 
 class RetailTrader(BaseAgent):

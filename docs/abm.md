@@ -77,10 +77,36 @@ mean ≈ 0).
 | `_VOL_FEEDBACK_SCALE` | `0.3` | 0.2 – 0.4 | Multiplier on market volatility fed into per-agent noise. Kept small so that a 1 % vol spike raises effective noise by ≤ 0.4 %, not 100 %. |
 | `_FLIP_PROB` | `0.02` | 0.01 – 0.03 | Per-step probability that an agent's position is randomly reset to flat (0), preventing permanent herding lock-in. |
 | `_MEAN_REVERSION_STRENGTH` | `0.02` | 0.01 – 0.05 | Each step, aggregate `net_sentiment` is multiplied by `(1 − _MEAN_REVERSION_STRENGTH)`, pulling it back toward zero and preventing non-zero mean drift. Applied in `simulation.py` after collecting agent positions. |
+| `_POSITION_INERTIA` | `0.05` | 0.03 – 0.10 | Bias added to the raw decision signal in the direction of the agent's current position. Makes it harder to flip sides: an opposing signal must exceed the decision threshold plus this bias. Reduces herding persistence and position churn. |
+| `_DECISION_THRESHOLD` | `0.10` | 0.08 – 0.15 | Minimum absolute value of the combined raw signal required to take a directional position. Signals weaker than this result in a flat (0) position, expanding the neutral zone and reducing overreaction to small price moves. |
 
 Additionally, `simulation.py` clips `net_sentiment` to **[−80, 80]** before
 feeding it back to agents, bounding extreme consensus regardless of parameter
 settings.
+
+### Crowd influence saturation
+
+The crowd component in each agent's decision is passed through `tanh` before
+being added to the raw signal:
+
+```python
+crowd_influence = np.tanh(crowd_weight * crowd_sentiment)
+```
+
+This saturates the influence at large crowd values, preventing runaway herding
+cascades even when a large majority of agents are positioned the same way.
+
+### Price signal strength
+
+The momentum signal in `TrendFollower` and `Contrarian` is computed as:
+
+```python
+np.tanh((p1 / p0 - 1.0) * 5.0)
+```
+
+The multiplier of **5** (down from a previous value of 10) reduces how strongly
+a given price move pushes agents into directional positions, contributing to
+more moderate and realistic sentiment dynamics.
 
 ### Regime transitions
 

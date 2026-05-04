@@ -262,7 +262,12 @@ class TestFXSentimentSimulation:
         agents2, rng2 = _make_agents(seed=2)
         sim1 = FXSentimentSimulation(agents1, rng=rng1, warmup_steps=5)
         sim2 = FXSentimentSimulation(agents2, rng=rng2, warmup_steps=5)
-        prices = np.linspace(1.0, 1.1, 300)
+        # Use a volatile random-walk price series so that agents generate
+        # non-zero positions; a flat linspace produces signals too weak to
+        # cross the decision threshold and makes both series identically zero.
+        price_rng = np.random.default_rng(99)
+        returns = price_rng.normal(0, 0.005, 299)
+        prices = np.concatenate([[1.0], (1.0 + returns).cumprod()])
         df1 = sim1.run(n_steps=100, price_series=prices)
         df2 = sim2.run(n_steps=100, price_series=prices)
         # Net sentiment should not be identical across different seeds.
