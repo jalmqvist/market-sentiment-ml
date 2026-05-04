@@ -1,144 +1,117 @@
-from __future__ import annotations
+"""
+agents.py
 
+Stable agent definitions for ABM.
+"""
+
+from __future__ import annotations
 import numpy as np
 
 
-# Tunable parameters for RetailTrader.update()
-_SIGNAL_AMPLIFICATION = 5.0
-_PERSISTENCE_WEIGHT = 0.1
-_INERTIA_THRESHOLD = 0.05
+_PERSISTENCE_WEIGHT = 0.0
+_INERTIA_THRESHOLD = 0.02
 
 
-class RetailTrader:
-    def __init__(
-        self,
-        rng: np.random.Generator,
-        pair: str,
-        crowd_weight: float = 0.0,
-        noise_scale: float = 0.0,
-    ) -> None:
-        self.rng = rng
-        self.crowd_weight = crowd_weight
-        self.noise_scale = noise_scale
+class BaseAgent:
+    def __init__(self):
+        self.last_signal = 0.0
 
-        self.pair = pair.lower()
-        base, quote = self.pair.split("-")
+    def apply_inertia(self, raw_signal: float) -> float:
+        signal = (
+            (1.0 - _PERSISTENCE_WEIGHT) * raw_signal
+            + _PERSISTENCE_WEIGHT * self.last_signal
+        )
 
-        # Normalize to "non-USD strength"
-        if base == "usd":
-            self.signal_sign = -1
-        else:
-            self.signal_sign = 1
+        delta = signal - self.last_signal
 
-        self.position: int = int(rng.choice([-1, 0, 1]))
+        if _INERTIA_THRESHOLD > 0:
+            scale = np.tanh(abs(delta) / (_INERTIA_THRESHOLD + 1e-8))
+            signal = self.last_signal + scale * delta
 
-    def _price_signal(self, price_history: np.ndarray) -> float:
+        signal = np.clip(signal, -0.5, 0.5)
+
+        self.last_signal = signal
+        return signal
+
+    def update(self, price_history, returns=None, sentiment=0.0):
         raise NotImplementedError
 
-    def update(self, price_history: np.ndarray, crowd_sentiment: float) -> None:
-        if len(price_history) < 2:
-            return
 
-        raw_signal = self._price_signal(price_history)
-        normalized_signal = self.signal_sign * raw_signal
-        signal = np.tanh(_SIGNAL_AMPLIFICATION * normalized_signal)
-
-        herd = self.crowd_weight * np.tanh(3 * crowd_sentiment)
-        noise = self.rng.normal(0.0, self.noise_scale)
-        persistence = _PERSISTENCE_WEIGHT * self.position
-
-        score = signal + herd + noise + persistence
-
-        # --- asymmetric behavior ---
-        if self.position != 0:
-            if np.sign(score) != self.position:
-                if self.rng.random() < 0.7:
-                    return
-            else:
-                score += 3.0 * self.position
-
-        _ANCHOR_STRENGTH = 2.0
-        _SWITCH_BASE_PROB = 1.0
-
-        if abs(score) < _INERTIA_THRESHOLD:
-            return
-
-        direction = 1 if score > 0 else -1
-
-        # Entry
-        if self.position == 0:
-            if self.rng.random() < 0.7:
-                self.position = direction
-            else:
-                self.position = -direction
-            return
-
-        # Accumulation
-        if np.sign(self.position) == direction:
-            if abs(self.position) < 5:
-                self.position += direction
-            return
-
-        # Switching with anchoring
-        anchor_bias = _ANCHOR_STRENGTH * self.position
-        switch_score = score - anchor_bias
-
-        switch_prob = 1.0 / (1.0 + np.exp(-switch_score))
-        switch_prob *= _SWITCH_BASE_PROB
-
-        if self.rng.random() < switch_prob:
-            self.position = direction
-
-
-class TrendFollower(RetailTrader):
-    def __init__(
-        self,
-        rng: np.random.Generator,
-        pair: str,
-        momentum_window: int = 12,
-        crowd_weight: float = 0.1,
-        noise_scale: float = 0.0,
-    ) -> None:
-        super().__init__(rng, pair, crowd_weight=crowd_weight, noise_scale=noise_scale)
+class TrendFollower(BaseAgent):
+    def __init__(self, momentum_window=12):
+        super().__init__()
         self.momentum_window = momentum_window
 
-    def _price_signal(self, price_history: np.ndarray) -> float:
-        window = min(self.momentum_window, len(price_history) - 1)
-        ret = (price_history[-1] - price_history[-(window + 1)]) / (
-            abs(price_history[-(window + 1)]) + 1e-12
-        )
-        return float(np.sign(ret))
+    def update(self, price_history, returns=None, sentiment=0.0):
+        if len(price_history) < self.momentum_window + 1:
+            return self.last_signal
+
+        p0 = price_history[-self.momentum_window - 1]
+        p1 = price_history[-1]
+
+        if p0 <= 0:
+            momentum = 0.0
+        else:
+            momentum = p1 / p0 - 1.0
+
+        signal = np.tanh(momentum * 5.0) * 0.3
+        return self.apply_inertia(signal)
 
 
-class Contrarian(RetailTrader):
-    def __init__(
-        self,
-        rng: np.random.Generator,
-        pair: str,
-        momentum_window: int = 12,
-        crowd_weight: float = -0.05,
-        noise_scale: float = 0.0,
-    ) -> None:
-        super().__init__(rng, pair, crowd_weight=crowd_weight, noise_scale=noise_scale)
-        self.momentum_window = momentum_window
+class Contrarian(BaseAgent):
+    def update(self, price_history, returns=None, sentiment=0.0):
+        if returns is None or len(returns) == 0:
+            return self.last_signal
 
-    def _price_signal(self, price_history: np.ndarray) -> float:
-        window = min(self.momentum_window, len(price_history) - 1)
-        ret = (price_history[-1] - price_history[-(window + 1)]) / (
-            abs(price_history[-(window + 1)]) + 1e-12
-        )
-        return -float(np.sign(ret))
+        r = returns[-1]
+        signal = -np.tanh(r * 8.0) * 0.1
+        return self.apply_inertia(signal)
 
 
-class NoiseTrader(RetailTrader):
-    def __init__(
-        self,
-        rng: np.random.Generator,
-        pair: str,
-        crowd_weight: float = 0.05,
-        noise_scale: float = 0.5,
-    ) -> None:
-        super().__init__(rng, pair, crowd_weight=crowd_weight, noise_scale=noise_scale)
+class NoiseTrader(BaseAgent):
+    def __init__(self, rng=None):
+        super().__init__()
+        self.rng = rng or np.random.default_rng()
 
-    def _price_signal(self, price_history: np.ndarray) -> float:
-        return 0.0
+    def update(self, price_history, returns=None, sentiment=0.0):
+        noise = self.rng.normal(0.0, 0.02)
+        signal = np.tanh(0.1 * sentiment + noise)
+        return self.apply_inertia(signal)
+
+
+class RetailTrader(NoiseTrader):
+    """
+    Slightly more sentiment-sensitive version of NoiseTrader.
+    Exists for compatibility + mild behavioral variation.
+    """
+    def update(self, price_history, returns=None, sentiment=0.0):
+        noise = self.rng.normal(0.0, 0.02)
+        signal = np.tanh(0.15 * sentiment + noise)
+        return self.apply_inertia(signal)
+
+
+def build_agents(n_agents, trend_ratio=0.5, rng=None):
+    rng = rng or np.random.default_rng()
+    agents = []
+
+    n_trend = int(n_agents * trend_ratio)
+    n_remaining = n_agents - n_trend
+    n_contrarian = n_remaining // 2
+    n_noise = n_remaining - n_contrarian
+
+    for _ in range(n_trend):
+        mw = int(rng.integers(6, 24))
+        agents.append(TrendFollower(momentum_window=mw))
+
+    for _ in range(n_contrarian):
+        agents.append(Contrarian())
+
+    for _ in range(n_noise):
+        # mix Noise + Retail for heterogeneity
+        if rng.random() < 0.5:
+            agents.append(NoiseTrader(rng))
+        else:
+            agents.append(RetailTrader(rng))
+
+    rng.shuffle(agents)
+    return agents

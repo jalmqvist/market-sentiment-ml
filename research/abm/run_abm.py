@@ -223,16 +223,12 @@ def main(argv=None) -> None:
 
     sim = FXSentimentSimulation(agents, rng=rng)
 
-    max_steps = len(price_series) - sim._warmup_steps - 1
+    max_steps = len(price_series) - sim.warmup_steps - 1
     if max_steps <= 0:
         logger.error("Not enough data for simulation after warmup")
         sys.exit(1)
 
     n_steps = min(args.steps, max_steps)
-
-    if log_file is not None:
-        config_file = _write_config_snapshot(log_file, args, dataset_path, n_steps)
-        logger.info("Config snapshot: %s", config_file)
 
     sim_df = sim.run(
         n_steps=n_steps,
@@ -240,13 +236,13 @@ def main(argv=None) -> None:
         timestamps=timestamps,
     )
 
-    warmup = sim._warmup_steps
+    warmup = sim.warmup_steps
     sim_df["real_net_sentiment"] = real_sentiment[
-        warmup + 1 : warmup + 1 + len(sim_df)
+        warmup + 1: warmup + 1 + len(sim_df)
     ]
 
     logger.info("--- Simulation summary ---")
-    logger.info("steps_run=%d n_agents=%d", len(sim_df), sim.n_agents)
+    logger.info("steps_run=%d n_agents=%d", len(sim_df), len(sim.agents))
     logger.info(
         "sim mean=%.2f std=%.2f abs_mean=%.2f",
         sim_df["net_sentiment"].mean(),
