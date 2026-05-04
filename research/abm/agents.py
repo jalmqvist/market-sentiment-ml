@@ -16,6 +16,21 @@ Module-level sweep parameters
 _PERSISTENCE_WEIGHT and _INERTIA_THRESHOLD are read by simulation.py to
 control regime-transition smoothing and the disagreement trigger threshold.
 sweep.py mutates these between runs and restores them afterwards.
+
+Stability parameters
+--------------------
+_VOL_FEEDBACK_SCALE : float
+    Amplification of market volatility into agent noise.  Set in the range
+    0.2–0.4 so that a 1 % vol spike causes at most a ~0.4 % noise increase
+    rather than doubling it.
+_FLIP_PROB : float
+    Per-step probability that an agent's position is reset to flat (0)
+    regardless of its computed signal.  Prevents permanent herding lock-in.
+    Recommended range: 0.01–0.03.
+_MEAN_REVERSION_STRENGTH : float
+    Fractional pull of the aggregate net sentiment toward zero each step,
+    applied in simulation.py after collecting agent positions.
+    Recommended range: 0.01–0.05.
 """
 
 from __future__ import annotations
@@ -32,8 +47,17 @@ _INERTIA_THRESHOLD: float = 0.02   # disagreement trigger threshold ∈ (0, 1)
 
 # Amplification of market volatility into agent noise:
 #   effective_noise = noise_scale * (1 + _VOL_FEEDBACK_SCALE * volatility)
-# A value of 100 means a 1% vol spike doubles the agent's noise.
-_VOL_FEEDBACK_SCALE: float = 100.0
+# Kept small (0.2–0.4) so that even a vol spike of 0.8 % does not double
+# the agent's effective noise.
+_VOL_FEEDBACK_SCALE: float = 0.3
+
+# Per-step probability of stochastic de-alignment: agent position is reset
+# to flat (0) regardless of its computed signal.  Prevents herding lock-in.
+_FLIP_PROB: float = 0.02
+
+# Fractional mean-reversion of aggregate net_sentiment toward zero each step
+# (applied in simulation.py).  Keeps the crowd from drifting persistently.
+_MEAN_REVERSION_STRENGTH: float = 0.02
 
 
 # ---------------------------------------------------------------------------
@@ -78,6 +102,11 @@ class BaseAgent:
         elif raw < -0.05:
             self.position = -1
         else:
+            self.position = 0
+
+        # Stochastic de-alignment: randomly reset to flat to prevent herding lock-in.
+        # Only meaningful when the agent is directional; flat agents are already de-aligned.
+        if self.position != 0 and self.rng.random() < _FLIP_PROB:
             self.position = 0
 
 

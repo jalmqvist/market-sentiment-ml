@@ -98,6 +98,12 @@ class FXSentimentSimulation:
             n_flat = n_agents - n_long - n_short
 
             net_sentiment = float((n_long - n_short) / n_agents * 100.0)
+
+            # Mean reversion toward neutral (prevents persistent drift)
+            net_sentiment *= (1.0 - _agents_mod._MEAN_REVERSION_STRENGTH)
+            # Stability constraint: limit extreme consensus
+            net_sentiment = float(np.clip(net_sentiment, -80.0, 80.0))
+
             crowd_s = net_sentiment / 100.0
 
             # --------------------------------------------------------
