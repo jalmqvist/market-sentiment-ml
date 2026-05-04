@@ -1,12 +1,19 @@
 """
 sweep.py
 
-ABM parameter sweep with research-grade scoring.
+ABM parameter sweep with regime-aware scoring.
 
-Upgrades:
-- volatility clustering
-- kurtosis (fat tails)
-- stronger autocorrelation penalty
+The sweep varies:
+  - trend_ratio     : fraction of trend-following agents
+  - persistence     : written to agents._PERSISTENCE_WEIGHT (regime smoothing)
+  - threshold       : written to agents._INERTIA_THRESHOLD  (volatile trigger)
+
+Module constants are saved before the sweep and restored unconditionally
+afterwards (even on error), so they are always left in their original state.
+
+Public API
+----------
+run_sweep(df, pair, n_steps, seed) → pd.DataFrame  (sorted ascending by score)
 """
 
 from __future__ import annotations
@@ -18,11 +25,10 @@ from datetime import datetime, UTC
 import numpy as np
 import pandas as pd
 
-from research.abm.agents import (
-    build_agents,
-    _PERSISTENCE_WEIGHT,
-    _INERTIA_THRESHOLD,
-)
+import research.abm.agents as _agents_mod
+from research.abm.agents import build_agents
+from research.abm.calibration import calibrate_from_dataset, compare_to_data
+from research.abm.scoring import compute_score
 from research.abm.simulation import FXSentimentSimulation
 
 
@@ -30,14 +36,145 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 
-# ---------------------------------------------------------------------
-# DATA LOADING
-# ---------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Sweep grid
+# ---------------------------------------------------------------------------
+
+_TREND_GRID = [0.0, 0.5, 1.0]
+_PERSISTENCE_GRID = [0.0, 0.1, 0.2]
+_THRESHOLD_GRID = [0.02, 0.05, 0.1]
+
+_N_AGENTS = 100
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def run_sweep(
+    df: pd.DataFrame,
+    pair: str,
+    n_steps: int,
+    seed: int = 42,
+) -> pd.DataFrame:
+    """Run a parameter sweep and return results sorted by score (lower = better).
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Research dataset containing at least ``pair``, ``entry_close``,
+        ``entry_time`` and ``net_sentiment`` columns.
+    pair : str
+        Pair to filter on (e.g. ``"eur-usd"``).
+    n_steps : int
+        Number of simulation steps per run.
+    seed : int
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns: trend_ratio, persistence, threshold, score,
+        std_diff, autocorr_diff.  Sorted ascending by score.
+    """
+    # Filter and sort pair data
+    sub = df[df["pair"] == pair].copy()
+    sort_col = next(
+        (c for c in ("entry_time", "snapshot_time") if c in sub.columns), None
+    )
+    if sort_col is not None:
+        sub = sub.sort_values(sort_col)
+
+    price_series = sub["entry_close"].values
+
+    # Calibration targets from real data
+    targets = calibrate_from_dataset(df, pair=pair)
+
+    rng = np.random.default_rng(seed)
+
+    # Save module constants – restored unconditionally in `finally`
+    _orig_persistence = _agents_mod._PERSISTENCE_WEIGHT
+    _orig_threshold = _agents_mod._INERTIA_THRESHOLD
+
+    results: list[dict] = []
+
+    try:
+        for trend_ratio in _TREND_GRID:
+            for persistence in _PERSISTENCE_GRID:
+                for threshold in _THRESHOLD_GRID:
+                    try:
+                        # Mutate module globals (read by simulation at runtime)
+                        _agents_mod._PERSISTENCE_WEIGHT = persistence
+                        _agents_mod._INERTIA_THRESHOLD = threshold
+
+                        agents = build_agents(
+                            n_agents=_N_AGENTS,
+                            trend_ratio=trend_ratio,
+                            rng=rng,
+                        )
+
+                        sim = FXSentimentSimulation(agents, rng=rng)
+                        sim_df = sim.run(n_steps=n_steps, price_series=price_series)
+
+                        comparison = compare_to_data(sim_df, targets)
+                        score = compute_score(comparison)
+
+                        std_diff = _extract_abs_diff(comparison, "std")
+                        autocorr_diff = _extract_abs_diff(comparison, "autocorr")
+
+                        logger.info(
+                            "trend_ratio=%.1f persistence=%.2f threshold=%.2f "
+                            "score=%.4f",
+                            trend_ratio, persistence, threshold, score,
+                        )
+
+                        results.append(
+                            {
+                                "trend_ratio": trend_ratio,
+                                "persistence": persistence,
+                                "threshold": threshold,
+                                "score": score,
+                                "std_diff": std_diff,
+                                "autocorr_diff": autocorr_diff,
+                            }
+                        )
+
+                    except Exception as exc:
+                        logger.warning(
+                            "Run failed (trend_ratio=%.1f persistence=%.2f "
+                            "threshold=%.2f): %s",
+                            trend_ratio, persistence, threshold, exc,
+                        )
+
+    finally:
+        # Always restore module constants
+        _agents_mod._PERSISTENCE_WEIGHT = _orig_persistence
+        _agents_mod._INERTIA_THRESHOLD = _orig_threshold
+
+    result_df = pd.DataFrame(results)
+    if not result_df.empty:
+        result_df = result_df.sort_values("score").reset_index(drop=True)
+
+    return result_df
+
+
+def _extract_abs_diff(comparison: pd.DataFrame, name: str) -> float:
+    mask = comparison["statistic"] == name
+    if not mask.any():
+        return float("nan")
+    val = comparison.loc[mask, "abs_diff"].values[0]
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return float("nan")
+
+
+# ---------------------------------------------------------------------------
+# Legacy helpers kept for backward compatibility
+# ---------------------------------------------------------------------------
 
 def load_dataset(path: str) -> pd.DataFrame:
     df = pd.read_csv(path)
 
-    # build synthetic price series from returns
     if "ret_1b" in df.columns:
         r = df["ret_1b"].fillna(0.0).values
         price = np.cumprod(1.0 + r)
@@ -49,128 +186,11 @@ def load_dataset(path: str) -> pd.DataFrame:
     return df
 
 
-# ---------------------------------------------------------------------
-# STATS
-# ---------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
 
-def compute_stats(returns: np.ndarray) -> dict:
-    returns = np.asarray(returns)
-
-    mean = np.mean(returns)
-    std = np.std(returns)
-    abs_mean = np.mean(np.abs(returns))
-
-    autocorr = np.corrcoef(returns[:-1], returns[1:])[0, 1] if len(returns) > 1 else 0.0
-
-    # NEW: volatility clustering
-    if len(returns) > 1:
-        vol_clust = np.corrcoef(np.abs(returns[:-1]), np.abs(returns[1:]))[0, 1]
-    else:
-        vol_clust = 0.0
-
-    # NEW: kurtosis (fat tails)
-    if std > 0:
-        kurt = np.mean(((returns - mean) / std) ** 4)
-    else:
-        kurt = 3.0
-
-    return {
-        "mean": float(mean),
-        "std": float(std),
-        "abs_mean": float(abs_mean),
-        "autocorr": float(autocorr),
-        "vol_clust": float(vol_clust),
-        "kurtosis": float(kurt),
-    }
-
-
-# ---------------------------------------------------------------------
-# SCORING
-# ---------------------------------------------------------------------
-
-def score_stats(sim: dict, real: dict) -> float:
-    """
-    Lower is better
-    """
-
-    score = 0.0
-
-    score += abs(sim["mean"] - real["mean"])
-    score += abs(sim["std"] - real["std"])
-    score += abs(sim["abs_mean"] - real["abs_mean"])
-
-    # stronger penalty (important)
-    score += 3.0 * abs(sim["autocorr"] - real["autocorr"])
-
-    # NEW: volatility clustering
-    score += 2.0 * abs(sim["vol_clust"] - real["vol_clust"])
-
-    # NEW: fat tails
-    score += 1.0 * abs(sim["kurtosis"] - real["kurtosis"])
-
-    return float(score)
-
-
-# ---------------------------------------------------------------------
-# SWEEP
-# ---------------------------------------------------------------------
-
-def run_sweep(price_series, real_stats, steps, seed):
-    global _PERSISTENCE_WEIGHT, _INERTIA_THRESHOLD
-
-    rng = np.random.default_rng(seed)
-
-    trend_grid = [0.0, 0.5, 1.0]
-    persistence_grid = [0.0, 0.1, 0.2]
-    threshold_grid = [0.02, 0.05, 0.1]
-
-    results = []
-
-    for trend_ratio in trend_grid:
-        for persistence in persistence_grid:
-            for threshold in threshold_grid:
-                try:
-                    _PERSISTENCE_WEIGHT = persistence
-                    _INERTIA_THRESHOLD = threshold
-
-                    agents = build_agents(
-                        n_agents=100,
-                        trend_ratio=trend_ratio,
-                        rng=rng,
-                    )
-
-                    sim = FXSentimentSimulation(agents, rng=rng)
-                    df = sim.run(price_series, steps=steps)
-
-                    sim_stats = compute_stats(df["returns"].values)
-                    score = score_stats(sim_stats, real_stats)
-
-                    logger.info(
-                        f"trend_ratio={trend_ratio} persistence={persistence} "
-                        f"threshold={threshold} score={score:.4f}"
-                    )
-
-                    results.append({
-                        "trend_ratio": trend_ratio,
-                        "persistence": persistence,
-                        "threshold": threshold,
-                        "score": score,
-                    })
-
-                except Exception as e:
-                    logger.warning(
-                        f"Run failed (trend_ratio={trend_ratio} "
-                        f"persistence={persistence} threshold={threshold}): {e}"
-                    )
-
-    return pd.DataFrame(results)
-
-
-# ---------------------------------------------------------------------
-# MAIN
-# ---------------------------------------------------------------------
-
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--version", required=True)
     parser.add_argument("--pair", required=True)
@@ -178,27 +198,15 @@ def main():
     args = parser.parse_args()
 
     logger.info("=== ABM Parameter Sweep ===")
-    logger.info(f"pair={args.pair} version={args.version} steps={args.steps} seed=42")
+    logger.info("pair=%s version=%s steps=%d seed=42", args.pair, args.version, args.steps)
 
     path = f"data/output/{args.version}/master_research_dataset_core.csv"
     df = load_dataset(path)
 
-    price_series = df["price"].values
-
-    real_stats = compute_stats(np.diff(price_series) / price_series[:-1])
-    logger.info(f"Real stats: {real_stats}")
-
-    result_df = run_sweep(
-        price_series=price_series,
-        real_stats=real_stats,
-        steps=args.steps,
-        seed=42,
-    )
+    result_df = run_sweep(df, pair=args.pair, n_steps=args.steps, seed=42)
 
     if result_df.empty:
         raise RuntimeError("All sweep runs failed")
-
-    result_df.sort_values("score", inplace=True)
 
     ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     out_path = f"logs/abm_sweep_{args.pair}_{args.version}_{ts}.csv"
@@ -206,13 +214,10 @@ def main():
     result_df.to_csv(out_path, index=False)
 
     best = result_df.iloc[0]
-
-    logger.info(f"Sweep results saved: {out_path}  rows={len(result_df)}")
+    logger.info("Sweep results saved: %s  rows=%d", out_path, len(result_df))
     logger.info(
-        f"Best: trend_ratio={best.trend_ratio} "
-        f"persistence={best.persistence} "
-        f"threshold={best.threshold} "
-        f"score={best.score:.4f}"
+        "Best: trend_ratio=%.1f persistence=%.2f threshold=%.2f score=%.4f",
+        best.trend_ratio, best.persistence, best.threshold, best.score,
     )
 
 
