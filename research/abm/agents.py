@@ -73,7 +73,12 @@ class BaseAgent:
         effective_noise = self.noise_scale * (1.0 + _VOL_FEEDBACK_SCALE * volatility)
         noise = self.rng.normal(0.0, effective_noise)
         raw = float(price_sig) + self.crowd_weight * float(crowd_sentiment) + noise
-        self.position = int(np.sign(raw))
+        if raw > 0.05:
+            self.position = 1
+        elif raw < -0.05:
+            self.position = -1
+        else:
+            self.position = 0
 
 
 # ---------------------------------------------------------------------------

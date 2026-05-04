@@ -1,40 +1,3 @@
-"""
-simulation.py
-
-ABM simulation engine for FX sentiment with latent regime persistence.
-
-Regime state
-------------
-regime_state ∈ {"trend", "neutral", "volatile"}
-
-Transitions (driven by smoothed agent signals):
-  high disagreement  → volatile  (high vol, low impact)
-  strong alignment   → trend     (low vol, high impact)
-  otherwise          → neutral   (baseline)
-
-The smoothing speed and disagreement trigger threshold are read at runtime
-from ``research.abm.agents._PERSISTENCE_WEIGHT`` and
-``research.abm.agents._INERTIA_THRESHOLD`` so that sweep.py can vary them
-between runs without rebuilding the simulation.
-
-Volatility feedback
--------------------
-Each step's crowd volatility is passed back to agents via
-``agent.update(..., volatility=vol)``, creating a feedback loop: in a
-volatile regime, agents receive higher volatility, scale up their noise,
-and produce more disagreement – sustaining the volatile regime.
-
-Interface
----------
-The public API is unchanged:
-  FXSentimentSimulation(agents, rng=None, seed=42, warmup_steps=50)
-  .run(n_steps, price_series, timestamps=None) → pd.DataFrame
-
-Output columns: step, price, net_sentiment, abs_sentiment,
-                crowd_side, n_long, n_short, n_flat
-                (+ timestamp when timestamps is supplied)
-"""
-
 from __future__ import annotations
 
 import numpy as np
@@ -42,18 +5,8 @@ import pandas as pd
 
 import research.abm.agents as _agents_mod
 
-# ---------------------------------------------------------------------------
-# Named constants for regime transition logic
-# ---------------------------------------------------------------------------
 
-# Multiplier that maps _PERSISTENCE_WEIGHT to EMA alpha:
-#   smooth_alpha = 1 / (1 + _EMA_SCALE * persistence_weight)
-# Higher _EMA_SCALE → wider range of smoothing across the sweep grid.
 _EMA_SCALE = 10.0
-
-# Base disagreement level above which the volatile trigger is evaluated:
-#   vol_trigger = _VOL_TRIGGER_BASE + _VOL_TRIGGER_SCALE * inertia_thresh
-# Larger inertia_thresh → harder to enter volatile regime.
 _VOL_TRIGGER_BASE = 0.2
 _VOL_TRIGGER_SCALE = 3.0
 
@@ -66,18 +19,6 @@ class FXSentimentSimulation:
         seed: int = 42,
         warmup_steps: int = 50,
     ) -> None:
-        """
-        Parameters
-        ----------
-        agents : list[BaseAgent]
-            Non-empty list of agent objects.
-        rng : np.random.Generator, optional
-            Shared random generator.  When *None* a new generator is created
-            from ``seed``.
-        seed : int
-        warmup_steps : int
-            Number of price observations fed to agents before recording begins.
-        """
         if not agents:
             raise ValueError("agents list must not be empty")
 
@@ -100,25 +41,7 @@ class FXSentimentSimulation:
         price_series,
         timestamps=None,
     ) -> pd.DataFrame:
-        """Run the simulation and return a per-step DataFrame.
 
-        Parameters
-        ----------
-        n_steps : int
-            Number of recorded steps (> 0).
-        price_series : array-like
-            Observed price sequence.  Must have at least
-            ``warmup_steps + n_steps`` entries.
-        timestamps : array-like, optional
-            If supplied, a ``timestamp`` column is added to the output aligned
-            to ``price_series[warmup_steps : warmup_steps + n_steps]``.
-
-        Returns
-        -------
-        pd.DataFrame
-            Columns: step, price, net_sentiment, abs_sentiment,
-            crowd_side, n_long, n_short, n_flat  (+ timestamp).
-        """
         n_steps = int(n_steps)
         if n_steps <= 0:
             raise ValueError("n_steps must be > 0")
@@ -128,51 +51,58 @@ class FXSentimentSimulation:
         min_len = self.warmup_steps + n_steps
         if len(price_series) < min_len:
             raise ValueError(
-                f"price_series too short: need {min_len} entries "
-                f"(warmup_steps={self.warmup_steps} + n_steps={n_steps}), "
-                f"got {len(price_series)}"
+                f"price_series too short: need {min_len}, got {len(price_series)}"
             )
 
         n_agents = self.n_agents
 
-        # ------------------------------------------------------------------
-        # Warmup: feed agents the initial price history without recording.
-        # ------------------------------------------------------------------
+        # ------------------------------------------------------------
+        # Warmup
+        # ------------------------------------------------------------
         for t in range(self.warmup_steps):
             ph = price_series[: t + 1]
             for agent in self.agents:
                 agent.update(ph, crowd_sentiment=0.0, volatility=0.002)
 
-        # ------------------------------------------------------------------
-        # Regime state – smoothed indicators for persistence
-        # ------------------------------------------------------------------
+        # ------------------------------------------------------------
+        # Regime state
+        # ------------------------------------------------------------
         regime_state = "neutral"
         smooth_disagree = 0.0
         smooth_align = 0.0
 
-        # ------------------------------------------------------------------
-        # Main simulation loop
-        # ------------------------------------------------------------------
+        # IMPORTANT: previous-step state (causality fix)
+        crowd_s_prev = 0.0
+        vol_prev = 0.002
+
         records: list[dict] = []
 
+        # ------------------------------------------------------------
+        # Main loop
+        # ------------------------------------------------------------
         for t in range(n_steps):
-            # Price history available at this step
             ph = price_series[: self.warmup_steps + t + 1]
             current_price = float(price_series[self.warmup_steps + t])
 
-            # --- Read regime parameters from agents module (modified by sweep) ---
-            persistence_weight = float(_agents_mod._PERSISTENCE_WEIGHT)
-            inertia_thresh = float(_agents_mod._INERTIA_THRESHOLD)
+            # --------------------------------------------------------
+            # STEP 1: update agents using PREVIOUS state
+            # --------------------------------------------------------
+            for agent in self.agents:
+                agent.update(ph, crowd_sentiment=crowd_s_prev, volatility=vol_prev)
 
-            # --- Crowd state from current agent positions ---
+            # --------------------------------------------------------
+            # STEP 2: compute crowd state AFTER update
+            # --------------------------------------------------------
             n_long = sum(1 for a in self.agents if a.position == 1)
             n_short = sum(1 for a in self.agents if a.position == -1)
             n_flat = n_agents - n_long - n_short
 
             net_sentiment = float((n_long - n_short) / n_agents * 100.0)
-            crowd_s = net_sentiment / 100.0  # normalised to [-1, 1]
+            crowd_s = net_sentiment / 100.0
 
-            # --- Disagreement: divergence among active agents ---
+            # --------------------------------------------------------
+            # STEP 3: disagreement + alignment
+            # --------------------------------------------------------
             active = n_long + n_short
             if active > 0:
                 agreement = abs(n_long - n_short) / active
@@ -180,9 +110,11 @@ class FXSentimentSimulation:
             else:
                 disagreement = 0.0
 
-            # --- EMA smoothing (alpha controlled by persistence_weight) ---
-            # Higher persistence_weight → slower alpha → regime is stickier
+            persistence_weight = float(_agents_mod._PERSISTENCE_WEIGHT)
+            inertia_thresh = float(_agents_mod._INERTIA_THRESHOLD)
+
             smooth_alpha = 1.0 / (1.0 + _EMA_SCALE * persistence_weight)
+
             smooth_disagree = (
                 (1.0 - smooth_alpha) * smooth_disagree + smooth_alpha * disagreement
             )
@@ -190,30 +122,34 @@ class FXSentimentSimulation:
                 (1.0 - smooth_alpha) * smooth_align + smooth_alpha * abs(crowd_s)
             )
 
-            # --- Regime transition ---
-            # inertia_thresh scales the volatile trigger: larger threshold
-            # requires stronger disagreement to enter volatile regime.
+            # --------------------------------------------------------
+            # STEP 4: regime transition
+            # --------------------------------------------------------
             vol_trigger = _VOL_TRIGGER_BASE + _VOL_TRIGGER_SCALE * inertia_thresh
+
+            # improved trend trigger (less hardcoded)
+            trend_trigger = 0.3 + 0.5 * inertia_thresh
 
             if smooth_disagree > vol_trigger:
                 regime_state = "volatile"
-            elif smooth_align > 0.4:
+            elif smooth_align > trend_trigger:
                 regime_state = "trend"
             else:
                 regime_state = "neutral"
 
-            # --- Regime-dependent crowd volatility ---
+            # --------------------------------------------------------
+            # STEP 5: regime volatility
+            # --------------------------------------------------------
             if regime_state == "trend":
-                vol = 0.001   # low vol, high persistence
+                vol = 0.001
             elif regime_state == "volatile":
-                vol = 0.008   # high vol, low persistence
+                vol = 0.008
             else:
-                vol = 0.003   # baseline
+                vol = 0.003
 
-            # --- Volatility feedback: update agents with current vol ---
-            for agent in self.agents:
-                agent.update(ph, crowd_sentiment=crowd_s, volatility=vol)
-
+            # --------------------------------------------------------
+            # STEP 6: record
+            # --------------------------------------------------------
             records.append(
                 {
                     "step": t,
@@ -226,6 +162,12 @@ class FXSentimentSimulation:
                     "n_flat": n_flat,
                 }
             )
+
+            # --------------------------------------------------------
+            # STEP 7: store for next step (causality chain)
+            # --------------------------------------------------------
+            crowd_s_prev = crowd_s
+            vol_prev = vol
 
         df = pd.DataFrame(records)
 

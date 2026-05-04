@@ -1,6 +1,4 @@
 """
-sweep.py
-
 ABM parameter sweep with regime-aware scoring.
 
 The sweep varies:
@@ -57,25 +55,8 @@ def run_sweep(
     n_steps: int,
     seed: int = 42,
 ) -> pd.DataFrame:
-    """Run a parameter sweep and return results sorted by score (lower = better).
+    """Run a parameter sweep and return results sorted by score (lower = better)."""
 
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Research dataset containing at least ``pair``, ``entry_close``,
-        ``entry_time`` and ``net_sentiment`` columns.
-    pair : str
-        Pair to filter on (e.g. ``"eur-usd"``).
-    n_steps : int
-        Number of simulation steps per run.
-    seed : int
-
-    Returns
-    -------
-    pd.DataFrame
-        Columns: trend_ratio, persistence, threshold, score,
-        std_diff, autocorr_diff.  Sorted ascending by score.
-    """
     # Filter and sort pair data
     sub = df[df["pair"] == pair].copy()
     sort_col = next(
@@ -89,8 +70,6 @@ def run_sweep(
     # Calibration targets from real data
     targets = calibrate_from_dataset(df, pair=pair)
 
-    rng = np.random.default_rng(seed)
-
     # Save module constants – restored unconditionally in `finally`
     _orig_persistence = _agents_mod._PERSISTENCE_WEIGHT
     _orig_threshold = _agents_mod._INERTIA_THRESHOLD
@@ -101,6 +80,13 @@ def run_sweep(
         for trend_ratio in _TREND_GRID:
             for persistence in _PERSISTENCE_GRID:
                 for threshold in _THRESHOLD_GRID:
+
+                    # ------------------------------------------------------
+                    # FIX: independent RNG streams per run
+                    # ------------------------------------------------------
+                    rng_agents = np.random.default_rng(seed)
+                    rng_sim = np.random.default_rng(seed + 1)
+
                     try:
                         # Mutate module globals (read by simulation at runtime)
                         _agents_mod._PERSISTENCE_WEIGHT = persistence
@@ -109,10 +95,10 @@ def run_sweep(
                         agents = build_agents(
                             n_agents=_N_AGENTS,
                             trend_ratio=trend_ratio,
-                            rng=rng,
+                            rng=rng_agents,
                         )
 
-                        sim = FXSentimentSimulation(agents, rng=rng)
+                        sim = FXSentimentSimulation(agents, rng=rng_sim)
                         sim_df = sim.run(n_steps=n_steps, price_series=price_series)
 
                         comparison = compare_to_data(sim_df, targets)
@@ -122,8 +108,7 @@ def run_sweep(
                         autocorr_diff = _extract_abs_diff(comparison, "autocorr")
 
                         logger.info(
-                            "trend_ratio=%.1f persistence=%.2f threshold=%.2f "
-                            "score=%.4f",
+                            "trend_ratio=%.1f persistence=%.2f threshold=%.2f score=%.4f",
                             trend_ratio, persistence, threshold, score,
                         )
 
@@ -140,8 +125,7 @@ def run_sweep(
 
                     except Exception as exc:
                         logger.warning(
-                            "Run failed (trend_ratio=%.1f persistence=%.2f "
-                            "threshold=%.2f): %s",
+                            "Run failed (trend_ratio=%.1f persistence=%.2f threshold=%.2f): %s",
                             trend_ratio, persistence, threshold, exc,
                         )
 
@@ -198,7 +182,12 @@ def main() -> None:
     args = parser.parse_args()
 
     logger.info("=== ABM Parameter Sweep ===")
-    logger.info("pair=%s version=%s steps=%d seed=42", args.pair, args.version, args.steps)
+    logger.info(
+        "pair=%s version=%s steps=%d seed=42",
+        args.pair,
+        args.version,
+        args.steps,
+    )
 
     path = f"data/output/{args.version}/master_research_dataset_core.csv"
     df = load_dataset(path)
@@ -217,7 +206,10 @@ def main() -> None:
     logger.info("Sweep results saved: %s  rows=%d", out_path, len(result_df))
     logger.info(
         "Best: trend_ratio=%.1f persistence=%.2f threshold=%.2f score=%.4f",
-        best.trend_ratio, best.persistence, best.threshold, best.score,
+        best.trend_ratio,
+        best.persistence,
+        best.threshold,
+        best.score,
     )
 
 
