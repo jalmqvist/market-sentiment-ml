@@ -6,7 +6,7 @@ Research-grade ABM simulation engine for FX sentiment.
 Features:
 - Backward-compatible (rng or seed)
 - Stable numerics (no NaNs / explosions)
-- Returns driven by change in sentiment (not level)
+- Nonlinear price impact: k * sign(Δs) * |Δs|^1.5
 - Volatility clustering (GARCH-lite)
 - Robust directional disagreement (filters weak signals)
 - Strong regime switching (enforces structure)
@@ -129,7 +129,7 @@ class FXSentimentSimulation:
             else:
                 delta_sentiment = net_sentiment
 
-            ret = impact_scale * 0.2 * delta_sentiment + noise
+            ret = impact_scale * 0.2 * np.sign(delta_sentiment) * np.abs(delta_sentiment) ** 1.5 + noise
 
             if not np.isfinite(ret):
                 ret = 0.0
