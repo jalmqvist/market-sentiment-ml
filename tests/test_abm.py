@@ -265,6 +265,7 @@ class TestFXSentimentSimulation:
         # Use a volatile random-walk price series so that agents generate
         # non-zero positions; a flat linspace produces signals too weak to
         # cross the decision threshold and makes both series identically zero.
+        # Seed 99 is chosen to be independent of the agent seeds (1 and 2).
         price_rng = np.random.default_rng(99)
         returns = price_rng.normal(0, 0.005, 299)
         prices = np.concatenate([[1.0], (1.0 + returns).cumprod()])

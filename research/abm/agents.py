@@ -42,6 +42,11 @@ _DECISION_THRESHOLD : float
     directional position.  Values below this magnitude result in a flat (0)
     position, expanding the neutral zone and reducing overreaction.
     Recommended range: 0.08–0.15.
+_PRICE_SIGNAL_MULTIPLIER : float
+    Scaling factor applied inside tanh() when computing momentum-based price
+    signals in TrendFollower and Contrarian.  Lower values reduce how strongly
+    a given percentage move pushes agents into directional positions.
+    Recommended range: 3.0–8.0.
 """
 
 from __future__ import annotations
@@ -78,6 +83,11 @@ _POSITION_INERTIA: float = 0.05
 # Minimum absolute raw signal required to take a directional position.
 # Increasing this value expands the neutral zone and reduces overreaction.
 _DECISION_THRESHOLD: float = 0.10
+
+# Multiplier applied to the percentage return inside tanh() when computing the
+# price signal for TrendFollower and Contrarian agents.  Lower values reduce
+# the sensitivity of agent positions to small price moves.
+_PRICE_SIGNAL_MULTIPLIER: float = 5.0
 
 
 # ---------------------------------------------------------------------------
@@ -164,7 +174,7 @@ class TrendFollower(BaseAgent):
         p1 = price_history[-1]
         if p0 <= 0:
             return 0.0
-        return float(np.tanh((p1 / p0 - 1.0) * 5.0))
+        return float(np.tanh((p1 / p0 - 1.0) * _PRICE_SIGNAL_MULTIPLIER))
 
 
 class Contrarian(BaseAgent):
@@ -190,7 +200,7 @@ class Contrarian(BaseAgent):
         p1 = price_history[-1]
         if p0 <= 0:
             return 0.0
-        return float(-np.tanh((p1 / p0 - 1.0) * 5.0))
+        return float(-np.tanh((p1 / p0 - 1.0) * _PRICE_SIGNAL_MULTIPLIER))
 
 
 class RetailTrader(BaseAgent):
