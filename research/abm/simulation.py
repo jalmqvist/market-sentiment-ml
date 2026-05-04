@@ -42,6 +42,21 @@ import pandas as pd
 
 import research.abm.agents as _agents_mod
 
+# ---------------------------------------------------------------------------
+# Named constants for regime transition logic
+# ---------------------------------------------------------------------------
+
+# Multiplier that maps _PERSISTENCE_WEIGHT to EMA alpha:
+#   smooth_alpha = 1 / (1 + _EMA_SCALE * persistence_weight)
+# Higher _EMA_SCALE → wider range of smoothing across the sweep grid.
+_EMA_SCALE = 10.0
+
+# Base disagreement level above which the volatile trigger is evaluated:
+#   vol_trigger = _VOL_TRIGGER_BASE + _VOL_TRIGGER_SCALE * inertia_thresh
+# Larger inertia_thresh → harder to enter volatile regime.
+_VOL_TRIGGER_BASE = 0.2
+_VOL_TRIGGER_SCALE = 3.0
+
 
 class FXSentimentSimulation:
     def __init__(
@@ -167,7 +182,7 @@ class FXSentimentSimulation:
 
             # --- EMA smoothing (alpha controlled by persistence_weight) ---
             # Higher persistence_weight → slower alpha → regime is stickier
-            smooth_alpha = 1.0 / (1.0 + 10.0 * persistence_weight)
+            smooth_alpha = 1.0 / (1.0 + _EMA_SCALE * persistence_weight)
             smooth_disagree = (
                 (1.0 - smooth_alpha) * smooth_disagree + smooth_alpha * disagreement
             )
@@ -178,7 +193,7 @@ class FXSentimentSimulation:
             # --- Regime transition ---
             # inertia_thresh scales the volatile trigger: larger threshold
             # requires stronger disagreement to enter volatile regime.
-            vol_trigger = 0.2 + 3.0 * inertia_thresh
+            vol_trigger = _VOL_TRIGGER_BASE + _VOL_TRIGGER_SCALE * inertia_thresh
 
             if smooth_disagree > vol_trigger:
                 regime_state = "volatile"

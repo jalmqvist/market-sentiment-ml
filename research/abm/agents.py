@@ -30,6 +30,11 @@ import numpy as np
 _PERSISTENCE_WEIGHT: float = 0.0   # regime-smoothing factor ∈ [0, 1)
 _INERTIA_THRESHOLD: float = 0.02   # disagreement trigger threshold ∈ (0, 1)
 
+# Amplification of market volatility into agent noise:
+#   effective_noise = noise_scale * (1 + _VOL_FEEDBACK_SCALE * volatility)
+# A value of 100 means a 1% vol spike doubles the agent's noise.
+_VOL_FEEDBACK_SCALE: float = 100.0
+
 
 # ---------------------------------------------------------------------------
 # Base agent
@@ -65,7 +70,7 @@ class BaseAgent:
             return  # insufficient data – keep current position
 
         # Volatility feedback: scale agent noise by current market volatility
-        effective_noise = self.noise_scale * (1.0 + 100.0 * volatility)
+        effective_noise = self.noise_scale * (1.0 + _VOL_FEEDBACK_SCALE * volatility)
         noise = self.rng.normal(0.0, effective_noise)
         raw = float(price_sig) + self.crowd_weight * float(crowd_sentiment) + noise
         self.position = int(np.sign(raw))
