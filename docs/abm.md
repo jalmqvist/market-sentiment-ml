@@ -64,9 +64,34 @@ python -m pytest tests/test_abm.py -v
 | `--log-level` | `INFO` | Logging verbosity |
 | `--no-log-file` | off | Disable file logging; use stdout only |
 
+
+## Stability Parameters
+
+The following module-level constants in `research/abm/agents.py` control the
+numerical stability of the simulation.  They are designed to keep the ABM in
+the research-grade target range (autocorr ≈ 0.7–0.9, extreme_freq ≈ 0.05–0.15,
+mean ≈ 0).
+
+| Constant | Default | Range | Description |
+|---|---|---|---|
+| `_VOL_FEEDBACK_SCALE` | `0.3` | 0.2 – 0.4 | Multiplier on market volatility fed into per-agent noise. Kept small so that a 1 % vol spike raises effective noise by ≤ 0.4 %, not 100 %. |
+| `_FLIP_PROB` | `0.02` | 0.01 – 0.03 | Per-step probability that an agent's position is randomly reset to flat (0), preventing permanent herding lock-in. |
+| `_MEAN_REVERSION_STRENGTH` | `0.02` | 0.01 – 0.05 | Each step, aggregate `net_sentiment` is multiplied by `(1 − _MEAN_REVERSION_STRENGTH)`, pulling it back toward zero and preventing non-zero mean drift. Applied in `simulation.py` after collecting agent positions. |
+
+Additionally, `simulation.py` clips `net_sentiment` to **[−80, 80]** before
+feeding it back to agents, bounding extreme consensus regardless of parameter
+settings.
+
+### Regime transitions
+
+Regime state (`neutral`, `trend`, `volatile`) is determined each step by
+EMA-smoothed statistics (`smooth_disagree`, `smooth_align`).  Because these
+EMAs decay naturally when the underlying signals weaken, no regime is
+absorbing: the model transitions freely between all three states as market
+conditions evolve.  Hard threshold hysteresis is deliberately avoided.
+
 ---
 
-## Agent Types
 
 ### TrendFollower
 Follows recent price momentum. Goes long after sustained up-moves, short after
