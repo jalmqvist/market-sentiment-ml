@@ -1,98 +1,191 @@
 """
 agents.py
 
-Stable agent definitions for ABM.
+Agent definitions for the retail FX sentiment ABM.
+
+Agent hierarchy
+---------------
+BaseAgent       – abstract; discrete position ∈ {-1, 0, +1}
+  TrendFollower – follows price momentum
+  Contrarian    – fades price momentum
+  RetailTrader  – abstract retail base (_price_signal raises NotImplementedError)
+    NoiseTrader – no price signal; driven by crowd + noise
+
+Module-level sweep parameters
+------------------------------
+_PERSISTENCE_WEIGHT and _INERTIA_THRESHOLD are read by simulation.py to
+control regime-transition smoothing and the disagreement trigger threshold.
+sweep.py mutates these between runs and restores them afterwards.
 """
 
 from __future__ import annotations
+
 import numpy as np
 
 
-_PERSISTENCE_WEIGHT = 0.0
-_INERTIA_THRESHOLD = 0.02
+# ---------------------------------------------------------------------------
+# Module-level parameters read by simulation.py and varied by sweep.py
+# ---------------------------------------------------------------------------
 
+_PERSISTENCE_WEIGHT: float = 0.0   # regime-smoothing factor ∈ [0, 1)
+_INERTIA_THRESHOLD: float = 0.02   # disagreement trigger threshold ∈ (0, 1)
+
+# Amplification of market volatility into agent noise:
+#   effective_noise = noise_scale * (1 + _VOL_FEEDBACK_SCALE * volatility)
+# A value of 100 means a 1% vol spike doubles the agent's noise.
+_VOL_FEEDBACK_SCALE: float = 100.0
+
+
+# ---------------------------------------------------------------------------
+# Base agent
+# ---------------------------------------------------------------------------
 
 class BaseAgent:
-    def __init__(self):
-        self.last_signal = 0.0
+    """Abstract agent with a discrete position."""
 
-    def apply_inertia(self, raw_signal: float) -> float:
-        signal = (
-            (1.0 - _PERSISTENCE_WEIGHT) * raw_signal
-            + _PERSISTENCE_WEIGHT * self.last_signal
-        )
+    def __init__(
+        self,
+        rng: np.random.Generator,
+        noise_scale: float = 0.02,
+        crowd_weight: float = 0.1,
+    ) -> None:
+        self.rng = rng
+        self.noise_scale = float(noise_scale)
+        self.crowd_weight = float(crowd_weight)
+        self.position: int = 0  # discrete: -1, 0, or +1
 
-        delta = signal - self.last_signal
-
-        if _INERTIA_THRESHOLD > 0:
-            scale = np.tanh(abs(delta) / (_INERTIA_THRESHOLD + 1e-8))
-            signal = self.last_signal + scale * delta
-
-        signal = np.clip(signal, -0.5, 0.5)
-
-        self.last_signal = signal
-        return signal
-
-    def update(self, price_history, returns=None, sentiment=0.0):
+    def _price_signal(self, price_history: np.ndarray) -> float | None:
+        """Return a price-based signal in [-1, 1], or None when data is insufficient."""
         raise NotImplementedError
 
+    def update(
+        self,
+        price_history: np.ndarray,
+        crowd_sentiment: float = 0.0,
+        volatility: float = 0.002,
+    ) -> None:
+        """Update discrete position given price history, crowd sentiment, and volatility."""
+        price_sig = self._price_signal(price_history)
+        if price_sig is None:
+            return  # insufficient data – keep current position
+
+        # Volatility feedback: scale agent noise by current market volatility
+        effective_noise = self.noise_scale * (1.0 + _VOL_FEEDBACK_SCALE * volatility)
+        noise = self.rng.normal(0.0, effective_noise)
+        raw = float(price_sig) + self.crowd_weight * float(crowd_sentiment) + noise
+        self.position = int(np.sign(raw))
+
+
+# ---------------------------------------------------------------------------
+# Concrete agents
+# ---------------------------------------------------------------------------
 
 class TrendFollower(BaseAgent):
-    def __init__(self, momentum_window=12):
-        super().__init__()
-        self.momentum_window = momentum_window
+    """Trend-following agent: goes long (short) after an up (down) move."""
 
-    def update(self, price_history, returns=None, sentiment=0.0):
+    def __init__(
+        self,
+        rng: np.random.Generator,
+        momentum_window: int = 12,
+        noise_scale: float = 0.02,
+        crowd_weight: float = 0.1,
+        pair: str | None = None,
+    ) -> None:
+        if int(momentum_window) <= 0:
+            raise ValueError(f"momentum_window must be > 0, got {momentum_window!r}")
+        super().__init__(rng, noise_scale, crowd_weight)
+        self.momentum_window = int(momentum_window)
+
+    def _price_signal(self, price_history: np.ndarray) -> float | None:
         if len(price_history) < self.momentum_window + 1:
-            return self.last_signal
-
+            return None
         p0 = price_history[-self.momentum_window - 1]
         p1 = price_history[-1]
-
         if p0 <= 0:
-            momentum = 0.0
-        else:
-            momentum = p1 / p0 - 1.0
-
-        signal = np.tanh(momentum * 5.0) * 0.3
-        return self.apply_inertia(signal)
+            return 0.0
+        return float(np.tanh((p1 / p0 - 1.0) * 10.0))
 
 
 class Contrarian(BaseAgent):
-    def update(self, price_history, returns=None, sentiment=0.0):
-        if returns is None or len(returns) == 0:
-            return self.last_signal
+    """Contrarian agent: fades momentum by taking the opposite side."""
 
-        r = returns[-1]
-        signal = -np.tanh(r * 8.0) * 0.1
-        return self.apply_inertia(signal)
+    def __init__(
+        self,
+        rng: np.random.Generator,
+        momentum_window: int = 12,
+        noise_scale: float = 0.02,
+        crowd_weight: float = 0.1,
+        pair: str | None = None,
+    ) -> None:
+        if int(momentum_window) <= 0:
+            raise ValueError(f"momentum_window must be > 0, got {momentum_window!r}")
+        super().__init__(rng, noise_scale, crowd_weight)
+        self.momentum_window = int(momentum_window)
+
+    def _price_signal(self, price_history: np.ndarray) -> float | None:
+        if len(price_history) < self.momentum_window + 1:
+            return None
+        p0 = price_history[-self.momentum_window - 1]
+        p1 = price_history[-1]
+        if p0 <= 0:
+            return 0.0
+        return float(-np.tanh((p1 / p0 - 1.0) * 10.0))
 
 
-class NoiseTrader(BaseAgent):
-    def __init__(self, rng=None):
-        super().__init__()
-        self.rng = rng or np.random.default_rng()
+class RetailTrader(BaseAgent):
+    """Abstract base for retail traders.
 
-    def update(self, price_history, returns=None, sentiment=0.0):
-        noise = self.rng.normal(0.0, 0.02)
-        signal = np.tanh(0.1 * sentiment + noise)
-        return self.apply_inertia(signal)
-
-
-class RetailTrader(NoiseTrader):
+    Subclasses must implement ``_price_signal``.  Calling ``_price_signal``
+    directly on a ``RetailTrader`` instance raises ``NotImplementedError``.
     """
-    Slightly more sentiment-sensitive version of NoiseTrader.
-    Exists for compatibility + mild behavioral variation.
+
+    def __init__(
+        self,
+        rng: np.random.Generator,
+        noise_scale: float = 0.02,
+        crowd_weight: float = 0.1,
+        pair: str | None = None,
+    ) -> None:
+        super().__init__(rng, noise_scale, crowd_weight)
+
+    def _price_signal(self, price_history: np.ndarray) -> float | None:
+        raise NotImplementedError
+
+
+class NoiseTrader(RetailTrader):
+    """Pure noise trader: no directional price signal.
+
+    Position is driven entirely by crowd sentiment and random noise.
+    ``_price_signal`` always returns 0.0 (overrides RetailTrader).
     """
-    def update(self, price_history, returns=None, sentiment=0.0):
-        noise = self.rng.normal(0.0, 0.02)
-        signal = np.tanh(0.15 * sentiment + noise)
-        return self.apply_inertia(signal)
+
+    def _price_signal(self, price_history: np.ndarray) -> float | None:
+        return 0.0
 
 
-def build_agents(n_agents, trend_ratio=0.5, rng=None):
+# ---------------------------------------------------------------------------
+# Factory
+# ---------------------------------------------------------------------------
+
+def build_agents(
+    n_agents: int,
+    trend_ratio: float = 0.5,
+    rng: np.random.Generator | None = None,
+    momentum_window: int = 12,
+) -> list[BaseAgent]:
+    """Build a heterogeneous population of agents.
+
+    Parameters
+    ----------
+    n_agents : int
+    trend_ratio : float
+        Fraction of trend-following agents (remainder split contrarian/noise).
+    rng : np.random.Generator | None
+    momentum_window : int
+        Default look-back window for trend/contrarian agents.
+    """
     rng = rng or np.random.default_rng()
-    agents = []
+    agents: list[BaseAgent] = []
 
     n_trend = int(n_agents * trend_ratio)
     n_remaining = n_agents - n_trend
@@ -101,17 +194,14 @@ def build_agents(n_agents, trend_ratio=0.5, rng=None):
 
     for _ in range(n_trend):
         mw = int(rng.integers(6, 24))
-        agents.append(TrendFollower(momentum_window=mw))
+        agents.append(TrendFollower(rng, momentum_window=mw))
 
     for _ in range(n_contrarian):
-        agents.append(Contrarian())
+        mw = int(rng.integers(6, 24))
+        agents.append(Contrarian(rng, momentum_window=mw))
 
     for _ in range(n_noise):
-        # mix Noise + Retail for heterogeneity
-        if rng.random() < 0.5:
-            agents.append(NoiseTrader(rng))
-        else:
-            agents.append(RetailTrader(rng))
+        agents.append(NoiseTrader(rng))
 
     rng.shuffle(agents)
     return agents

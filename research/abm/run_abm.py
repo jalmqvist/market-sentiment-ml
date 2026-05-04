@@ -230,6 +230,9 @@ def main(argv=None) -> None:
 
     n_steps = min(args.steps, max_steps)
 
+    if log_file is not None:
+        _write_config_snapshot(log_file, args, dataset_path, n_steps)
+
     sim_df = sim.run(
         n_steps=n_steps,
         price_series=price_series,

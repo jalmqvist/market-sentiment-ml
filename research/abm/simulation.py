@@ -1,15 +1,38 @@
 """
 simulation.py
 
-Research-grade ABM simulation engine for FX sentiment.
+ABM simulation engine for FX sentiment with latent regime persistence.
 
-Features:
-- Backward-compatible (rng or seed)
-- Stable numerics (no NaNs / explosions)
-- Nonlinear price impact: k * sign(Δs) * |Δs|^1.5
-- Volatility clustering (GARCH-lite)
-- Robust directional disagreement (filters weak signals)
-- Strong regime switching (enforces structure)
+Regime state
+------------
+regime_state ∈ {"trend", "neutral", "volatile"}
+
+Transitions (driven by smoothed agent signals):
+  high disagreement  → volatile  (high vol, low impact)
+  strong alignment   → trend     (low vol, high impact)
+  otherwise          → neutral   (baseline)
+
+The smoothing speed and disagreement trigger threshold are read at runtime
+from ``research.abm.agents._PERSISTENCE_WEIGHT`` and
+``research.abm.agents._INERTIA_THRESHOLD`` so that sweep.py can vary them
+between runs without rebuilding the simulation.
+
+Volatility feedback
+-------------------
+Each step's crowd volatility is passed back to agents via
+``agent.update(..., volatility=vol)``, creating a feedback loop: in a
+volatile regime, agents receive higher volatility, scale up their noise,
+and produce more disagreement – sustaining the volatile regime.
+
+Interface
+---------
+The public API is unchanged:
+  FXSentimentSimulation(agents, rng=None, seed=42, warmup_steps=50)
+  .run(n_steps, price_series, timestamps=None) → pd.DataFrame
+
+Output columns: step, price, net_sentiment, abs_sentiment,
+                crowd_side, n_long, n_short, n_flat
+                (+ timestamp when timestamps is supplied)
 """
 
 from __future__ import annotations
@@ -17,17 +40,46 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+import research.abm.agents as _agents_mod
+
+# ---------------------------------------------------------------------------
+# Named constants for regime transition logic
+# ---------------------------------------------------------------------------
+
+# Multiplier that maps _PERSISTENCE_WEIGHT to EMA alpha:
+#   smooth_alpha = 1 / (1 + _EMA_SCALE * persistence_weight)
+# Higher _EMA_SCALE → wider range of smoothing across the sweep grid.
+_EMA_SCALE = 10.0
+
+# Base disagreement level above which the volatile trigger is evaluated:
+#   vol_trigger = _VOL_TRIGGER_BASE + _VOL_TRIGGER_SCALE * inertia_thresh
+# Larger inertia_thresh → harder to enter volatile regime.
+_VOL_TRIGGER_BASE = 0.2
+_VOL_TRIGGER_SCALE = 3.0
+
 
 class FXSentimentSimulation:
-    def __init__(self, agents, rng=None, seed=42, warmup_steps=50):
+    def __init__(
+        self,
+        agents,
+        rng: np.random.Generator | None = None,
+        seed: int = 42,
+        warmup_steps: int = 50,
+    ) -> None:
         """
         Parameters
         ----------
-        agents : list
-        rng : np.random.Generator (optional)
+        agents : list[BaseAgent]
+            Non-empty list of agent objects.
+        rng : np.random.Generator, optional
+            Shared random generator.  When *None* a new generator is created
+            from ``seed``.
         seed : int
         warmup_steps : int
+            Number of price observations fed to agents before recording begins.
         """
+        if not agents:
+            raise ValueError("agents list must not be empty")
 
         self.agents = agents
 
@@ -38,118 +90,149 @@ class FXSentimentSimulation:
 
         self.warmup_steps = int(warmup_steps)
 
-    def run(self, price_series, steps=500):
+    @property
+    def n_agents(self) -> int:
+        return len(self.agents)
+
+    def run(
+        self,
+        n_steps: int,
+        price_series,
+        timestamps=None,
+    ) -> pd.DataFrame:
+        """Run the simulation and return a per-step DataFrame.
+
+        Parameters
+        ----------
+        n_steps : int
+            Number of recorded steps (> 0).
+        price_series : array-like
+            Observed price sequence.  Must have at least
+            ``warmup_steps + n_steps`` entries.
+        timestamps : array-like, optional
+            If supplied, a ``timestamp`` column is added to the output aligned
+            to ``price_series[warmup_steps : warmup_steps + n_steps]``.
+
+        Returns
+        -------
+        pd.DataFrame
+            Columns: step, price, net_sentiment, abs_sentiment,
+            crowd_side, n_long, n_short, n_flat  (+ timestamp).
+        """
+        n_steps = int(n_steps)
+        if n_steps <= 0:
+            raise ValueError("n_steps must be > 0")
+
         price_series = np.asarray(price_series, dtype=float)
 
-        if price_series.size == 0:
-            raise ValueError("price_series is empty")
+        min_len = self.warmup_steps + n_steps
+        if len(price_series) < min_len:
+            raise ValueError(
+                f"price_series too short: need {min_len} entries "
+                f"(warmup_steps={self.warmup_steps} + n_steps={n_steps}), "
+                f"got {len(price_series)}"
+            )
 
-        prices = [float(price_series[0])]
-        returns = []
-        sentiments = []
+        n_agents = self.n_agents
 
-        for _ in range(int(steps)):
-            price_history = np.asarray(prices, dtype=float)
-            ret_array = np.asarray(returns, dtype=float)
-
-            last_sentiment = sentiments[-1] if sentiments else 0.0
-
-            # --- agent signals ---
-            signals = []
+        # ------------------------------------------------------------------
+        # Warmup: feed agents the initial price history without recording.
+        # ------------------------------------------------------------------
+        for t in range(self.warmup_steps):
+            ph = price_series[: t + 1]
             for agent in self.agents:
-                try:
-                    s = agent.update(price_history, ret_array, last_sentiment)
-                except TypeError:
-                    s = agent.update(price_history)
+                agent.update(ph, crowd_sentiment=0.0, volatility=0.002)
 
-                if not np.isfinite(s):
-                    s = 0.0
+        # ------------------------------------------------------------------
+        # Regime state – smoothed indicators for persistence
+        # ------------------------------------------------------------------
+        regime_state = "neutral"
+        smooth_disagree = 0.0
+        smooth_align = 0.0
 
-                signals.append(float(s))
+        # ------------------------------------------------------------------
+        # Main simulation loop
+        # ------------------------------------------------------------------
+        records: list[dict] = []
 
-            signals_arr = np.array(signals)
-            net_sentiment = float(np.mean(np.sign(signals_arr) * np.abs(signals_arr) ** 1.2))
+        for t in range(n_steps):
+            # Price history available at this step
+            ph = price_series[: self.warmup_steps + t + 1]
+            current_price = float(price_series[self.warmup_steps + t])
 
-            # weak mean reversion
-            net_sentiment -= 0.05 * net_sentiment
+            # --- Read regime parameters from agents module (modified by sweep) ---
+            persistence_weight = float(_agents_mod._PERSISTENCE_WEIGHT)
+            inertia_thresh = float(_agents_mod._INERTIA_THRESHOLD)
 
-            # =========================================================
-            # ROBUST DISAGREEMENT (FIX 1)
-            # =========================================================
-            threshold = 0.01
-            active = np.abs(signals_arr) > threshold
+            # --- Crowd state from current agent positions ---
+            n_long = sum(1 for a in self.agents if a.position == 1)
+            n_short = sum(1 for a in self.agents if a.position == -1)
+            n_flat = n_agents - n_long - n_short
 
-            if np.any(active):
-                signs = np.sign(signals_arr[active])
-                agreement = abs(np.mean(signs))
+            net_sentiment = float((n_long - n_short) / n_agents * 100.0)
+            crowd_s = net_sentiment / 100.0  # normalised to [-1, 1]
+
+            # --- Disagreement: divergence among active agents ---
+            active = n_long + n_short
+            if active > 0:
+                agreement = abs(n_long - n_short) / active
                 disagreement = 1.0 - agreement
             else:
                 disagreement = 0.0
 
-            # dispersion (only meaningful when disagreement exists)
-            dispersion = float(np.std(signals_arr))
-
-            # previous volatility
-            if len(returns) > 0:
-                prev_vol = abs(returns[-1])
-            else:
-                prev_vol = 0.002
-
-            # base volatility
-            vol = (
-                0.001
-                + 0.6 * prev_vol
-                + 0.5 * dispersion * disagreement
-                + 1.0 * disagreement
+            # --- EMA smoothing (alpha controlled by persistence_weight) ---
+            # Higher persistence_weight → slower alpha → regime is stickier
+            smooth_alpha = 1.0 / (1.0 + _EMA_SCALE * persistence_weight)
+            smooth_disagree = (
+                (1.0 - smooth_alpha) * smooth_disagree + smooth_alpha * disagreement
+            )
+            smooth_align = (
+                (1.0 - smooth_alpha) * smooth_align + smooth_alpha * abs(crowd_s)
             )
 
-            # =========================================================
-            # STRONG REGIME SWITCH (FIX 2)
-            # =========================================================
-            if disagreement > 0.3:
-                # unstable regime (true disagreement)
-                vol *= 3.0
-                impact_scale = 0.5
+            # --- Regime transition ---
+            # inertia_thresh scales the volatile trigger: larger threshold
+            # requires stronger disagreement to enter volatile regime.
+            vol_trigger = _VOL_TRIGGER_BASE + _VOL_TRIGGER_SCALE * inertia_thresh
+
+            if smooth_disagree > vol_trigger:
+                regime_state = "volatile"
+            elif smooth_align > 0.4:
+                regime_state = "trend"
             else:
-                # stable regime (trend / consensus)
-                vol *= 0.5
-                impact_scale = 1.0
+                regime_state = "neutral"
 
-            # bounds
-            vol = max(vol, 0.0005)
-            vol = min(vol, 0.01)
-
-            noise = self.rng.normal(0.0, vol)
-
-            # =========================================================
-            # RETURNS FROM Δ SENTIMENT (already correct)
-            # =========================================================
-            if len(sentiments) > 0:
-                delta_sentiment = net_sentiment - sentiments[-1]
+            # --- Regime-dependent crowd volatility ---
+            if regime_state == "trend":
+                vol = 0.001   # low vol, high persistence
+            elif regime_state == "volatile":
+                vol = 0.008   # high vol, low persistence
             else:
-                delta_sentiment = net_sentiment
+                vol = 0.003   # baseline
 
-            ret = impact_scale * 0.2 * np.sign(delta_sentiment) * np.abs(delta_sentiment) ** 1.5 + noise
+            # --- Volatility feedback: update agents with current vol ---
+            for agent in self.agents:
+                agent.update(ph, crowd_sentiment=crowd_s, volatility=vol)
 
-            if not np.isfinite(ret):
-                ret = 0.0
+            records.append(
+                {
+                    "step": t,
+                    "price": current_price,
+                    "net_sentiment": net_sentiment,
+                    "abs_sentiment": abs(net_sentiment),
+                    "crowd_side": int(np.sign(net_sentiment)),
+                    "n_long": n_long,
+                    "n_short": n_short,
+                    "n_flat": n_flat,
+                }
+            )
 
-            new_price = prices[-1] * (1.0 + ret)
+        df = pd.DataFrame(records)
 
-            if not np.isfinite(new_price) or new_price <= 0:
-                new_price = prices[-1]
-
-            prices.append(float(new_price))
-            returns.append(float(ret))
-            sentiments.append(float(net_sentiment))
-
-        df = pd.DataFrame({
-            "price": prices[1:],
-            "returns": returns,
-            "net_sentiment": sentiments,
-        })
-
-        if df.isna().any().any():
-            raise RuntimeError("Simulation produced NaNs")
+        if timestamps is not None:
+            ts_arr = np.asarray(timestamps)
+            df["timestamp"] = ts_arr[
+                self.warmup_steps: self.warmup_steps + n_steps
+            ]
 
         return df
