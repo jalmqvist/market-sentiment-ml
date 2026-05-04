@@ -104,8 +104,9 @@ class BaseAgent:
         else:
             self.position = 0
 
-        # Stochastic de-alignment: randomly reset to flat to prevent herding lock-in
-        if self.rng.random() < _FLIP_PROB:
+        # Stochastic de-alignment: randomly reset to flat to prevent herding lock-in.
+        # Only meaningful when the agent is directional; flat agents are already de-aligned.
+        if self.position != 0 and self.rng.random() < _FLIP_PROB:
             self.position = 0
 
 
