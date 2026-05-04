@@ -68,7 +68,7 @@ class FXSentimentSimulation:
                 signals.append(float(s))
 
             signals_arr = np.array(signals)
-            net_sentiment = float(np.mean(signals_arr))
+            net_sentiment = float(np.mean(np.sign(signals_arr) * np.abs(signals_arr) ** 1.2))
 
             # weak mean reversion
             net_sentiment -= 0.05 * net_sentiment
@@ -113,7 +113,7 @@ class FXSentimentSimulation:
             else:
                 # stable regime (trend / consensus)
                 vol *= 0.5
-                impact_scale = 1.5
+                impact_scale = 1.0
 
             # bounds
             vol = max(vol, 0.0005)
