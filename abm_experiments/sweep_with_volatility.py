@@ -35,6 +35,7 @@ Outputs:
 - log file + config snapshot JSON in logs/ (same schema as sweep.py, plus
   volatility_scale)
 - sweep CSV in logs/: abm_sweep_vol_{pair}_{version}_{timestamp}.csv
+- best-path timeseries CSV in logs/: abm_sweep_vol_bestpath_{pair}_{version}_{timestamp}.csv
 
 Note:
 This experiment logs additional diagnostics to confirm that alpha is
@@ -168,8 +169,14 @@ def run_sweep_with_price_series(
     seed: int = 42,
     momentum_window: int = 12,
     seed_base: int | None = None,
+    bestpath_out_path: Path | None = None,
 ) -> pd.DataFrame:
-    """Run the same sweep as research/abm/sweep.py but with injected price_series."""
+    """Run the same sweep as research/abm/sweep.py but with injected price_series.
+
+    If bestpath_out_path is provided, the script additionally runs the best
+    parameter combination again (deterministically) and saves the simulation
+    timeseries (sim_df) to that path.
+    """
     _result_columns = [
         "trend_ratio",
         "persistence",
@@ -199,6 +206,10 @@ def run_sweep_with_price_series(
     orig_threshold = agents_module._INERTIA_THRESHOLD
 
     results: list[dict] = []
+
+    # Track best run for best-path output
+    best: dict | None = None
+    best_run_index: int | None = None
 
     try:
         for run_index, (trend_ratio, persistence, threshold) in enumerate(
@@ -244,18 +255,21 @@ def run_sweep_with_price_series(
                 comparison = compare_to_data(sim_df, targets)
                 score = compute_score(comparison)
 
-                results.append(
-                    {
-                        "trend_ratio": trend_ratio,
-                        "persistence": persistence,
-                        "threshold": threshold,
-                        "score": score,
-                        "std_diff": extract_metric(comparison, "std"),
-                        "autocorr_diff": extract_metric(comparison, "autocorr"),
-                        "abs_mean_diff": extract_metric(comparison, "abs_mean"),
-                        "extreme_diff": extract_metric(comparison, "extreme_freq"),
-                    }
-                )
+                row = {
+                    "trend_ratio": trend_ratio,
+                    "persistence": persistence,
+                    "threshold": threshold,
+                    "score": score,
+                    "std_diff": extract_metric(comparison, "std"),
+                    "autocorr_diff": extract_metric(comparison, "autocorr"),
+                    "abs_mean_diff": extract_metric(comparison, "abs_mean"),
+                    "extreme_diff": extract_metric(comparison, "extreme_freq"),
+                }
+                results.append(row)
+
+                if best is None or score < best["score"]:
+                    best = row
+                    best_run_index = run_index
 
                 logger.info(
                     "trend_ratio=%.1f persistence=%.2f threshold=%.3f score=%.4f",
@@ -281,7 +295,67 @@ def run_sweep_with_price_series(
     if not results:
         return pd.DataFrame(columns=_result_columns)
 
-    return pd.DataFrame(results).sort_values("score").reset_index(drop=True)
+    result_df = pd.DataFrame(results).sort_values("score").reset_index(drop=True)
+
+    # Optional: dump best-path sim_df
+    if bestpath_out_path is not None and not result_df.empty and best is not None:
+        assert best_run_index is not None
+
+        # Re-run the best combination deterministically and write its time series
+        best_trend_ratio = float(best["trend_ratio"])
+        best_persistence = float(best["persistence"])
+        best_threshold = float(best["threshold"])
+
+        agents_module._PERSISTENCE_WEIGHT = best_persistence
+        agents_module._INERTIA_THRESHOLD = best_threshold
+
+        try:
+            n_trend = int(round(best_trend_ratio * _N_NON_NOISE))
+            n_contrarian = _N_NON_NOISE - n_trend
+
+            run_seed = (seed_base + best_run_index) if seed_base is not None else seed
+            rng = np.random.default_rng(run_seed)
+
+            agents = _build_agents(
+                rng,
+                pair=pair,
+                n_trend=n_trend,
+                n_contrarian=n_contrarian,
+                n_noise=_N_NOISE,
+                momentum_window=momentum_window,
+            )
+
+            sim = FXSentimentSimulation(agents, rng=rng)
+            max_steps = len(price_series) - sim.warmup_steps - 1
+            effective_steps = min(n_steps, max_steps)
+
+            sim_df = sim.run(
+                n_steps=effective_steps,
+                price_series=price_series,
+                timestamps=timestamps,
+            )
+            warmup = sim.warmup_steps
+            sim_df["real_net_sentiment"] = real_sentiment[
+                warmup + 1 : warmup + 1 + len(sim_df)
+            ]
+
+            bestpath_out_path.parent.mkdir(parents=True, exist_ok=True)
+            sim_df.to_csv(bestpath_out_path, index=False)
+
+            logger.info(
+                "Best-path saved: %s  rows=%d (trend_ratio=%.1f persistence=%.2f threshold=%.3f)",
+                bestpath_out_path,
+                len(sim_df),
+                best_trend_ratio,
+                best_persistence,
+                best_threshold,
+            )
+
+        finally:
+            agents_module._PERSISTENCE_WEIGHT = orig_persistence
+            agents_module._INERTIA_THRESHOLD = orig_threshold
+
+    return result_df
 
 
 def _parse_args(argv=None) -> argparse.Namespace:
@@ -420,6 +494,11 @@ def main(argv=None) -> None:
         config_file.write_text(json.dumps(config_payload, indent=2))
         logger.info("Config snapshot: %s", config_file)
 
+    log_dir = cfg.REPO_ROOT / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    bestpath_out_path = log_dir / f"abm_sweep_vol_bestpath_{pair}_{args.version}_{timestamp}.csv"
+
     result_df = run_sweep_with_price_series(
         df=df,
         pair=args.pair,
@@ -428,10 +507,9 @@ def main(argv=None) -> None:
         seed=args.seed,
         momentum_window=args.momentum_window,
         seed_base=args.seed_base,
+        bestpath_out_path=bestpath_out_path,
     )
 
-    log_dir = cfg.REPO_ROOT / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
     out_path = log_dir / f"abm_sweep_vol_{pair}_{args.version}_{timestamp}.csv"
 
     result_df.to_csv(out_path, index=False)
