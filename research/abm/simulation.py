@@ -47,6 +47,9 @@ from research.abm.agents import RetailTrader
 
 logger = logging.getLogger(__name__)
 
+# Volatility proxy parameters (used to compute per-timestep vol_norm)
+_VOL_WINDOW = 24
+
 
 class FXSentimentSimulation:
     """Agent-based simulation of retail FX crowd sentiment.
@@ -130,16 +133,32 @@ class FXSentimentSimulation:
         records = []
         price_history = [price_series[0]]
 
+        # EMA-based volatility proxy
+        ema_alpha = 2.0 / (_VOL_WINDOW + 1.0)
+        vol_ema = 0.0
+        baseline_vol = 0.0
+        baseline_alpha = ema_alpha
+        prev_price = float(price_series[0])
+
         for t in range(1, total_required):
             price = float(price_series[t])
             price_history.append(price)
             ph = np.array(price_history, dtype=np.float64)
 
+            # Volatility proxy from absolute returns (EMA)
+            ret_t = price - prev_price
+            prev_price = price
+
+            vol_ema = ema_alpha * abs(ret_t) + (1.0 - ema_alpha) * vol_ema
+            baseline_vol = baseline_alpha * vol_ema + (1.0 - baseline_alpha) * baseline_vol
+
+            vol_norm = vol_ema / (baseline_vol + 1e-8)
+
             # sentiment BEFORE update
             crowd_sentiment = self._aggregate_sentiment(normalised=True)
 
             for agent in self._agents:
-                agent.update(ph, crowd_sentiment)
+                agent.update(ph, crowd_sentiment, volatility=vol_norm)
 
             if t > self._warmup_steps:
                 idx = t - self._warmup_steps - 1
