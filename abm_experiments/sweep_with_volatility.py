@@ -386,6 +386,27 @@ def _parse_args(argv=None) -> argparse.Namespace:
         default=0.0,
         help="Alpha scaling for volatility-conditioned return amplification",
     )
+
+    # Stage-2 release mechanism (applied inside research.abm.agents)
+    p.add_argument(
+        "--decay-base",
+        type=float,
+        default=float(getattr(agents_module, "_DECAY_BASE", 0.0)),
+        help="Base decay rate applied during accumulation (release mechanism)",
+    )
+    p.add_argument(
+        "--decay-volatility-scale",
+        type=float,
+        default=float(getattr(agents_module, "_DECAY_VOLATILITY_SCALE", 0.0)),
+        help="Additional decay proportional to per-step volatility proxy",
+    )
+    p.add_argument(
+        "--decay-clip-max",
+        type=float,
+        default=float(getattr(agents_module, "_DECAY_CLIP_MAX", 0.2)),
+        help="Maximum decay per step (lambda_t upper clip)",
+    )
+
     p.add_argument(
         "--log-level",
         default=cfg.LOG_LEVEL,
@@ -418,112 +439,137 @@ def main(argv=None) -> None:
     else:
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
+    # Apply decay parameters by temporarily setting research.abm.agents module constants
+    orig_decay_base = getattr(agents_module, "_DECAY_BASE", 0.0)
+    orig_decay_vol_scale = getattr(agents_module, "_DECAY_VOLATILITY_SCALE", 0.0)
+    orig_decay_clip_max = getattr(agents_module, "_DECAY_CLIP_MAX", 0.2)
+
+    agents_module._DECAY_BASE = float(args.decay_base)
+    agents_module._DECAY_VOLATILITY_SCALE = float(args.decay_volatility_scale)
+    agents_module._DECAY_CLIP_MAX = float(args.decay_clip_max)
+
     logger.info("=== ABM Parameter Sweep (Volatility Environment Scaling) ===")
     logger.info("cli_command: %s", " ".join(sys.argv))
     logger.info(
-        "pair=%s version=%s steps=%d seed=%d momentum_window=%d volatility_scale=%.4f",
+        "pair=%s version=%s steps=%d seed=%d momentum_window=%d volatility_scale=%.4f decay_base=%.6g decay_volatility_scale=%.6g decay_clip_max=%.6g",
         args.pair,
         args.version,
         args.steps,
         args.seed,
         args.momentum_window,
         args.volatility_scale,
+        float(args.decay_base),
+        float(args.decay_volatility_scale),
+        float(args.decay_clip_max),
     )
 
-    df, dataset_path = _load_real_data(args.version, args.variant)
+    try:
+        df, dataset_path = _load_real_data(args.version, args.variant)
 
-    # Create a copy of the filtered pair subset; do not mutate df in-place.
-    sub = df[df["pair"] == pair].copy().sort_values("entry_time")
-    if sub.empty:
-        raise ValueError(f"No data found for pair={pair}")
+        # Create a copy of the filtered pair subset; do not mutate df in-place.
+        sub = df[df["pair"] == pair].copy().sort_values("entry_time")
+        if sub.empty:
+            raise ValueError(f"No data found for pair={pair}")
 
-    price = sub["entry_close"].to_numpy(dtype=float)
+        price = sub["entry_close"].to_numpy(dtype=float)
 
-    adjusted_price, vol_diag = _volatility_adjust_price(
-        price=price, alpha=float(args.volatility_scale), window=_VOL_WINDOW
-    )
-
-    # Required diagnostics (mean/std of rolling vol)
-    logger.info(
-        "rolling_vol diagnostics: window=%d vol_mean=%.8g vol_std=%.8g vol_norm_mean=%.6g vol_norm_max=%.6g clip_max=%.1f",
-        vol_diag["vol_window"],
-        vol_diag["vol_mean"],
-        vol_diag["vol_std"],
-        vol_diag["vol_norm_mean"],
-        vol_diag["vol_norm_max"],
-        vol_diag["vol_norm_clip_max"],
-    )
-
-    # Additional sanity check diagnostics proving alpha has an effect
-    logger.info(
-        "return_scaling diagnostics: alpha=%.4g returns_std=%.8g adjusted_returns_std=%.8g std_ratio=%.6g",
-        vol_diag["alpha"],
-        vol_diag["returns_std"],
-        vol_diag["adjusted_returns_std"],
-        vol_diag["returns_std_ratio"],
-    )
-
-    # Write config snapshot alongside the log file
-    if log_file is not None:
-        config_payload = {
-            "experiment_type": "abm_sweep_vol",
-            "cli_command": " ".join(sys.argv),
-            "dataset_path": str(dataset_path),
-            "dataset_version": args.version,
-            "dataset_variant": args.variant,
-            "pair": args.pair,
-            "steps": args.steps,
-            "seed": args.seed,
-            "seed_base": args.seed_base,
-            "momentum_window": args.momentum_window,
-            "trend_ratios": _TREND_RATIOS,
-            "persistence_weights": _PERSISTENCE_WEIGHTS,
-            "inertia_thresholds": _INERTIA_THRESHOLDS,
-            "volatility_scale": float(args.volatility_scale),
-            "vol_window": int(_VOL_WINDOW),
-            "vol_norm_clip_max": float(_VOL_NORM_CLIP_MAX),
-            "vol_mean": vol_diag["vol_mean"],
-            "vol_std": vol_diag["vol_std"],
-            "vol_norm_mean": vol_diag["vol_norm_mean"],
-            "vol_norm_max": vol_diag["vol_norm_max"],
-            "returns_std": vol_diag["returns_std"],
-            "adjusted_returns_std": vol_diag["adjusted_returns_std"],
-            "returns_std_ratio": vol_diag["returns_std_ratio"],
-        }
-        config_file = log_file.with_suffix(".json")
-        config_file.write_text(json.dumps(config_payload, indent=2))
-        logger.info("Config snapshot: %s", config_file)
-
-    log_dir = cfg.REPO_ROOT / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
-
-    bestpath_out_path = log_dir / f"abm_sweep_vol_bestpath_{pair}_{args.version}_{timestamp}.csv"
-
-    result_df = run_sweep_with_price_series(
-        df=df,
-        pair=args.pair,
-        n_steps=args.steps,
-        price_series_override=adjusted_price,
-        seed=args.seed,
-        momentum_window=args.momentum_window,
-        seed_base=args.seed_base,
-        bestpath_out_path=bestpath_out_path,
-    )
-
-    out_path = log_dir / f"abm_sweep_vol_{pair}_{args.version}_{timestamp}.csv"
-
-    result_df.to_csv(out_path, index=False)
-    logger.info("Sweep results saved: %s  rows=%d", out_path, len(result_df))
-
-    if not result_df.empty:
-        best = result_df.iloc[0]
-        logger.info(
-            "Best: trend_ratio=%.1f persistence=%.2f threshold=%.3f score=%.4f",
-            best["trend_ratio"],
-            best["persistence"],
-            best["threshold"],
-            best["score"],
+        adjusted_price, vol_diag = _volatility_adjust_price(
+            price=price, alpha=float(args.volatility_scale), window=_VOL_WINDOW
         )
+
+        # Required diagnostics (mean/std of rolling vol)
+        logger.info(
+            "rolling_vol diagnostics: window=%d vol_mean=%.8g vol_std=%.8g vol_norm_mean=%.6g vol_norm_max=%.6g clip_max=%.1f",
+            vol_diag["vol_window"],
+            vol_diag["vol_mean"],
+            vol_diag["vol_std"],
+            vol_diag["vol_norm_mean"],
+            vol_diag["vol_norm_max"],
+            vol_diag["vol_norm_clip_max"],
+        )
+
+        # Additional sanity check diagnostics proving alpha has an effect
+        logger.info(
+            "return_scaling diagnostics: alpha=%.4g returns_std=%.8g adjusted_returns_std=%.8g std_ratio=%.6g",
+            vol_diag["alpha"],
+            vol_diag["returns_std"],
+            vol_diag["adjusted_returns_std"],
+            vol_diag["returns_std_ratio"],
+        )
+
+        # Write config snapshot alongside the log file
+        if log_file is not None:
+            config_payload = {
+                "experiment_type": "abm_sweep_vol",
+                "cli_command": " ".join(sys.argv),
+                "dataset_path": str(dataset_path),
+                "dataset_version": args.version,
+                "dataset_variant": args.variant,
+                "pair": args.pair,
+                "steps": args.steps,
+                "seed": args.seed,
+                "seed_base": args.seed_base,
+                "momentum_window": args.momentum_window,
+                "trend_ratios": _TREND_RATIOS,
+                "persistence_weights": _PERSISTENCE_WEIGHTS,
+                "inertia_thresholds": _INERTIA_THRESHOLDS,
+                "volatility_scale": float(args.volatility_scale),
+                "vol_window": int(_VOL_WINDOW),
+                "vol_norm_clip_max": float(_VOL_NORM_CLIP_MAX),
+                "vol_mean": vol_diag["vol_mean"],
+                "vol_std": vol_diag["vol_std"],
+                "vol_norm_mean": vol_diag["vol_norm_mean"],
+                "vol_norm_max": vol_diag["vol_norm_max"],
+                "returns_std": vol_diag["returns_std"],
+                "adjusted_returns_std": vol_diag["adjusted_returns_std"],
+                "returns_std_ratio": vol_diag["returns_std_ratio"],
+                # Stage-2 decay params
+                "decay_base": float(args.decay_base),
+                "decay_volatility_scale": float(args.decay_volatility_scale),
+                "decay_clip_max": float(args.decay_clip_max),
+            }
+            config_file = log_file.with_suffix(".json")
+            config_file.write_text(json.dumps(config_payload, indent=2))
+            logger.info("Config snapshot: %s", config_file)
+
+        log_dir = cfg.REPO_ROOT / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+
+        bestpath_out_path = (
+            log_dir / f"abm_sweep_vol_bestpath_{pair}_{args.version}_{timestamp}.csv"
+        )
+
+        result_df = run_sweep_with_price_series(
+            df=df,
+            pair=args.pair,
+            n_steps=args.steps,
+            price_series_override=adjusted_price,
+            seed=args.seed,
+            momentum_window=args.momentum_window,
+            seed_base=args.seed_base,
+            bestpath_out_path=bestpath_out_path,
+        )
+
+        out_path = log_dir / f"abm_sweep_vol_{pair}_{args.version}_{timestamp}.csv"
+
+        result_df.to_csv(out_path, index=False)
+        logger.info("Sweep results saved: %s  rows=%d", out_path, len(result_df))
+
+        if not result_df.empty:
+            best = result_df.iloc[0]
+            logger.info(
+                "Best: trend_ratio=%.1f persistence=%.2f threshold=%.3f score=%.4f",
+                best["trend_ratio"],
+                best["persistence"],
+                best["threshold"],
+                best["score"],
+            )
+
+    finally:
+        # Restore agent decay module constants
+        agents_module._DECAY_BASE = orig_decay_base
+        agents_module._DECAY_VOLATILITY_SCALE = orig_decay_vol_scale
+        agents_module._DECAY_CLIP_MAX = orig_decay_clip_max
 
 
 if __name__ == "__main__":
