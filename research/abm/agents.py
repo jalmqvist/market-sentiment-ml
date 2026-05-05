@@ -8,6 +8,11 @@ _SIGNAL_AMPLIFICATION = 5.0
 _PERSISTENCE_WEIGHT = 0.1
 _INERTIA_THRESHOLD = 0.05
 
+# Stage-2 release mechanism (backward compatible defaults: 0.0)
+_DECAY_BASE = 0.0
+_DECAY_VOLATILITY_SCALE = 0.0
+_DECAY_CLIP_MAX = 0.2
+
 
 class RetailTrader:
     def __init__(
@@ -35,7 +40,20 @@ class RetailTrader:
     def _price_signal(self, price_history: np.ndarray) -> float:
         raise NotImplementedError
 
-    def update(self, price_history: np.ndarray, crowd_sentiment: float) -> None:
+    def update(
+        self,
+        price_history: np.ndarray,
+        crowd_sentiment: float,
+        volatility: float = 0.0,
+    ) -> None:
+        """Update agent position given price history, crowd sentiment, and volatility.
+
+        Args:
+            price_history: price history up to current timestep.
+            crowd_sentiment: aggregate crowd sentiment (normalised to [-1, 1]).
+            volatility: normalised realised volatility proxy for the current timestep.
+                Defaults to 0.0 for backward compatibility.
+        """
         if len(price_history) < 2:
             return
 
@@ -73,8 +91,18 @@ class RetailTrader:
                 self.position = -direction
             return
 
-        # Accumulation
+        # Accumulation (with volatility-conditioned decay / release)
         if np.sign(self.position) == direction:
+            # Decay reduces the magnitude of accumulated position before accumulating
+            lam = _DECAY_BASE + _DECAY_VOLATILITY_SCALE * float(volatility)
+            lam = float(np.clip(lam, 0.0, _DECAY_CLIP_MAX))
+
+            # Apply decay (release) to current accumulation state
+            if lam > 0.0 and self.position != 0:
+                decayed = (1.0 - lam) * float(self.position)
+                # Keep position as integer state: round toward zero
+                self.position = int(np.trunc(decayed))
+
             if abs(self.position) < 5:
                 self.position += direction
             return
