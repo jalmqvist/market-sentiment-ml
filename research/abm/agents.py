@@ -35,7 +35,8 @@ class RetailTrader:
         else:
             self.signal_sign = 1
 
-        self.position: int = int(rng.choice([-1, 0, 1]))
+        # Continuous accumulation state (float) to avoid quantization of decay
+        self.position: float = float(rng.choice([-1, 0, 1]))
 
     def _price_signal(self, price_history: np.ndarray) -> float:
         raise NotImplementedError
@@ -63,17 +64,17 @@ class RetailTrader:
 
         herd = self.crowd_weight * np.tanh(3 * crowd_sentiment)
         noise = self.rng.normal(0.0, self.noise_scale)
-        persistence = _PERSISTENCE_WEIGHT * self.position
+        persistence = _PERSISTENCE_WEIGHT * float(self.position)
 
         score = signal + herd + noise + persistence
 
         # --- asymmetric behavior ---
         if self.position != 0:
-            if np.sign(score) != self.position:
+            if np.sign(score) != np.sign(self.position):
                 if self.rng.random() < 0.7:
                     return
             else:
-                score += 3.0 * self.position
+                score += 3.0 * np.sign(self.position)
 
         _ANCHOR_STRENGTH = 2.0
         _SWITCH_BASE_PROB = 1.0
@@ -81,7 +82,7 @@ class RetailTrader:
         if abs(score) < _INERTIA_THRESHOLD:
             return
 
-        direction = 1 if score > 0 else -1
+        direction = 1.0 if score > 0 else -1.0
 
         # Entry
         if self.position == 0:
@@ -92,23 +93,21 @@ class RetailTrader:
             return
 
         # Accumulation (with volatility-conditioned decay / release)
-        if np.sign(self.position) == direction:
+        if np.sign(self.position) == np.sign(direction):
             # Decay reduces the magnitude of accumulated position before accumulating
             lam = _DECAY_BASE + _DECAY_VOLATILITY_SCALE * float(volatility)
             lam = float(np.clip(lam, 0.0, _DECAY_CLIP_MAX))
 
-            # Apply decay (release) to current accumulation state
+            # Apply decay (release) to current accumulation state (continuous)
             if lam > 0.0 and self.position != 0:
-                decayed = (1.0 - lam) * float(self.position)
-                # Keep position as integer state: round toward zero
-                self.position = int(np.trunc(decayed))
+                self.position = (1.0 - lam) * float(self.position)
 
             if abs(self.position) < 5:
-                self.position += direction
+                self.position = float(self.position) + direction
             return
 
         # Switching with anchoring
-        anchor_bias = _ANCHOR_STRENGTH * self.position
+        anchor_bias = _ANCHOR_STRENGTH * float(self.position)
         switch_score = score - anchor_bias
 
         switch_prob = 1.0 / (1.0 + np.exp(-switch_score))
