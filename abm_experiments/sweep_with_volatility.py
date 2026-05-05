@@ -35,6 +35,14 @@ Outputs:
 - log file + config snapshot JSON in logs/ (same schema as sweep.py, plus
   volatility_scale)
 - sweep CSV in logs/: abm_sweep_vol_{pair}_{version}_{timestamp}.csv
+
+Note:
+This experiment logs additional diagnostics to confirm that alpha is
+actually perturbing the environment:
+- std of original returns
+- std of adjusted returns
+- ratio adjusted/original
+- max(vol_norm)
 """
 
 from __future__ import annotations
@@ -88,7 +96,7 @@ def _volatility_adjust_price(
 
     Returns:
         adjusted_price: numpy array same length as price
-        diag: dict with mean/std of realized rolling vol, mean of vol_norm
+        diag: dict diagnostics, including mean/std of vol and return scaling
     """
     if price.ndim != 1:
         raise ValueError("price must be 1D")
@@ -132,12 +140,22 @@ def _volatility_adjust_price(
             f"Adjusted price[0] != original price[0] ({adjusted_price[0]} vs {price[0]})"
         )
 
+    # Additional diagnostics to verify alpha effect
+    returns_std = float(np.std(returns))
+    adjusted_returns_std = float(np.std(adjusted_returns))
+    std_ratio = (adjusted_returns_std / returns_std) if returns_std > 0 else float("nan")
+
     diag = {
         "vol_window": int(window),
         "vol_mean": vol_mean,
         "vol_std": vol_std,
         "vol_norm_mean": float(np.mean(vol_norm)),
+        "vol_norm_max": float(np.max(vol_norm)) if len(vol_norm) else 0.0,
         "vol_norm_clip_max": float(_VOL_NORM_CLIP_MAX),
+        "returns_std": returns_std,
+        "adjusted_returns_std": adjusted_returns_std,
+        "returns_std_ratio": float(std_ratio),
+        "alpha": float(alpha),
     }
     return adjusted_price, diag
 
@@ -351,13 +369,24 @@ def main(argv=None) -> None:
         price=price, alpha=float(args.volatility_scale), window=_VOL_WINDOW
     )
 
+    # Required diagnostics (mean/std of rolling vol)
     logger.info(
-        "rolling_vol diagnostics: window=%d vol_mean=%.8g vol_std=%.8g vol_norm_mean=%.6g clip_max=%.1f",
+        "rolling_vol diagnostics: window=%d vol_mean=%.8g vol_std=%.8g vol_norm_mean=%.6g vol_norm_max=%.6g clip_max=%.1f",
         vol_diag["vol_window"],
         vol_diag["vol_mean"],
         vol_diag["vol_std"],
         vol_diag["vol_norm_mean"],
+        vol_diag["vol_norm_max"],
         vol_diag["vol_norm_clip_max"],
+    )
+
+    # Additional sanity check diagnostics proving alpha has an effect
+    logger.info(
+        "return_scaling diagnostics: alpha=%.4g returns_std=%.8g adjusted_returns_std=%.8g std_ratio=%.6g",
+        vol_diag["alpha"],
+        vol_diag["returns_std"],
+        vol_diag["adjusted_returns_std"],
+        vol_diag["returns_std_ratio"],
     )
 
     # Write config snapshot alongside the log file
@@ -381,6 +410,11 @@ def main(argv=None) -> None:
             "vol_norm_clip_max": float(_VOL_NORM_CLIP_MAX),
             "vol_mean": vol_diag["vol_mean"],
             "vol_std": vol_diag["vol_std"],
+            "vol_norm_mean": vol_diag["vol_norm_mean"],
+            "vol_norm_max": vol_diag["vol_norm_max"],
+            "returns_std": vol_diag["returns_std"],
+            "adjusted_returns_std": vol_diag["adjusted_returns_std"],
+            "returns_std_ratio": vol_diag["returns_std_ratio"],
         }
         config_file = log_file.with_suffix(".json")
         config_file.write_text(json.dumps(config_payload, indent=2))
