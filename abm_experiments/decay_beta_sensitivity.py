@@ -27,16 +27,18 @@ Metrics
 
 Output
 ------
-Print a single table row to stdout:
+By default, print a single table row to stdout (backward compatible):
 
     beta | pct_saturated | sign_flips | autocorr
 
-Optionally include an RNG seed for robustness checks:
+If --verbose is passed, include identifying columns first:
 
-    beta | pct_saturated | sign_flips | autocorr
+    pair | seed | beta | pct_saturated | sign_flips | autocorr
 
-(Seed is not printed to keep the output format stable; pass --seed to
-control it. Default remains 42.)
+Notes
+-----
+- --seed is optional; default remains 42.
+- --verbose only changes the printed output (no files are written).
 """
 
 from __future__ import annotations
@@ -76,8 +78,12 @@ def _parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--pair", required=True, help="FX pair (e.g. 'eur-usd')")
     p.add_argument("--steps", type=int, default=2000)
     p.add_argument("--beta", type=float, required=True, help="decay_volatility_scale")
-    # Backward compatible: default seed remains 42
     p.add_argument("--seed", type=int, default=42, help="RNG seed")
+    p.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Include pair and seed columns in stdout output.",
+    )
     return p.parse_args(argv)
 
 
@@ -160,9 +166,14 @@ def main(argv=None) -> None:
 
         ac1 = _autocorr_lag1(s)
 
-        # Output (single row, stdout only)
-        # beta | pct_saturated | sign_flips | autocorr
-        print(f"{float(args.beta):.6g} | {pct_saturated:.6g} | {sign_flips:d} | {ac1:.6g}")
+        if args.verbose:
+            print(
+                f"{args.pair} | {seed:d} | {float(args.beta):.6g} | "
+                f"{pct_saturated:.6g} | {sign_flips:d} | {ac1:.6g}"
+            )
+        else:
+            # Backward compatible output format
+            print(f"{float(args.beta):.6g} | {pct_saturated:.6g} | {sign_flips:d} | {ac1:.6g}")
 
     finally:
         # Restore module constants
