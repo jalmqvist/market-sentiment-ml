@@ -31,9 +31,10 @@ By default, print a single table row to stdout (backward compatible):
 
     beta | pct_saturated | sign_flips | autocorr
 
-If --verbose is passed, include identifying columns first:
+If --verbose is passed, include identifying columns first plus basic
+summary statistics for net_sentiment:
 
-    pair | seed | beta | pct_saturated | sign_flips | autocorr
+    pair | seed | beta | pct_saturated | sign_flips | autocorr | mean | std | min | max
 
 Notes
 -----
@@ -82,7 +83,7 @@ def _parse_args(argv=None) -> argparse.Namespace:
     p.add_argument(
         "--verbose",
         action="store_true",
-        help="Include pair and seed columns in stdout output.",
+        help="Include pair/seed and sentiment summary stats in stdout output.",
     )
     return p.parse_args(argv)
 
@@ -167,13 +168,21 @@ def main(argv=None) -> None:
         ac1 = _autocorr_lag1(s)
 
         if args.verbose:
+            mean_s = float(np.mean(s)) if len(s) else float("nan")
+            std_s = float(np.std(s)) if len(s) else float("nan")
+            min_s = float(np.min(s)) if len(s) else float("nan")
+            max_s = float(np.max(s)) if len(s) else float("nan")
+
             print(
                 f"{args.pair} | {seed:d} | {float(args.beta):.6g} | "
-                f"{pct_saturated:.6g} | {sign_flips:d} | {ac1:.6g}"
+                f"{pct_saturated:.6g} | {sign_flips:d} | {ac1:.6g} | "
+                f"{mean_s:.6g} | {std_s:.6g} | {min_s:.6g} | {max_s:.6g}"
             )
         else:
             # Backward compatible output format
-            print(f"{float(args.beta):.6g} | {pct_saturated:.6g} | {sign_flips:d} | {ac1:.6g}")
+            print(
+                f"{float(args.beta):.6g} | {pct_saturated:.6g} | {sign_flips:d} | {ac1:.6g}"
+            )
 
     finally:
         # Restore module constants
