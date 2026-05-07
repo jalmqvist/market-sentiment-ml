@@ -70,6 +70,63 @@ A discrete sign label derived from `net_sentiment`:
 
 ---
 
+## `sentiment_change`
+
+Event-based change in sentiment between consecutive snapshots per pair:
+
+`sentiment_change(k) = net_sentiment(k) − net_sentiment(k−1)`
+
+Computed on the snapshot-event index (not on a forward-filled hourly grid) to
+avoid differencing artefacts.
+
+---
+
+## `sentiment_z`
+
+A rolling z-score normalization of sentiment.
+
+### A) Dataset column (`scripts/build_fx_sentiment_dataset.py`)
+
+The master dataset includes a `sentiment_z` column computed in
+`add_sentiment_v2_features()`.
+
+Definition (per pair, causal/backward-looking):
+
+- `sentiment = net_sentiment`
+- `roll_mean = rolling_mean(sentiment, window=100, min_periods=1)`
+- `roll_std  = rolling_std(sentiment,  window=100, min_periods=1)`
+- `sentiment_z = (sentiment - roll_mean) / (roll_std + 1e-8)`
+
+Notes:
+
+- this is computed per pair (`groupby("pair")`)
+- early rows are less stable because `min_periods=1`
+- downstream ML code may still standardize features again on the train split;
+  that does not change the definition of the dataset column.
+
+### B) Signal-discovery scripts (local feature engineering)
+
+Several signal discovery scripts compute a *local* `sentiment_z` internally as
+part of their own feature engineering (i.e. not necessarily identical to the
+dataset column definition).
+
+Examples include:
+
+- `research/signal_discovery/signal_v2.py`
+- `research/signal_discovery/regime_v14.py`
+- `research/signal_discovery/regime_v17.py`
+- `research/signal_discovery/regime_v18.py`
+- `research/signal_discovery/regime_v19.py`
+
+These variants typically use a rolling z-score with a **96-bar** window (per
+pair) on `net_sentiment`.
+
+**Rule:** unless a given experiment explicitly states otherwise, treat
+`sentiment_z` in signal-discovery scripts as an experiment-local feature, and
+`sentiment_z` in the dataset as the canonical, reusable column.
+
+---
+
 ## Notes on contracts across modules
 
 - The research dataset convention is that `net_sentiment ∈ [-100, +100]`.
