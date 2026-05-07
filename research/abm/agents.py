@@ -27,11 +27,13 @@ _DECAY_CLIP_MAX = 0.2
 # - ABM_ESCAPE_SHRINK_FACTOR
 # - ABM_ESCAPE_FLIP_PROB
 # - ABM_ESCAPE_ZERO_PROB
+# - ABM_ESCAPE_ZERO_COOLDOWN
 _ESCAPE_PROB_SAT = 0.0
 _ESCAPE_SAT_THRESHOLD = 0.7
 _ESCAPE_SHRINK_FACTOR = 0.5
 _ESCAPE_FLIP_PROB = 0.0
 _ESCAPE_ZERO_PROB = 0.0
+_ESCAPE_ZERO_COOLDOWN = 6
 
 if "ABM_ESCAPE_PROB_SAT" in os.environ:
     _ESCAPE_PROB_SAT = float(os.environ["ABM_ESCAPE_PROB_SAT"])
@@ -43,6 +45,8 @@ if "ABM_ESCAPE_FLIP_PROB" in os.environ:
     _ESCAPE_FLIP_PROB = float(os.environ["ABM_ESCAPE_FLIP_PROB"])
 if "ABM_ESCAPE_ZERO_PROB" in os.environ:
     _ESCAPE_ZERO_PROB = float(os.environ["ABM_ESCAPE_ZERO_PROB"])
+if "ABM_ESCAPE_ZERO_COOLDOWN" in os.environ:
+    _ESCAPE_ZERO_COOLDOWN = int(float(os.environ["ABM_ESCAPE_ZERO_COOLDOWN"]))
 
 
 class RetailTrader:
@@ -69,6 +73,10 @@ class RetailTrader:
         # Continuous accumulation state (float) to avoid quantization of decay
         self.position: float = float(rng.choice([-1, 0, 1]))
 
+        # Optional cooldown after forced neutralization escape, to keep the agent
+        # neutral for a few steps (prevents immediate re-entry).
+        self.escape_cooldown: int = 0
+
     def _price_signal(self, price_history: np.ndarray) -> float:
         raise NotImplementedError
 
@@ -81,6 +89,8 @@ class RetailTrader:
         - Primary: shrink the magnitude of accumulated position.
         - Optional: with small probability, flip sign to break sign-lock.
         - Optional: with small probability, reset to neutral (0) to reduce crowd lock-in.
+          If neutralization happens, an optional cooldown keeps the agent neutral for
+          a few steps.
 
         This is designed to be minimal and backward compatible:
         - off by default (probability 0.0)
@@ -102,6 +112,7 @@ class RetailTrader:
         # Optional neutralization (off by default)
         if _ESCAPE_ZERO_PROB > 0.0 and self.rng.random() < float(_ESCAPE_ZERO_PROB):
             self.position = 0.0
+            self.escape_cooldown = max(int(_ESCAPE_ZERO_COOLDOWN), 0)
             return
 
         # Optional sign de-alignment (off by default)
@@ -131,9 +142,20 @@ class RetailTrader:
         if len(price_history) < 2:
             return
 
+        # If recently neutralized, hold out of the market for a few steps.
+        if getattr(self, "escape_cooldown", 0) > 0:
+            self.escape_cooldown -= 1
+            return
+
         # Optional saturation-conditioned escape (Stage-3). Applied before the
         # main decision logic so it can prevent long-lived lock-in.
         self._maybe_escape_regime(crowd_sentiment)
+
+        # Neutralization sets position to 0.0 and sets cooldown, but since the
+        # cooldown check is at the start of update(), we also prevent immediate
+        # re-entry in the same step.
+        if self.position == 0.0 and getattr(self, "escape_cooldown", 0) > 0:
+            return
 
         raw_signal = self._price_signal(price_history)
         normalized_signal = self.signal_sign * raw_signal
