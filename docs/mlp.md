@@ -33,8 +33,8 @@ Features were derived from the master research dataset.
 | `abs_sentiment`      | Absolute value of `net_sentiment`                            |
 | `sentiment_change`   | First difference of `net_sentiment`                          |
 | `sentiment_z`        | Rolling z-score normalization of `net_sentiment`             |
-| `extreme_streak`     | Consecutive bars above extreme threshold (e.g. ±70)          |
-| `persistence_bucket` | Categorical persistence label (high / medium / low)          |
+| `extreme_streak_70`  | Consecutive snapshot events with `abs_sentiment >= 70`        |
+| `extreme_streak_80`  | Consecutive snapshot events with `abs_sentiment >= 80`        |
 
 ### Price Features
 
@@ -246,7 +246,7 @@ python research/deep_learning/train.py \
 ## Conclusion
 
 MLPs do not provide a strong or universal predictive model of retail FX
- sentiment.
+sentiment.
 
 However, later experiments showed that:
 
@@ -259,6 +259,6 @@ MLPs are therefore best viewed as:
 - exploratory mapping tools
 - baseline classifiers
 - diagnostic models for identifying potentially interesting regions of the
-   search space
+  search space
 
 rather than production-ready predictive systems.
