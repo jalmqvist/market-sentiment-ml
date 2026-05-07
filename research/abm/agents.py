@@ -13,6 +13,15 @@ _DECAY_BASE = 0.0
 _DECAY_VOLATILITY_SCALE = 0.0
 _DECAY_CLIP_MAX = 0.2
 
+# Stage-3 regime escape / de-alignment (backward compatible defaults: disabled)
+# These parameters implement a minimal "escape" mechanism to prevent long-lived
+# one-sided herd states. When the crowd is sufficiently one-sided (|crowd_sentiment|
+# above a threshold), agents have a small probability of partially de-aligning
+# (shrinking their accumulated position magnitude). Defaults keep this off.
+_ESCAPE_PROB_SAT = 0.0
+_ESCAPE_SAT_THRESHOLD = 0.7
+_ESCAPE_SHRINK_FACTOR = 0.5
+
 
 class RetailTrader:
     def __init__(
@@ -41,6 +50,27 @@ class RetailTrader:
     def _price_signal(self, price_history: np.ndarray) -> float:
         raise NotImplementedError
 
+    def _maybe_escape_regime(self, crowd_sentiment: float) -> None:
+        """Optional regime escape / de-alignment mechanism.
+
+        Trigger: only when the crowd is sufficiently one-sided.
+        Action: shrink the magnitude of accumulated position.
+
+        This is designed to be minimal and backward compatible:
+        - off by default (probability 0.0)
+        - only depends on crowd_sentiment (already passed into update)
+        - does not change the sign directly
+        """
+        if _ESCAPE_PROB_SAT <= 0.0:
+            return
+        if abs(float(crowd_sentiment)) <= float(_ESCAPE_SAT_THRESHOLD):
+            return
+        if self.position == 0.0:
+            return
+        if self.rng.random() < float(_ESCAPE_PROB_SAT):
+            # Partial de-alignment: reduce magnitude but keep sign.
+            self.position = float(self.position) * float(_ESCAPE_SHRINK_FACTOR)
+
     def update(
         self,
         price_history: np.ndarray,
@@ -57,6 +87,10 @@ class RetailTrader:
         """
         if len(price_history) < 2:
             return
+
+        # Optional saturation-conditioned escape (Stage-3). Applied before the
+        # main decision logic so it can prevent long-lived lock-in.
+        self._maybe_escape_regime(crowd_sentiment)
 
         raw_signal = self._price_signal(price_history)
         normalized_signal = self.signal_sign * raw_signal
