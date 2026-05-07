@@ -34,7 +34,7 @@ By default, print a single table row to stdout (backward compatible):
 If --verbose is passed, include identifying columns first plus basic
 summary statistics for net_sentiment:
 
-    pair | seed | beta | pct_saturated | sign_flips | autocorr | mean | std | min | max | mean_abs_pos | max_abs_pos | frac_pos_near_zero
+    pair | seed | beta | pct_saturated | sign_flips | autocorr | mean | std | min | max | pct_time_abs_le_20 | pct_time_negative | mean_abs_pos | max_abs_pos | frac_pos_near_zero
 
 Notes
 -----
@@ -167,6 +167,12 @@ def main(argv=None) -> None:
 
         ac1 = _autocorr_lag1(s)
 
+        # Additional diagnostics for "escape" behavior under sign-vote aggregation.
+        # These capture whether the system approaches the regime boundary even if it
+        # does not cross net_sentiment==0.
+        pct_time_abs_le_20 = float((np.abs(s) <= 20.0).mean())
+        pct_time_negative = float((s < 0.0).mean())
+
         # Internal-state diagnostics (to detect effects of magnitude-only mechanisms
         # like saturation-conditioned escape and decay, even when output net_sentiment
         # is based on sign votes).
@@ -190,6 +196,7 @@ def main(argv=None) -> None:
                 f"{args.pair} | {seed:d} | {float(args.beta):.6g} | "
                 f"{pct_saturated:.6g} | {sign_flips:d} | {ac1:.6g} | "
                 f"{mean_s:.6g} | {std_s:.6g} | {min_s:.6g} | {max_s:.6g} | "
+                f"{pct_time_abs_le_20:.6g} | {pct_time_negative:.6g} | "
                 f"{mean_abs_pos:.6g} | {max_abs_pos:.6g} | {frac_pos_near_zero:.6g}"
             )
         else:
