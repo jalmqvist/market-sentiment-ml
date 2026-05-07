@@ -50,6 +50,12 @@ logger = logging.getLogger(__name__)
 # Volatility proxy parameters (used to compute per-timestep vol_norm)
 _VOL_WINDOW = 24
 
+# When agent accumulation state is continuous (float), treat near-zero positions
+# as neutral when aggregating to dataset-scale net_sentiment.
+# This preserves the dataset semantics: net_sentiment is the net fraction long
+# minus fraction short, scaled to [-100, +100].
+_AGGREGATION_EPS = 1e-6
+
 
 class FXSentimentSimulation:
     """Agent-based simulation of retail FX crowd sentiment.
@@ -171,6 +177,10 @@ class FXSentimentSimulation:
                     "net_sentiment": net_sent,
                     "abs_sentiment": abs(net_sent),
                     "crowd_side": int(np.sign(net_sent)),
+                    # NOTE: counts below are currently based on exact equality
+                    # against {+1, 0, -1}. With continuous positions, these are
+                    # not meaningful and are preserved only for backward
+                    # compatibility in the output schema.
                     "n_long": sum(a.position == 1 for a in self._agents),
                     "n_short": sum(a.position == -1 for a in self._agents),
                     "n_flat": sum(a.position == 0 for a in self._agents),
@@ -201,7 +211,14 @@ class FXSentimentSimulation:
         """
         positions = np.array([a.position for a in self._agents], dtype=np.float64)
         n = len(positions)
-        net_fraction = positions.sum() / n  # in [-1, 1]
+
+        # Preserve dataset semantics even with continuous internal accumulation
+        # state: each agent contributes a bounded vote in {-1, 0, +1}.
+        votes = np.zeros_like(positions)
+        votes[positions > _AGGREGATION_EPS] = 1.0
+        votes[positions < -_AGGREGATION_EPS] = -1.0
+
+        net_fraction = votes.sum() / n  # in [-1, 1]
         if normalised:
             return float(net_fraction)
         return float(net_fraction * 100.0)
