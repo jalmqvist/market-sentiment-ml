@@ -6,8 +6,8 @@ A quantitative research project studying whether retail FX sentiment contains pr
 
 ## Executive Summary
 
-**Current status: no standalone or additive alpha.  
-However, a weak, regime-dependent predictive signal exists.**
+**Current status: no standalone or additive alpha.**  
+**However, a weak, regime-dependent predictive signal exists.**
 
 Extensive experimentation with strict validation leads to the following:
 
@@ -38,12 +38,12 @@ Observed performance:
 
 ### Regime hierarchy (empirical)
 
-| Regime                | Signal strength                                              |
-| --------------------- | ------------------------------------------------------------ |
-| LVTF (low-vol trend)  | ✅ strongest, stable                                          |
-| HVR (high-vol range)  | ⚠ moderate> **Volatility/stability is the missing gating variable** |
-| LVR (low-vol range)   | ## Deep Learning Results⚠ unstable / sparse                  |
-| HVTF (high-vol trend) | ### MLP (static + lagged features)❌ weak / near-random       |
+| Regime | Signal strength |
+| --- | --- |
+| LVTF (low-vol trend) | ✅ strongest, stable |
+| HVR (high-vol range) | ⚠ moderate — **volatility/stability is the missing gating variable** |
+| LVR (low-vol range) | ⚠ unstable / sparse |
+| HVTF (high-vol trend) | ❌ weak / near-random |
 
 ---
 
@@ -124,10 +124,63 @@ trend → accumulation → signal
 
 Updated:
 
-trend + stability → accumulation → signal
+trend + stability → accumulation → signal  
 trend + high volatility → breakdown
 
 > **Volatility/stability is the missing gating variable**
+
+---
+
+## Current ABM State (Stage‑2 “Decay/Release”)
+
+The ABM now includes an **optional, volatility-conditioned decay/release mechanism** (defaults OFF) to prevent absorbing saturation states and to model “escape” behavior under volatility.
+
+Recent work added a **Stage‑2 beta sensitivity harness**:
+
+- `abm_experiments/decay_beta_sensitivity.py`
+
+It reports:
+
+- `pct_time_saturated` (|net_sentiment| ≥ 90)
+- `sign_flips`
+- `autocorr_lag1`
+- plus verbose-only diagnostics for “near-boundary” behavior:
+  - `pct_time_abs_le_20` (|net_sentiment| ≤ 20)
+  - `pct_time_negative`
+
+This supports explaining why DL can show regime-conditional behavior even when ABM outputs remain sign-stable.
+
+---
+
+## What’s Next (Clear Strategy)
+
+The project is shifting from **parameter sweeps** to **mechanism matching**: aligning ABM dynamics with the *stylized behaviors* implied by DL results.
+
+### 1) Make ABM↔DL comparisons metric-aligned
+
+Add/compute comparable “distance-to-boundary” and regime-transition metrics for both ABM and DL outputs:
+
+- time near boundary (already: `pct_time_abs_le_20`)
+- run-length / dwell-time in regimes (e.g., time between transitions)
+- saturation frequency vs regime
+
+### 2) Target the structural knobs (not more escape tuning)
+
+Use a small, controlled factorial design on a few representative pairs:
+
+- **USD-JPY** (positive-locking)
+- **EUR-JPY** (near-boundary)
+- **GBP-JPY** (often negative)
+
+Vary only a few core parameters at a time:
+
+- `trend_ratio` (introduce more contrarians)
+- herding/crowd weight (reduce lock-in)
+- aggregation (consider magnitude-weighted voting vs pure sign voting)
+
+### 3) Explain pair differences as regimes, not errors
+
+Some pairs (e.g. GBP-JPY) naturally live in negative regimes for long stretches. Treat `pct_time_negative` as a **diagnostic** (what regime is the market in?) rather than a universal failure condition.
 
 ---
 
@@ -149,14 +202,14 @@ trend + high volatility → breakdown
 
 ## Core Findings
 
-| Component          | Status              |
-| ------------------ | ------------------- |
-| Raw sentiment      | ❌ noise             |
-| Additive sentiment | ❌ no value          |
-| Price signal       | ✅ stable            |
-| DL signal          | ⚠ weak, conditional |
-| Regime dependence  | ✅ strong            |
-| Pair dependence    | ⚠ secondary         |
+| Component | Status |
+| --- | --- |
+| Raw sentiment | ❌ noise |
+| Additive sentiment | ❌ no value |
+| Price signal | ✅ stable |
+| DL signal | ⚠ weak, conditional |
+| Regime dependence | ✅ strong |
+| Pair dependence | ⚠ secondary |
 
 ---
 
@@ -194,18 +247,8 @@ to:
 
 ---
 
-## Conclusion
-
-> Retail sentiment does not provide global predictive signal.
-
-However:
-
-> A **weak, regime-dependent signal exists**,  
-> revealing structural constraints on market behavior.
-
----
-
 ## Further Reading
 
-- `RESEARCH_STATE.md`
+- `docs/ABM_RUNBOOK.md`
 - `docs/RESEARCH_STRATEGY.md`
+- `docs/abm.md`
