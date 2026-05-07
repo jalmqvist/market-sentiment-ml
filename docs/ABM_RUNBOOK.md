@@ -353,6 +353,33 @@ Introduce a minimal **decay (release)** mechanism that affects accumulated senti
 - No refactors / no new modules
 - Do not modify `research/abm/sweep.py`
 
+## Structural vs diagnostic knobs (important)
+
+Stage‑2 introduced two categories of parameters that should not be mixed conceptually:
+
+### Structural knobs (mechanism)
+
+These change the **actual simulated behavior** of agents and therefore change the hypotheses the ABM is representing.
+
+- Agent composition (trend / contrarian / noise counts)
+- Trend/contrarian balance (`trend_ratio`)
+- Persistence weight
+- Inertia threshold
+- Herding/crowd effect weight
+- Volatility-conditioned decay/release (`decay_base`, `decay_volatility_scale`, `decay_clip_max`)
+
+**Rule:** Treat these as model parameters. Tune them only in small, controlled factorial experiments, and record changes in the experiment diary.
+
+### Diagnostic knobs (measurement)
+
+These are used to **probe** whether the model is stuck in absorbing states and whether it spends time near the decision boundary.
+
+They do not define the core ABM mechanism; they define *how we measure or perturb escape behavior* during sensitivity analysis.
+
+- `ABM_ESCAPE_*` environment variables used by the sensitivity harness
+
+**Rule:** Use these to generate interpretable diagnostics (e.g. `pct_time_abs_le_20`) and to establish reproducible checkpoints, not as the main axis of model improvement.
+
 ## Implementation (current)
 
 ### Agent-side decay (accumulation release)
@@ -378,7 +405,7 @@ Stage‑2 sensitivity work uses:
 
 - `abm_experiments/decay_beta_sensitivity.py`
 
-Verbose diagnostics now include near-boundary metrics:
+Verbose diagnostics include near-boundary metrics:
 
 - `pct_time_abs_le_20` — fraction of steps with `|net_sentiment| ≤ 20`
 - `pct_time_negative` — fraction of steps with `net_sentiment < 0`
