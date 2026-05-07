@@ -34,7 +34,7 @@ By default, print a single table row to stdout (backward compatible):
 If --verbose is passed, include identifying columns first plus basic
 summary statistics for net_sentiment:
 
-    pair | seed | beta | pct_saturated | sign_flips | autocorr | mean | std | min | max
+    pair | seed | beta | pct_saturated | sign_flips | autocorr | mean | std | min | max | mean_abs_pos | max_abs_pos | frac_pos_near_zero
 
 Notes
 -----
@@ -167,6 +167,19 @@ def main(argv=None) -> None:
 
         ac1 = _autocorr_lag1(s)
 
+        # Internal-state diagnostics (to detect effects of magnitude-only mechanisms
+        # like saturation-conditioned escape and decay, even when output net_sentiment
+        # is based on sign votes).
+        positions = np.array([a.position for a in agents], dtype=float)
+        if len(positions):
+            mean_abs_pos = float(np.mean(np.abs(positions)))
+            max_abs_pos = float(np.max(np.abs(positions)))
+            frac_pos_near_zero = float((np.abs(positions) <= 1e-6).mean())
+        else:
+            mean_abs_pos = float("nan")
+            max_abs_pos = float("nan")
+            frac_pos_near_zero = float("nan")
+
         if args.verbose:
             mean_s = float(np.mean(s)) if len(s) else float("nan")
             std_s = float(np.std(s)) if len(s) else float("nan")
@@ -176,7 +189,8 @@ def main(argv=None) -> None:
             print(
                 f"{args.pair} | {seed:d} | {float(args.beta):.6g} | "
                 f"{pct_saturated:.6g} | {sign_flips:d} | {ac1:.6g} | "
-                f"{mean_s:.6g} | {std_s:.6g} | {min_s:.6g} | {max_s:.6g}"
+                f"{mean_s:.6g} | {std_s:.6g} | {min_s:.6g} | {max_s:.6g} | "
+                f"{mean_abs_pos:.6g} | {max_abs_pos:.6g} | {frac_pos_near_zero:.6g}"
             )
         else:
             # Backward compatible output format
