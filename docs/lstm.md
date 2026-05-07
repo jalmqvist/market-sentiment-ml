@@ -51,12 +51,14 @@ Sequences were constructed using overlapping rolling windows.
 
 ### Sentiment Features
 
-| Feature            | Description                                                  |
-| ------------------ | ------------------------------------------------------------ |
-| `net_sentiment`    | Signed dominant-side retail positioning: `+perc` if crowd is net long, `-perc` if crowd is net short. Intended range approximately `[-100, +100]`. |
-| `abs_sentiment`    | Absolute value of `net_sentiment`                            |
-| `sentiment_change` | First difference of `net_sentiment`                          |
-| `sentiment_z`      | Rolling z-score normalization of sentiment                   |
+| Feature              | Description                                                  |
+| -------------------- | ------------------------------------------------------------ |
+| `net_sentiment`      | Signed dominant-side retail positioning: `+perc` if crowd is net long, `-perc` if crowd is net short. Intended range approximately `[-100, +100]`. |
+| `abs_sentiment`      | Absolute value of `net_sentiment`                            |
+| `sentiment_change`   | First difference of `net_sentiment`                          |
+| `sentiment_z`        | Rolling z-score normalization of sentiment                   |
+| `extreme_streak_70`  | Consecutive snapshot events with `abs_sentiment >= 70`        |
+| `extreme_streak_80`  | Consecutive snapshot events with `abs_sentiment >= 80`        |
 
 ### Price Features
 
@@ -273,7 +275,7 @@ python research/deep_learning/train_lstm.py \
 ## Conclusion
 
 LSTM models revealed weak but meaningful temporal structure in retail FX
- sentiment data.
+sentiment data.
 
 The signal is:
 
