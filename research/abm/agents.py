@@ -96,7 +96,9 @@ class RetailTrader:
 
         # Optional sign de-alignment (off by default)
         if _ESCAPE_FLIP_PROB > 0.0 and self.rng.random() < float(_ESCAPE_FLIP_PROB):
-            self.position = -float(self.position)
+            # Flip-to-unit: clamp magnitude to 1 on flip to avoid immediate snap-back
+            # from large persistence/anchoring forces.
+            self.position = -1.0 * float(np.sign(self.position))
             return
 
         # Partial de-alignment: reduce magnitude but keep sign.
