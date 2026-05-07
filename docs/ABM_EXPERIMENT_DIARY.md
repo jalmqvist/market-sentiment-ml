@@ -162,3 +162,85 @@ This confirms JPY pairs are not merely “always above 90”; they can run far o
    - persistence coupling `_PERSISTENCE_WEIGHT`
 
 The next investigation should be phrased as “which existing term causes sign-lock under JPY dynamics?” rather than adding new mechanisms.
+
+---
+
+# Appendix A — Review of prior ABM post-mortem (external LLM write-up)
+
+This appendix reviews the document:
+
+- `abm_pipeline_postmortem_and_lessons_learned.md`
+
+It was produced by a previous LLM instance and should be interpreted as a *hypothesis / narrative* rather than a verified record of repository state at the time. In particular, some parameter names and constant values in the document may not correspond to the current codebase (or to any historical commit that exists in this repository).
+
+## A.1 What appears confirmed by current repo experiments (high confidence)
+
+### A.1.1 There are two intertwined classes of problems: model dynamics and pipeline contracts
+
+The post-mortem claims that debugging became chaotic largely due to missing or implicit “contracts” between modules (simulation/agents/calibration/sweep).
+
+**Confirmed by current work:**
+
+- The Stage‑2 decay sensitivity work showed that a minimal internal change (integer→float accumulation state to remove decay quantization) can unintentionally change the *semantic meaning* and *scale* of `net_sentiment`.
+- Downstream diagnostics (e.g., `abs(net_sentiment) >= 90`) implicitly assume the dataset convention `net_sentiment ∈ [-100, +100]`.
+
+As a result, “interface drift” can happen even without function signature changes: **semantic drift** is enough.
+
+### A.1.2 Stabilization must be balanced with controlled endogenous amplification
+
+The post-mortem’s central modeling claim is that the ABM needs both:
+
+- stabilization (avoid runaway positive feedback / absorbing herding), and
+- controlled endogenous amplification (avoid over-damping into near-white-noise).
+
+**Consistent with current observations:**
+
+- With decay disabled (β=0), the ABM can be extremely persistent (lag‑1 autocorrelation near 1).
+- Enabling decay reduces persistence (autocorr decreases), but does not automatically produce realistic “escape” behavior (especially in sign-locked regimes).
+
+### A.1.3 “Silent interface drift” is a realistic failure mode in research repos
+
+The post-mortem’s recommendation to add:
+
+- explicit schemas
+- validation boundaries
+- integration tests
+
+is directionally correct for this repository, which contains multiple experiment styles and outputs.
+
+## A.2 Plausible but unverified claims (needs repo history validation)
+
+The post-mortem includes specific claims like:
+
+- `_VOL_FEEDBACK_SCALE: 100.0 -> 0.3`
+- `_FLIP_PROB = 0.02`
+- `_MEAN_REVERSION_STRENGTH = 0.02`
+- `crowd_influence = tanh(...)`
+
+These may be good modeling ideas and may have existed in earlier iterations or experiment branches, but **they should not be treated as fact** until verified against actual commits and file paths.
+
+Recommendation: if we want to use these ideas, we should implement them deliberately and document them as new changes, rather than assuming they are already present or were proven previously.
+
+## A.3 New insight uncovered in current Stage‑2 work (not captured in the post-mortem)
+
+The post-mortem frequently frames “saturation” as being near ±100 (dataset convention). Current Stage‑2 sensitivity experiments uncovered a critical semantic issue:
+
+- When `RetailTrader.position` is made continuous (float) and aggregation uses raw position values, the simulation output `net_sentiment` can exceed `[-100, +100]` by a large margin.
+
+This causes several downstream issues:
+
+- `pct_time_saturated` using the threshold 90 becomes almost always 1.0 and loses interpretive value.
+- `sign_flips` can become 0 simply because the system is far from crossing 0, not because the dynamics are necessarily “absorbing at ±100”.
+
+Example (USD-JPY, seed 1):
+
+- β=0.03: mean ~365.9, min ~313.7, max ~403.7
+- β=0.04: mean ~443.7, min ~377.3, max ~480.3
+
+This points to a near-term priority: **restore/define `net_sentiment` semantics** (see “Scaling” in the current state section) before drawing strong conclusions from saturation metrics.
+
+## A.4 Recommended use of the post-mortem going forward
+
+- Treat it as a source of **candidate mechanisms** and **architecture guardrails**.
+- Prefer hard evidence from reproducible runs + committed code when making decisions.
+- When adopting any mechanism suggested in the post-mortem, introduce it as a single-purpose change with explicit tests/diagnostics and diary entries.
