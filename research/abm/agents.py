@@ -25,9 +25,11 @@ _DECAY_CLIP_MAX = 0.2
 # - ABM_ESCAPE_PROB_SAT
 # - ABM_ESCAPE_SAT_THRESHOLD
 # - ABM_ESCAPE_SHRINK_FACTOR
+# - ABM_ESCAPE_FLIP_PROB
 _ESCAPE_PROB_SAT = 0.0
 _ESCAPE_SAT_THRESHOLD = 0.7
 _ESCAPE_SHRINK_FACTOR = 0.5
+_ESCAPE_FLIP_PROB = 0.0
 
 if "ABM_ESCAPE_PROB_SAT" in os.environ:
     _ESCAPE_PROB_SAT = float(os.environ["ABM_ESCAPE_PROB_SAT"])
@@ -35,6 +37,8 @@ if "ABM_ESCAPE_SAT_THRESHOLD" in os.environ:
     _ESCAPE_SAT_THRESHOLD = float(os.environ["ABM_ESCAPE_SAT_THRESHOLD"])
 if "ABM_ESCAPE_SHRINK_FACTOR" in os.environ:
     _ESCAPE_SHRINK_FACTOR = float(os.environ["ABM_ESCAPE_SHRINK_FACTOR"])
+if "ABM_ESCAPE_FLIP_PROB" in os.environ:
+    _ESCAPE_FLIP_PROB = float(os.environ["ABM_ESCAPE_FLIP_PROB"])
 
 
 class RetailTrader:
@@ -68,12 +72,15 @@ class RetailTrader:
         """Optional regime escape / de-alignment mechanism.
 
         Trigger: only when the crowd is sufficiently one-sided.
-        Action: shrink the magnitude of accumulated position.
+
+        Action (minimal, configurable):
+        - Primary: shrink the magnitude of accumulated position.
+        - Optional: with small probability, flip sign to break sign-lock.
 
         This is designed to be minimal and backward compatible:
         - off by default (probability 0.0)
         - only depends on crowd_sentiment (already passed into update)
-        - does not change the sign directly
+        - does not require refactors or pipeline changes
 
         Note: parameters can be overridden via environment variables.
         """
@@ -83,9 +90,17 @@ class RetailTrader:
             return
         if self.position == 0.0:
             return
-        if self.rng.random() < float(_ESCAPE_PROB_SAT):
-            # Partial de-alignment: reduce magnitude but keep sign.
-            self.position = float(self.position) * float(_ESCAPE_SHRINK_FACTOR)
+
+        if self.rng.random() >= float(_ESCAPE_PROB_SAT):
+            return
+
+        # Optional sign de-alignment (off by default)
+        if _ESCAPE_FLIP_PROB > 0.0 and self.rng.random() < float(_ESCAPE_FLIP_PROB):
+            self.position = -float(self.position)
+            return
+
+        # Partial de-alignment: reduce magnitude but keep sign.
+        self.position = float(self.position) * float(_ESCAPE_SHRINK_FACTOR)
 
     def update(
         self,
