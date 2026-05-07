@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import numpy as np
 
 
@@ -18,9 +20,21 @@ _DECAY_CLIP_MAX = 0.2
 # one-sided herd states. When the crowd is sufficiently one-sided (|crowd_sentiment|
 # above a threshold), agents have a small probability of partially de-aligning
 # (shrinking their accumulated position magnitude). Defaults keep this off.
+#
+# For experiment convenience, these can be overridden via environment variables:
+# - ABM_ESCAPE_PROB_SAT
+# - ABM_ESCAPE_SAT_THRESHOLD
+# - ABM_ESCAPE_SHRINK_FACTOR
 _ESCAPE_PROB_SAT = 0.0
 _ESCAPE_SAT_THRESHOLD = 0.7
 _ESCAPE_SHRINK_FACTOR = 0.5
+
+if "ABM_ESCAPE_PROB_SAT" in os.environ:
+    _ESCAPE_PROB_SAT = float(os.environ["ABM_ESCAPE_PROB_SAT"])
+if "ABM_ESCAPE_SAT_THRESHOLD" in os.environ:
+    _ESCAPE_SAT_THRESHOLD = float(os.environ["ABM_ESCAPE_SAT_THRESHOLD"])
+if "ABM_ESCAPE_SHRINK_FACTOR" in os.environ:
+    _ESCAPE_SHRINK_FACTOR = float(os.environ["ABM_ESCAPE_SHRINK_FACTOR"])
 
 
 class RetailTrader:
@@ -60,6 +74,8 @@ class RetailTrader:
         - off by default (probability 0.0)
         - only depends on crowd_sentiment (already passed into update)
         - does not change the sign directly
+
+        Note: parameters can be overridden via environment variables.
         """
         if _ESCAPE_PROB_SAT <= 0.0:
             return
