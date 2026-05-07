@@ -12,27 +12,21 @@ The goal is to make feature meaning explicit so that model changes do not silent
 
 ## `net_sentiment`
 
-**Definition:** signed retail crowd positioning imbalance.
+**Definition:** signed retail crowd positioning (dominant-side percent with sign).
 
 For a given `(pair, snapshot_time)` sentiment snapshot, the raw source contains:
 
 - `perc` — percentage on one side
 - `direction ∈ {long, short}` — which side that percentage refers to
 
-The dataset computes:
-
-```text
-net_sentiment = pct_long - pct_short
-```
-
-Since the raw snapshot provides only the dominant side percentage, the implementation is:
+**Canonical assembly (as implemented):**
 
 ```text
 if direction == "long":  net_sentiment =  +perc
 if direction == "short": net_sentiment =  -perc
 ```
 
-**Range:** `[-100, +100]`
+**Range:** approximately `[-100, +100]`
 
 | Value | Interpretation |
 |---:|---|
