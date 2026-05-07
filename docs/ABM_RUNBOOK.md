@@ -334,7 +334,7 @@ logs/
 
 ## Stage-1 finding (summary)
 
-Environment-only volatility perturbation changes how quickly the model saturates, but does **not** reliably produce a “release” mechanism. In particular, sign flips can remain at/near zero an[...]
+Environment-only volatility perturbation changes how quickly the model saturates, but does **not** reliably produce a “release” mechanism. In particular, sign flips can remain at/near zero.
 
 This motivates Stage 2.
 
@@ -344,7 +344,7 @@ This motivates Stage 2.
 
 ## Goal
 
-Introduce a minimal **decay (release)** mechanism that affects accumulated sentiment state (agent accumulation), not the external signal. This is required to prevent absorbing states and to allow[...]
+Introduce a minimal **decay (release)** mechanism that affects accumulated sentiment state (agent accumulation), not the external signal.
 
 ## Design constraints
 
@@ -372,17 +372,33 @@ Defaults preserve baseline behavior:
 - `decay_volatility_scale = 0.0`
 - `decay_clip_max = 0.2`
 
-#### Important note on sensitivity experiments (β)
+#### Sensitivity harness + diagnostics
 
-A separate sensitivity harness and an experiment diary exist to document the Stage‑2 investigation:
+Stage‑2 sensitivity work uses:
 
-- Sensitivity harness: `abm_experiments/decay_beta_sensitivity.py`
-- Experiment diary: [`docs/ABM_EXPERIMENT_DIARY.md`](ABM_EXPERIMENT_DIARY.md)
+- `abm_experiments/decay_beta_sensitivity.py`
 
-The Stage‑2 sensitivity work uncovered two interpretation pitfalls:
+Verbose diagnostics now include near-boundary metrics:
 
-1. **Quantization:** if the agent accumulation state is stored as an integer and decay uses truncation, β can behave like an on/off switch rather than a continuous control parameter.
-2. **Scale drift:** if the agent accumulation state becomes continuous (float) and aggregation uses raw positions, the simulation output `net_sentiment` can exceed the dataset convention `[-100, +100]`. In that case, thresholds such as `abs(net_sentiment) >= 90` no longer represent “near-extreme positioning” and should be re-evaluated, or aggregation should be changed to preserve dataset semantics.
+- `pct_time_abs_le_20` — fraction of steps with `|net_sentiment| ≤ 20`
+- `pct_time_negative` — fraction of steps with `net_sentiment < 0`
+
+These were added because sign flips can remain rare even when “release” is working.
+
+#### Escape defaults (reference)
+
+During sensitivity testing, a reproducible reference configuration for “escape” behavior on key JPY crosses was:
+
+```bash
+export ABM_ESCAPE_SAT_THRESHOLD=0.3
+export ABM_ESCAPE_PROB_SAT=0.08
+export ABM_ESCAPE_SHRINK_FACTOR=0.5
+export ABM_ESCAPE_ZERO_PROB=0.03
+export ABM_ESCAPE_ZERO_COOLDOWN=6
+export ABM_ESCAPE_FLIP_PROB=0.0
+```
+
+This is not intended as a universal constraint across all pairs, but as a checkpoint configuration that increases time near the boundary while maintaining high persistence.
 
 ### Simulation-side volatility proxy
 
@@ -469,7 +485,7 @@ Interpretation: decay introduces a release mechanism and reduces absorbing satur
 ✔ Baseline reproduced and stable  
 ✔ Stage 1 environment-volatility experiment implemented  
 ✔ Stage 2 decay/release mechanism implemented (defaults off)  
-✔ Controlled activation shows reduced saturation and nonzero sign flips at 2000 steps  
+✔ Controlled activation shows reduced saturation and nonzero sign flips at 2000 steps
 
 ------
 
