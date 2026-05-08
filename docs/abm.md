@@ -159,8 +159,12 @@ Columns:
 |---|---|
 | `timestamp` | Bar timestamp from real dataset |
 | `price` | Real entry close price |
-| `net_sentiment` | Simulated net retail positioning (–100 to +100) |
+| `net_sentiment` | Simulated net retail positioning `(fraction_long - fraction_short) * 100`, bounded to `[-100, +100]` |
 | `real_net_sentiment` | Actual net retail positioning from dataset |
+
+Aggregation note: internal continuous agent positions are mapped to long/short/neutral
+votes using `_AGGREGATION_EPS` as the threshold before output, so ABM sentiment columns follow dataset
+sign/scale semantics (`abs_sentiment = abs(net_sentiment)`, `crowd_side = sign(net_sentiment)`).
 
 ---
 
