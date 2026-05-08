@@ -163,7 +163,7 @@ Columns:
 | `real_net_sentiment` | Actual net retail positioning from dataset |
 
 Aggregation note: internal continuous agent positions are mapped to long/short/neutral
-votes with `_AGGREGATION_EPS` before output, so ABM sentiment columns follow dataset
+votes using `_AGGREGATION_EPS` as the threshold before output, so ABM sentiment columns follow dataset
 sign/scale semantics (`abs_sentiment = abs(net_sentiment)`, `crowd_side = sign(net_sentiment)`).
 
 ---
