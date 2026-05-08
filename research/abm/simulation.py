@@ -219,6 +219,18 @@ class FXSentimentSimulation:
         votes[positions < -_AGGREGATION_EPS] = -1.0
 
         net_fraction = votes.sum() / n  # in [-1, 1]
-        if normalised:
-            return float(net_fraction)
-        return float(net_fraction * 100.0)
+        out = float(net_fraction if normalised else net_fraction * 100.0)
+        lo, hi = (-1.0, 1.0) if normalised else (-100.0, 100.0)
+
+        if out < lo or out > hi:
+            clamped = float(np.clip(out, lo, hi))
+            logger.debug(
+                "Clamped aggregate sentiment from %.8f to %.8f (bounds=[%.1f, %.1f])",
+                out,
+                clamped,
+                lo,
+                hi,
+            )
+            return clamped
+
+        return out

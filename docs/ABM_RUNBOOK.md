@@ -150,6 +150,8 @@ From `research/abm/simulation.py`:
 - Sentiment computed as:
   - normalized `[-1, 1]` for internal crowd signal
   - scaled `[-100, 100]` for output
+  - output contract: continuous agent positions are mapped to votes in `{-1, 0, +1}` using `_AGGREGATION_EPS`, then aggregated as `(fraction_long - fraction_short) * 100`
+  - `net_sentiment` is bounded to `[-100, +100]` by aggregation; `abs_sentiment = abs(net_sentiment)` and `crowd_side = sign(net_sentiment)`
 
 Each step:
 
