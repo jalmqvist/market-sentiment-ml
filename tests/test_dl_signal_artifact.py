@@ -38,6 +38,7 @@ for _p in [str(_REPO_ROOT), str(_SCRIPTS_DIR)]:
 from build_dl_signal_artifact import (
     OUTPUT_COLS,
     SCHEMA_VERSION,
+    SURFACE_GRAIN_COLS,
     UNIQUE_KEY_COLS,
     VALID_DL_REGIMES,
     _build_artifact,
@@ -64,7 +65,7 @@ def _minimal_raw(n: int = 4) -> pd.DataFrame:
             "pred_prob_up": np.linspace(0.4, 0.7, n),
             "model": ["MLP"] * n,
             "dl_regime": ["LVTF"] * n,
-            "target_horizon": ["24"] * n,
+            "target_horizon": [24] * n,  # numeric (Int64)
             "feature_set": ["price_vol_sentiment"] * n,
             "dataset_version": ["1.1.0"] * n,
             "model_version": ["v1.0"] * n,
@@ -160,7 +161,8 @@ class TestBuildArtifact:
         raw = _minimal_raw().drop(columns=["model"])  # keep pred_direction absent
         raw["pred_prob_up"] = [0.6, 0.4, 0.8, 0.2]
         art = _build_artifact(raw)
-        assert set(art["pred_direction"].dropna().unique()).issubset({1, -1})
+        # tri-state: >0.5 => +1, <0.5 => -1, ==0.5 => 0
+        assert set(art["pred_direction"].dropna().unique()).issubset({1, -1, 0})
 
     def test_confidence_null_if_absent(self):
         art = _make_artifact()
@@ -183,7 +185,8 @@ class TestBuildArtifact:
         art = _build_artifact(raw)
         assert (art["model"] == "unknown").all()
         assert (art["dl_regime"] == "unknown").all()
-        assert (art["target_horizon"] == "unknown").all()
+        # target_horizon: Int64 nullable; pd.NA when absent
+        assert art["target_horizon"].isna().all()
         assert (art["feature_set"] == "unknown").all()
 
     def test_sorted_by_pair_entry_time(self):
@@ -245,7 +248,27 @@ class TestRunQA:
         art = _make_artifact()
         # Reverse the entry_time order to break monotonicity
         art = art.iloc[::-1].reset_index(drop=True)
-        # Re-insert same pair so it's treated as one group
+        # Re-insert same pair so it's treated as one surface
+        with pytest.raises(AssertionError, match="not monotonically increasing"):
+            _run_qa(art)
+
+    def test_passes_on_multiple_surfaces_independent_monotonicity(self):
+        """Two surfaces can have interleaved timestamps as long as each is monotonic."""
+        times = pd.date_range("2023-01-02", periods=4, freq="h")
+        raw1 = _minimal_raw(4)
+        raw1["dl_regime"] = "HVTF"
+        raw2 = _minimal_raw(4)
+        raw2["dl_regime"] = "LVTF"
+        raw2["entry_time"] = times + pd.Timedelta(hours=10)
+        combined = pd.concat([raw1, raw2], ignore_index=True)
+        art = _build_artifact(combined)
+        _run_qa(art)  # should not raise
+
+    def test_surface_grain_monotonicity_checked(self):
+        """Monotonicity is per (pair, model, dl_regime, target_horizon, feature_set)."""
+        art = _make_artifact()
+        # Reverse one surface
+        art = art.iloc[::-1].reset_index(drop=True)
         with pytest.raises(AssertionError, match="not monotonically increasing"):
             _run_qa(art)
 
@@ -297,6 +320,12 @@ class TestBuildDlSignalArtifact:
         assert "total_rows" in manifest
         assert "pair_stats" in manifest
         assert "signal_stats" in manifest
+        # v1 tighten-ups
+        assert "calibration" in manifest
+        assert manifest["calibration"]["method"] == "none"
+        assert "train_period" in manifest
+        assert "warnings" in manifest
+        assert "missing_provenance_counts" in manifest
 
     def test_multiple_csvs_concatenated(self, tmp_path):
         raw1 = _minimal_raw(n=3)
@@ -367,3 +396,86 @@ class TestBuildDlSignalArtifact:
             expected,
             check_names=False,
         )
+
+    def test_emits_deprecation_warning(self, tmp_path):
+        """build_dl_signal_artifact must emit a DeprecationWarning."""
+        raw = _minimal_raw()
+        input_dir = tmp_path / "inputs"
+        input_dir.mkdir()
+        (input_dir / "preds.csv").write_text(raw.to_csv(index=False))
+        with pytest.warns(DeprecationWarning, match="deprecated"):
+            build_dl_signal_artifact(
+                input_dir,
+                tmp_path / "out.parquet",
+                tmp_path / "manifest.json",
+            )
+
+
+# ---------------------------------------------------------------------------
+# Schema v1 tighten-ups
+# ---------------------------------------------------------------------------
+
+
+class TestSchemaV1Updates:
+    """Tests for v1 schema contract tighten-ups."""
+
+    def test_target_horizon_is_int64(self):
+        """target_horizon must be Int64 (nullable integer), not a string."""
+        art = _make_artifact()
+        assert art["target_horizon"].dtype == "Int64"
+        assert art["target_horizon"].iloc[0] == 24
+
+    def test_target_horizon_na_when_absent(self):
+        """target_horizon must be pd.NA (not 'unknown') when not supplied."""
+        raw = _minimal_raw()[["entry_time", "pair", "pred_prob_up"]]
+        art = _build_artifact(raw)
+        assert art["target_horizon"].isna().all()
+
+    def test_target_horizon_coerces_numeric_strings(self):
+        """String '24' should be coerced to Int64(24)."""
+        raw = _minimal_raw()
+        raw["target_horizon"] = ["24"] * len(raw)
+        art = _build_artifact(raw)
+        assert art["target_horizon"].dtype == "Int64"
+        assert (art["target_horizon"] == 24).all()
+
+    def test_pred_direction_neutral_at_half(self):
+        """pred_prob_up == 0.5 must produce pred_direction == 0 (neutral)."""
+        raw = _minimal_raw()
+        raw["pred_prob_up"] = [0.5, 0.5, 0.5, 0.5]
+        art = _build_artifact(raw)
+        assert (art["pred_direction"] == 0).all()
+
+    def test_pred_direction_tristate_values(self):
+        """pred_direction must be in {-1, 0, +1} only."""
+        raw = _minimal_raw()
+        raw["pred_prob_up"] = [0.6, 0.5, 0.4, 0.5]
+        art = _build_artifact(raw)
+        expected = pd.array([1, 0, -1, 0], dtype="Int64")
+        pd.testing.assert_extension_array_equal(
+            art["pred_direction"].values, expected
+        )
+
+    def test_prediction_timestamp_null_when_absent(self):
+        """prediction_timestamp must be NaT when not provided."""
+        art = _make_artifact()
+        assert "prediction_timestamp" in art.columns
+        assert art["prediction_timestamp"].isna().all()
+
+    def test_prediction_timestamp_preserved_when_supplied(self):
+        """prediction_timestamp must be kept when provided."""
+        raw = _minimal_raw()
+        raw["prediction_timestamp"] = pd.date_range("2023-01-02 00:30", periods=4, freq="h")
+        art = _build_artifact(raw)
+        assert not art["prediction_timestamp"].isna().all()
+
+    def test_output_cols_include_prediction_timestamp(self):
+        """prediction_timestamp must be in the output column list."""
+        from build_dl_signal_artifact import OUTPUT_COLS as cols
+        assert "prediction_timestamp" in cols
+
+    def test_surface_grain_cols_defined(self):
+        """SURFACE_GRAIN_COLS constant must be defined and contain expected cols."""
+        expected = {"pair", "model", "dl_regime", "target_horizon", "feature_set"}
+        assert expected == set(SURFACE_GRAIN_COLS)
+

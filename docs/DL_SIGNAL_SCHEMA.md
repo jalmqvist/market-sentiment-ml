@@ -1,7 +1,7 @@
 # DL Signal Schema — `dl_signals_h1_v1`
 
 This document defines the stable schema contract for the hourly DL inference
-signal artifact produced by `scripts/build_dl_signal_artifact.py`.
+signal artifacts produced by `market-sentiment-ml`.
 
 Schema version: **`dl_signals_h1_v1`**
 
@@ -11,31 +11,143 @@ Related documents:
 
 ---
 
-## Purpose
+## Architecture Overview (v1)
 
-`dl_signals_h1_v1` is a **multi-dimensional signal cube**: one row per
-`(pair, entry_time, model, dl_regime, target_horizon, feature_set)`.
+The DL signal pipeline uses a **two-step** architecture:
 
-It consolidates DL inference outputs from potentially multiple models,
-regimes, and horizons into a single versioned Parquet artifact for
-downstream consumption by `market-phase-ml`.
+```
+DL training/inference
+        │
+        ▼
+scripts/write_dl_prediction_artifact.py
+        │
+        ├── data/output/dl_predictions/{run_id}.parquet      (time-series payload)
+        └── data/output/dl_predictions/{run_id}.manifest.json (identity + provenance)
 
-This artifact is designed to be:
-- **Stable**: schema changes always bump the version suffix.
-- **Non-breaking**: `market-phase-ml` selects a specific *surface* (slice)
-  via a config dict; it does not depend on having exactly one set of rows.
-- **Causally safe**: `entry_time` represents the H1 bar open; all features
-  used to generate predictions are backward-looking relative to `entry_time`.
+        │
+        ▼ (after all runs)
+scripts/consolidate_dl_predictions.py
+        │
+        ├── data/output/dl_signals/dl_signals_h1_v1.parquet  (operational cube)
+        └── data/output/dl_signals/DL_SIGNAL_MANIFEST_h1_v1.json
+```
+
+### Why two steps?
+
+- **Per-run artifacts** are lightweight, reproducible, and written immediately
+  after each DL training / inference run — no consolidation needed at training
+  time.
+- **Consolidation** is a separate, auditable step: it reads all per-run
+  artifacts, injects identity columns, enforces the cube uniqueness contract,
+  and writes the final operational cube consumed by `market-phase-ml`.
 
 ---
 
-## Grain
+## A) Per-run prediction artifacts
+
+Written by `scripts/write_dl_prediction_artifact.py`.
+
+### Per-run Parquet schema (time-series payload only)
+
+One row per `(pair, entry_time)`.  Identity columns are **not** stored here —
+they live in the companion manifest.
+
+| Column | Type | Nullable | Description |
+|---|---|---|---|
+| `pair` | string | No | Normalised FX pair, e.g. `eur-usd` (lowercase `xxx-yyy`) |
+| `entry_time` | datetime (UTC) | No | H1 bar open timestamp (tz-naive UTC) |
+| `pred_prob_up` | float64 | No | P(price moves up over `target_horizon` bars) ∈ [0, 1] |
+| `signal_strength` | float64 | No | `2 * pred_prob_up − 1` ∈ [−1, 1] |
+| `pred_direction` | Int64 | No | Tri-state: `+1` (>0.5), `−1` (<0.5), `0` (==0.5) |
+| `confidence` | float64 | Yes | Caller-supplied reliability estimate ∈ [0, 1]; null if absent |
+| `prediction_timestamp` | datetime (UTC) | Yes | Per-row inference timestamp (tz-naive UTC); null if absent |
+
+### Per-run manifest schema (identity + provenance)
+
+The manifest is a JSON file with the **same stem** as the parquet.
+
+#### Required blocks
+
+```json
+{
+  "schema_version": "dl_signals_h1_v1",
+  "export_frequency": "H1",
+  "generated_at_utc": "2024-01-15T10:30:00+00:00",
+  "run_id": "MLP__LVTF__24__price_vol_sentiment__20240115T103000Z",
+  "parquet_file": "MLP__LVTF__24__price_vol_sentiment__20240115T103000Z.parquet",
+  "signal_definition": {
+    "formula": "signal_strength = 2 * pred_prob_up - 1",
+    "range": "[-1, +1]",
+    "semantics": "positive = behavioral upside pressure; negative = downside pressure"
+  },
+  "identity": {
+    "model": "MLP",
+    "dl_regime": "LVTF",
+    "target_horizon": 24,
+    "feature_set": "price_vol_sentiment"
+  },
+  "provenance": {
+    "dataset_version": "1.1.0",
+    "model_version": "v1.0",
+    "training_run_id": "run_20240115_abc"
+  },
+  "calibration": {
+    "method": "none",
+    "notes": "raw model probability; no post-hoc calibration applied"
+  },
+  "train_period": {
+    "start": "2018-01-01",
+    "end": "2022-12-31"
+  },
+  "git_commit": "abc123",
+  "row_count": 8760,
+  "pairs": ["eur-usd", "usd-jpy"],
+  "entry_time_min": "2023-01-02T00:00:00",
+  "entry_time_max": "2023-12-31T23:00:00",
+  "warnings": [],
+  "missing_provenance_counts": {
+    "dataset_version": 0,
+    "model_version": 0,
+    "training_run_id": 0
+  }
+}
+```
+
+#### `identity` block (required, operational)
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `model` | string | Yes | Model architecture / identifier, e.g. `"MLP"`, `"LSTM"` |
+| `dl_regime` | string | Yes | Producer-side regime label; see taxonomy table below |
+| `target_horizon` | integer | Yes | Prediction horizon in bars (numeric) |
+| `feature_set` | string | Yes | Feature set identifier, e.g. `"price_vol_sentiment"` |
+
+#### `calibration` block (required placeholder)
+
+| Field | Type | Description |
+|---|---|---|
+| `method` | string | `"none"` until calibration is applied |
+| `notes` | string | Human-readable calibration notes |
+
+#### `train_period` block (required placeholder)
+
+| Field | Type | Description |
+|---|---|---|
+| `start` | string or null | Training period start date (ISO 8601 or null) |
+| `end` | string or null | Training period end date (ISO 8601 or null) |
+
+---
+
+## B) Consolidated operational cube
+
+Written by `scripts/consolidate_dl_predictions.py`.
+
+### Grain
 
 One row per `(pair, entry_time, model, dl_regime, target_horizon, feature_set)`.
 
 Multiple "surfaces" (regime × horizon × model combinations) may share the
-same `(pair, entry_time)`.  The consumer selects a single surface by
-filtering on the provenance columns.
+same `(pair, entry_time)`.
 
 ---
 
@@ -72,6 +184,16 @@ This maps P(up) ∈ [0, 1] linearly to signal_strength ∈ [−1, +1]:
 calibration meaning, comparability across runs, and downstream
 interpretability.  Treat it like a probability or confidence value.
 
+### `pred_direction` (tri-state)
+
+| `pred_prob_up` | `pred_direction` | Interpretation |
+|---|---|---|
+| > 0.5 | +1 | Bullish |
+| < 0.5 | −1 | Bearish |
+| == 0.5 | 0 | Neutral (model is at the decision boundary) |
+
+Type: `Int64` (nullable integer).
+
 ---
 
 ## DL regime taxonomy (producer-side)
@@ -100,7 +222,7 @@ The `dl_regime` column is **never modified** in this artifact.
 
 ---
 
-## Contract columns
+## Cube contract columns
 
 ### Keys / unique key
 
@@ -120,17 +242,18 @@ The `dl_regime` column is **never modified** in this artifact.
 
 | Column | Type | Nullable | Description |
 |---|---|---|---|
-| `pred_direction` | Int64 | Yes | `+1` (up) or `−1` (down); derived from `pred_prob_up > 0.5` if not supplied |
+| `pred_direction` | Int64 | No | Tri-state: `+1`, `−1`, `0`; see table above |
 | `confidence` | float64 | Yes | Caller-supplied reliability estimate ∈ [0, 1]; null if not supplied |
+| `prediction_timestamp` | datetime | Yes | Per-row inference timestamp (tz-naive UTC); null if not supplied |
 
-### Provenance
+### Provenance (injected from per-run manifests)
 
 | Column | Type | Default | Description |
 |---|---|---|---|
-| `model` | string | `"unknown"` | Model architecture / identifier, e.g. `"MLP"`, `"LSTM"` |
-| `dl_regime` | string | `"unknown"` | Producer-side regime label; see taxonomy table above |
-| `target_horizon` | string | `"unknown"` | Prediction horizon in bars, e.g. `"24"` |
-| `feature_set` | string | `"unknown"` | Feature set used, e.g. `"price_vol_sentiment"` |
+| `model` | string | — | Model architecture / identifier, e.g. `"MLP"`, `"LSTM"` |
+| `dl_regime` | string | — | Producer-side regime label; see taxonomy table above |
+| `target_horizon` | Int64 | — | Prediction horizon in bars (numeric; not a string) |
+| `feature_set` | string | — | Feature set used, e.g. `"price_vol_sentiment"` |
 | `dataset_version` | string | `"unknown"` | Dataset version string, e.g. `"1.1.0"` |
 | `model_version` | string | `"unknown"` | Model version / run identifier |
 
@@ -148,21 +271,21 @@ The `dl_regime` column is **never modified** in this artifact.
 (pair, entry_time, model, dl_regime, target_horizon, feature_set)
 ```
 
-This key is enforced as a hard invariant.  Duplicate rows on this key will
-cause the build script to abort with an error.
+This key is enforced as a hard invariant in the consolidation step.  Duplicate
+rows on this key will cause the consolidator to abort with an error.
 
 ---
 
 ## QA invariants
 
-The build script enforces the following checks:
+The consolidator enforces the following checks:
 
-1. **Uniqueness**: The unique key `(pair, entry_time, model, dl_regime,
-   target_horizon, feature_set)` is unique.
+1. **Uniqueness**: The unique key is unique.
 2. **Non-null entry_time**: All rows have a valid `entry_time`.
 3. **pred_prob_up range**: All values are in [0, 1].
 4. **signal_strength range**: All values are in [−1, 1].
-5. **Per-pair monotonic**: Within each pair (and surface), `entry_time` is
+5. **Per-surface monotonic**: Within each surface
+   `(pair, model, dl_regime, target_horizon, feature_set)`, `entry_time` is
    monotonically non-decreasing.
 6. **dl_regime taxonomy**: Values are checked against
    `{HVTF, LVTF, HVR, LVR}`; non-standard values produce a warning.
@@ -171,106 +294,92 @@ The build script enforces the following checks:
 
 ## Output artifacts
 
+### Per-run (written by `write_dl_prediction_artifact.py`)
+
 | Path | Description |
 |---|---|
-| `data/output/dl_signals/dl_signals_h1_v1.parquet` | Signal table (Parquet) |
-| `data/output/dl_signals/DL_SIGNAL_MANIFEST_h1_v1.json` | Build manifest |
+| `data/output/dl_predictions/{run_id}.parquet` | Time-series payload |
+| `data/output/dl_predictions/{run_id}.manifest.json` | Identity + provenance |
 
-### Manifest fields
+### Consolidated cube (written by `consolidate_dl_predictions.py`)
 
-| Field | Description |
+| Path | Description |
 |---|---|
-| `schema_version` | Artifact schema version string |
-| `generated_at_utc` | ISO 8601 timestamp of build |
-| `export_frequency` | `"H1"` |
-| `signal_definition` | Human-readable signal semantics |
-| `unique_key` | Unique key column list and description |
-| `dl_regime_taxonomy` | Valid producer regime labels |
-| `time_semantics` | entry_time definition and as-of rule |
-| `source_predictions` | Input directory path |
-| `git_commit` | Git SHA of the build |
-| `total_rows` | Total row count |
-| `total_pairs` | Number of distinct pairs |
-| `overall_entry_time_min/max` | Time range of the artifact |
-| `dl_regimes_present` | Regime labels found in the data |
-| `models_present` | Model identifiers found in the data |
-| `feature_sets_present` | Feature set identifiers found |
-| `target_horizons_present` | Target horizons found |
-| `pair_stats` | Per-pair row count and time range |
-| `signal_stats` | Aggregate statistics (mean, std of signal_strength, etc.) |
+| `data/output/dl_signals/dl_signals_h1_v1.parquet` | Signal cube (Parquet) |
+| `data/output/dl_signals/DL_SIGNAL_MANIFEST_h1_v1.json` | Cube build manifest |
 
 ---
 
-## Input CSV format
+## Usage
 
-The build script consolidates per-pair/per-run prediction CSVs from an input
-directory.  Each CSV must conform to the following:
-
-### Required columns
-
-| Column | Type | Description |
-|---|---|---|
-| `entry_time` | datetime | UTC timestamp; tz-naive or UTC-aware |
-| `pair` | string | FX pair in any common format (normalised to `xxx-yyy`) |
-| `pred_prob_up` | float | P(up) ∈ [0, 1] |
-
-### Optional columns
-
-| Column | Type | Description |
-|---|---|---|
-| `model` | string | Model identifier; defaults to `"unknown"` |
-| `dl_regime` | string | Producer regime label; defaults to `"unknown"` |
-| `target_horizon` | int/string | Horizon in bars; defaults to `"unknown"` |
-| `feature_set` | string | Feature set name; defaults to `"unknown"` |
-| `dataset_version` | string | Dataset version; defaults to `"unknown"` |
-| `model_version` | string | Model run ID; defaults to `"unknown"` |
-| `pred_direction` | int | `+1` or `−1`; derived from `pred_prob_up > 0.5` if absent |
-| `confidence` | float | Reliability estimate ∈ [0, 1]; null if absent |
-
-### Minimal example CSV
-
-```csv
-entry_time,pair,pred_prob_up,model,dl_regime,target_horizon,feature_set,dataset_version,model_version
-2023-01-02 00:00:00,eur-usd,0.62,MLP,LVTF,24,price_vol_sentiment,1.1.0,v1.0
-2023-01-02 01:00:00,eur-usd,0.48,MLP,LVTF,24,price_vol_sentiment,1.1.0,v1.0
-2023-01-02 00:00:00,usd-jpy,0.55,MLP,HVR,24,price_vol_sentiment,1.1.0,v1.0
-```
-
----
-
-## Building the artifact
+### Step 1: Write a per-run artifact after DL training/inference
 
 ```bash
-python scripts/build_dl_signal_artifact.py \
-    --input-dir data/output/dl_predictions \
+python scripts/write_dl_prediction_artifact.py \
+    --input-csv path/to/predictions.csv \
+    --model MLP \
+    --dl-regime LVTF \
+    --target-horizon 24 \
+    --feature-set price_vol_sentiment \
+    --dataset-version 1.1.0 \
+    --model-version v1.0 \
+    --training-run-id run_20240115_abc \
+    --train-period-start 2018-01-01 \
+    --train-period-end 2022-12-31 \
+    [--output-dir data/output/dl_predictions]
+```
+
+Or via Python API:
+
+```python
+from scripts.write_dl_prediction_artifact import write_dl_prediction_artifact
+
+pq_path, mf_path = write_dl_prediction_artifact(
+    df=predictions_df,
+    identity={
+        "model": "MLP",
+        "dl_regime": "LVTF",
+        "target_horizon": 24,
+        "feature_set": "price_vol_sentiment",
+    },
+    provenance={
+        "dataset_version": "1.1.0",
+        "model_version": "v1.0",
+        "training_run_id": "run_20240115_abc",
+        "train_period_start": "2018-01-01",
+        "train_period_end": "2022-12-31",
+    },
+)
+```
+
+Input CSV / DataFrame must contain at minimum: `entry_time`, `pair`, `pred_prob_up`.
+
+### Step 2: Consolidate into the operational cube
+
+```bash
+python scripts/consolidate_dl_predictions.py \
+    [--input-dir data/output/dl_predictions] \
     [--output-dir data/output/dl_signals]
 ```
 
-### Prerequisites
+### Deprecated: CSV consolidator
 
-- `data/output/dl_predictions/*.csv` — per-pair/per-run prediction CSVs
-  with at minimum: `entry_time`, `pair`, `pred_prob_up`
-
-### Generating prediction CSVs from the DL pipeline
-
-The existing DL training scripts (`research/deep_learning/train.py`,
-`research/deep_learning/train_lstm.py`) should be extended to write
-row-level predictions to `data/output/dl_predictions/` with the columns
-described above.  Until that is done, prediction CSVs can be created
-manually or by any script that produces the required columns.
+The legacy `scripts/build_dl_signal_artifact.py` (CSV consolidator) remains
+functional but emits a `DeprecationWarning`.  It will be removed in a future
+release.
 
 ---
 
 ## Integration with market-phase-ml
 
-`market-phase-ml` consumes this artifact via its `src/dl_surface_loader.py`
+`market-phase-ml` consumes the consolidated cube via its `src/dl_surface_loader.py`
 module.  The consumer selects a specific signal **surface** (a slice of the
 multi-dimensional signal cube) by specifying:
 
 ```python
 surface = {
     "model": "MLP",
-    "target_horizon": "24",
+    "target_horizon": 24,
     "feature_set": "price_vol_sentiment",
     "dl_regime": "LVTF",   # optional; omit to select all regimes
 }

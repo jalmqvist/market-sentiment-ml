@@ -1,6 +1,18 @@
 """
 build_dl_signal_artifact.py
 ============================
+.. deprecated::
+    This CSV-based consolidator is **deprecated** in favour of the two-step
+    per-run architecture:
+
+    1. ``scripts/write_dl_prediction_artifact.py``  — write one per-run
+       Parquet + manifest after each DL training / inference run.
+    2. ``scripts/consolidate_dl_predictions.py``    — consolidate all per-run
+       artifacts into the final ``dl_signals_h1_v1`` cube.
+
+    This script will continue to work but will emit a deprecation warning.
+    It will be removed in a future release.
+
 Consolidates per-pair/per-run DL prediction CSVs into the versioned
 ``dl_signals_h1_v1`` artifact (Parquet + JSON manifest).
 
@@ -31,14 +43,15 @@ Provenance (at least one of the following is required):
     dl_regime        — producer-side market regime: HVTF | LVTF | HVR | LVR
 
 Optional provenance (filled with "unknown" if absent):
-    target_horizon   — prediction horizon in bars (int or string)
+    target_horizon   — prediction horizon in bars (integer; pd.NA if absent)
     feature_set      — feature set identifier (e.g. "price_vol_sentiment")
     dataset_version  — dataset version string (e.g. "1.1.0")
     model_version    — model version / run identifier
 
 Optional signal columns (computed from pred_prob_up if absent):
-    pred_direction   — +1 (up) / -1 (down); derived from pred_prob_up > 0.5
+    pred_direction   — tri-state Int64: +1 (>0.5), -1 (<0.5), 0 (==0.5)
     confidence       — float in [0, 1]; caller-supplied reliability estimate
+    prediction_timestamp — tz-naive UTC timestamp of per-row inference
 
 Key semantics
 -------------
@@ -57,6 +70,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -82,15 +96,18 @@ OUTPUT_MANIFEST = OUTPUT_DIR_DEFAULT / "DL_SIGNAL_MANIFEST_h1_v1.json"
 # Required columns that MUST be present in each input CSV
 REQUIRED_INPUT_COLS = {"entry_time", "pair", "pred_prob_up"}
 
-# Provenance columns; filled with "unknown" when absent
+# Provenance columns filled with "unknown" when absent (string columns)
 PROVENANCE_COLS = {
     "model": "unknown",
     "dl_regime": "unknown",
-    "target_horizon": "unknown",
     "feature_set": "unknown",
     "dataset_version": "unknown",
     "model_version": "unknown",
 }
+# target_horizon is handled separately: Int64 (nullable); pd.NA when absent/unparseable
+
+# Surface grain columns for monotonicity check in consolidated cube
+SURFACE_GRAIN_COLS = ["pair", "model", "dl_regime", "target_horizon", "feature_set"]
 
 # Final output column order
 OUTPUT_COLS = [
@@ -103,6 +120,7 @@ OUTPUT_COLS = [
     # Optional signal
     "pred_direction",
     "confidence",
+    "prediction_timestamp",
     # Provenance
     "model",
     "dl_regime",
@@ -233,10 +251,11 @@ def _build_artifact(raw: pd.DataFrame) -> pd.DataFrame:
     2. Parse and normalise ``entry_time`` to tz-naive UTC.
     3. Clamp ``pred_prob_up`` to [0, 1].
     4. Compute ``signal_strength = 2 * pred_prob_up - 1``.
-    5. Derive ``pred_direction`` from ``pred_prob_up`` if absent.
-    6. Fill missing provenance columns with "unknown".
-    7. Select and order output columns.
-    8. Enforce dtypes.
+    5. Derive ``pred_direction`` (tri-state) from ``pred_prob_up`` if absent.
+    6. Handle ``prediction_timestamp`` optional column.
+    7. Fill missing provenance columns with "unknown" / pd.NA.
+    8. Select and order output columns.
+    9. Enforce dtypes.
     """
     df = raw.copy()
 
@@ -259,10 +278,12 @@ def _build_artifact(raw: pd.DataFrame) -> pd.DataFrame:
     # 4. signal_strength — preserve [-1, 1] semantics; never standardize
     df["signal_strength"] = 2.0 * df["pred_prob_up"] - 1.0
 
-    # 5. pred_direction: derive from pred_prob_up if not supplied
+    # 5. pred_direction: tri-state derived from pred_prob_up if not supplied
+    #    >0.5 => +1 (up), <0.5 => -1 (down), ==0.5 => 0 (neutral)
     if "pred_direction" not in df.columns:
         df["pred_direction"] = pd.array(
-            np.where(df["pred_prob_up"] > 0.5, 1, -1), dtype="Int64"
+            np.where(df["pred_prob_up"] > 0.5, 1, np.where(df["pred_prob_up"] < 0.5, -1, 0)),
+            dtype="Int64",
         )
     else:
         df["pred_direction"] = pd.to_numeric(
@@ -275,31 +296,44 @@ def _build_artifact(raw: pd.DataFrame) -> pd.DataFrame:
     else:
         df["confidence"] = pd.to_numeric(df["confidence"], errors="coerce")
 
-    # 7. Fill provenance columns with "unknown" when absent
+    # 7. prediction_timestamp: optional per-row inference timestamp
+    if "prediction_timestamp" not in df.columns:
+        df["prediction_timestamp"] = pd.NaT
+    else:
+        df["prediction_timestamp"] = _normalize_entry_time(df["prediction_timestamp"])
+
+    # 8. Fill string provenance columns with "unknown" when absent
     for col, default in PROVENANCE_COLS.items():
         if col not in df.columns:
             df[col] = default
         else:
             df[col] = df[col].fillna(default).astype(str)
 
-    # 8. schema_version constant
+    # 9. target_horizon: Int64 (nullable); try to coerce; pd.NA if absent/unparseable
+    if "target_horizon" not in df.columns:
+        df["target_horizon"] = pd.array([pd.NA] * len(df), dtype="Int64")
+    else:
+        df["target_horizon"] = pd.to_numeric(
+            df["target_horizon"], errors="coerce"
+        ).astype("Int64")
+
+    # 10. schema_version constant
     df["schema_version"] = SCHEMA_VERSION
 
-    # 9. Select output columns (add any missing as NaN defensively)
+    # 11. Select output columns (add any missing as NaN defensively)
     for col in OUTPUT_COLS:
         if col not in df.columns:
             df[col] = np.nan
 
     result = df[OUTPUT_COLS].copy()
 
-    # 10. Dtype enforcement
+    # 12. Dtype enforcement
     result["entry_time"] = pd.to_datetime(result["entry_time"])
     result["pred_prob_up"] = result["pred_prob_up"].astype("float64")
     result["signal_strength"] = result["signal_strength"].astype("float64")
     result["pair"] = result["pair"].astype(str)
     result["model"] = result["model"].astype(str)
     result["dl_regime"] = result["dl_regime"].astype(str)
-    result["target_horizon"] = result["target_horizon"].astype(str)
     result["feature_set"] = result["feature_set"].astype(str)
     result["dataset_version"] = result["dataset_version"].astype(str)
     result["model_version"] = result["model_version"].astype(str)
@@ -368,18 +402,19 @@ def _run_qa(df: pd.DataFrame) -> None:
         ok = False
         raise AssertionError(f"Contract violation: {out_of_range:,} rows with signal_strength outside [-1, 1].")
 
-    # 5) Per-pair monotonic entry_time
-    non_monotonic_pairs = []
-    for pair, grp in df.groupby("pair"):
+    # 5) Per-surface monotonic entry_time
+    #    Surface grain: (pair, model, dl_regime, target_horizon, feature_set)
+    non_monotonic_surfaces = []
+    for surface_key, grp in df.groupby(SURFACE_GRAIN_COLS, dropna=False):
         if not grp["entry_time"].is_monotonic_increasing:
-            non_monotonic_pairs.append(pair)
-    status = "✓" if not non_monotonic_pairs else f"✗ {len(non_monotonic_pairs)} pair(s)"
-    print(f"  Per-pair monotonic entry_time: {status}")
-    if non_monotonic_pairs:
+            non_monotonic_surfaces.append(surface_key)
+    status = "✓" if not non_monotonic_surfaces else f"✗ {len(non_monotonic_surfaces)} surface(s)"
+    print(f"  Per-surface monotonic entry_time: {status}")
+    if non_monotonic_surfaces:
         ok = False
         raise AssertionError(
-            f"Contract violation: entry_time is not monotonically increasing for pairs: "
-            f"{non_monotonic_pairs}"
+            f"Contract violation: entry_time is not monotonically increasing for surfaces: "
+            f"{non_monotonic_surfaces}"
         )
 
     # 6) dl_regime taxonomy check
@@ -434,14 +469,46 @@ def _write_manifest(
             "models": sorted(grp["model"].unique().tolist()),
         }
 
+    # Missing provenance counts
+    missing_provenance_counts: dict = {}
+    for col in ["model", "dl_regime", "feature_set", "dataset_version", "model_version"]:
+        missing_provenance_counts[col] = int((df[col] == "unknown").sum())
+    missing_provenance_counts["target_horizon"] = int(df["target_horizon"].isna().sum())
+
+    # Warnings for defaults applied
+    warnings_list: list = []
+    if missing_provenance_counts.get("model", 0) > 0:
+        warnings_list.append(
+            f"model defaulted to 'unknown' for {missing_provenance_counts['model']:,} rows"
+        )
+    if missing_provenance_counts.get("dl_regime", 0) > 0:
+        warnings_list.append(
+            f"dl_regime defaulted to 'unknown' for {missing_provenance_counts['dl_regime']:,} rows"
+        )
+    if missing_provenance_counts.get("target_horizon", 0) > 0:
+        warnings_list.append(
+            f"target_horizon missing for {missing_provenance_counts['target_horizon']:,} rows"
+        )
+    unknown_regimes = set(df["dl_regime"].unique()) - VALID_DL_REGIMES - {"unknown"}
+    if unknown_regimes:
+        warnings_list.append(
+            f"non-standard dl_regime values found (will be skipped by consumer): "
+            f"{sorted(unknown_regimes)}"
+        )
+
+    # Serialize target_horizons_present safely (Int64 may contain pd.NA)
+    th_values = df["target_horizon"].dropna().unique().tolist()
+    th_values_serializable = sorted([int(v) for v in th_values])
+
     manifest = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "export_frequency": EXPORT_FREQUENCY,
         "signal_definition": {
-            "signal_strength": "2 * pred_prob_up - 1; maps P(up) from [0,1] to [-1,+1].",
+            "formula": "signal_strength = 2 * pred_prob_up - 1",
+            "range": "[-1, +1]",
+            "semantics": "positive = behavioral upside pressure; negative = downside pressure",
             "pred_prob_up": "P(price moves up over target_horizon bars) from DL model.",
-            "signal_strength_range": "[-1, 1]; negative=bearish, positive=bullish, 0=neutral.",
             "note": "signal_strength is NOT standardised; preserves calibration semantics.",
         },
         "unique_key": {
@@ -467,6 +534,14 @@ def _write_manifest(
                 "No forward-looking inputs are used."
             ),
         },
+        "calibration": {
+            "method": "none",
+            "notes": "raw model probability; no post-hoc calibration applied",
+        },
+        "train_period": {
+            "start": None,
+            "end": None,
+        },
         "source_predictions": {
             "input_dir": str(input_dir.resolve()),
         },
@@ -478,7 +553,7 @@ def _write_manifest(
         "dl_regimes_present": sorted(df["dl_regime"].unique().tolist()),
         "models_present": sorted(df["model"].unique().tolist()),
         "feature_sets_present": sorted(df["feature_set"].unique().tolist()),
-        "target_horizons_present": sorted(df["target_horizon"].unique().tolist()),
+        "target_horizons_present": th_values_serializable,
         "pair_stats": pair_stats,
         "signal_stats": {
             "pred_prob_up_mean": float(df["pred_prob_up"].mean()),
@@ -487,6 +562,8 @@ def _write_manifest(
             "signal_strength_std": float(df["signal_strength"].std()),
             "pred_direction_up_frac": float((df["pred_direction"] == 1).mean()),
         },
+        "warnings": warnings_list,
+        "missing_provenance_counts": missing_provenance_counts,
     }
 
     output_manifest.parent.mkdir(parents=True, exist_ok=True)
@@ -507,6 +584,15 @@ def build_dl_signal_artifact(
     """
     Build the ``dl_signals_h1_v1`` artifact from per-pair/per-run prediction CSVs.
 
+    .. deprecated::
+        This CSV-based consolidator is deprecated. Use the two-step per-run
+        architecture instead:
+
+        1. ``write_dl_prediction_artifact`` (scripts/write_dl_prediction_artifact.py)
+           to write one per-run Parquet + manifest per DL training / inference run.
+        2. ``consolidate_dl_predictions`` (scripts/consolidate_dl_predictions.py)
+           to consolidate all per-run artifacts into the ``dl_signals_h1_v1`` cube.
+
     Parameters
     ----------
     input_dir:
@@ -521,6 +607,13 @@ def build_dl_signal_artifact(
     pd.DataFrame
         The consolidated artifact DataFrame.
     """
+    warnings.warn(
+        "build_dl_signal_artifact (CSV consolidator) is deprecated. "
+        "Use scripts/write_dl_prediction_artifact.py + scripts/consolidate_dl_predictions.py "
+        "instead. The CSV-based path will be removed in a future release.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     print(f"Input directory:  {input_dir.resolve()}")
 
     # 1. Load
@@ -552,7 +645,11 @@ def build_dl_signal_artifact(
 def _parse_args(argv=None):
     p = argparse.ArgumentParser(
         description=(
-            "Build the dl_signals_h1_v1 artifact from per-pair/per-run prediction CSVs.\n\n"
+            "[DEPRECATED] Build the dl_signals_h1_v1 artifact from per-pair/per-run "
+            "prediction CSVs.\n\n"
+            "This CSV-based consolidator is deprecated. Use instead:\n"
+            "  scripts/write_dl_prediction_artifact.py  — write per-run artifact\n"
+            "  scripts/consolidate_dl_predictions.py    — consolidate into cube\n\n"
             "Input CSVs must contain at minimum: entry_time, pair, pred_prob_up\n"
             "See docs/DL_SIGNAL_SCHEMA.md for the full input/output spec."
         ),
@@ -574,6 +671,13 @@ def _parse_args(argv=None):
 
 
 if __name__ == "__main__":
+    import warnings as _w
+    _w.warn(
+        "build_dl_signal_artifact.py (CSV consolidator) is deprecated. "
+        "Use write_dl_prediction_artifact.py + consolidate_dl_predictions.py instead.",
+        DeprecationWarning,
+        stacklevel=1,
+    )
     args = _parse_args()
     output_parquet = args.output_dir / "dl_signals_h1_v1.parquet"
     output_manifest = args.output_dir / "DL_SIGNAL_MANIFEST_h1_v1.json"
