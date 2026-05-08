@@ -11,7 +11,7 @@ class _DummyAgent:
         self.position = float(position)
 
     def update(self, price_history: np.ndarray, crowd_sentiment: float, volatility: float = 0.0) -> None:
-        return
+        pass
 
 
 def _run_once(positions: list[float]) -> tuple[float, float]:
