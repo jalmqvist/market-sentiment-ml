@@ -247,8 +247,49 @@ to:
 
 ---
 
+## DL Signal Artifact (DL → market-phase-ml Integration)
+
+The DL inference outputs can be consolidated into a versioned Parquet artifact
+for consumption by the companion repo `market-phase-ml`.
+
+### Output artifacts
+
+| Path | Description |
+|---|---|
+| `data/output/dl_signals/dl_signals_h1_v1.parquet` | Consolidated DL signal table |
+| `data/output/dl_signals/DL_SIGNAL_MANIFEST_h1_v1.json` | Build manifest and metadata |
+
+### Generating the artifact
+
+```bash
+# Populate data/output/dl_predictions/ with per-pair/per-run prediction CSVs
+# (each CSV must have: entry_time, pair, pred_prob_up)
+python scripts/build_dl_signal_artifact.py \
+    --input-dir data/output/dl_predictions \
+    [--output-dir data/output/dl_signals]
+```
+
+### Schema summary
+
+| Column | Description |
+|---|---|
+| `pair` | Normalised FX pair (`xxx-yyy`) |
+| `entry_time` | H1 bar open timestamp (UTC, tz-naive) |
+| `pred_prob_up` | P(price moves up) ∈ [0, 1] |
+| `signal_strength` | `2 * pred_prob_up − 1` ∈ [−1, 1] |
+| `model` | Model identifier (e.g. `MLP`, `LSTM`) |
+| `dl_regime` | Producer regime: `HVTF` / `LVTF` / `HVR` / `LVR` |
+| `target_horizon` | Prediction horizon in bars |
+| `feature_set` | Feature set identifier |
+
+See `docs/DL_SIGNAL_SCHEMA.md` for the complete schema, input CSV format,
+and integration notes.
+
+---
+
 ## Further Reading
 
 - `docs/ABM_RUNBOOK.md`
 - `docs/RESEARCH_STRATEGY.md`
 - `docs/abm.md`
+- `docs/DL_SIGNAL_SCHEMA.md`
