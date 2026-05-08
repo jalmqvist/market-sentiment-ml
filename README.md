@@ -249,41 +249,67 @@ to:
 
 ## DL Signal Artifact (DL → market-phase-ml Integration)
 
-The DL inference outputs can be consolidated into a versioned Parquet artifact
-for consumption by the companion repo `market-phase-ml`.
+The DL inference outputs are exported as versioned per-run artifacts and
+consolidated into an operational cube for consumption by `market-phase-ml`.
 
-### Output artifacts
+### v1 Architecture (two-step)
+
+**Step 1 — Per-run artifact** (written after each DL training / inference run):
+
+```bash
+python scripts/write_dl_prediction_artifact.py \
+    --input-csv path/to/predictions.csv \
+    --model MLP \
+    --dl-regime LVTF \
+    --target-horizon 24 \
+    --feature-set price_vol_sentiment \
+    [--output-dir data/output/dl_predictions]
+```
+
+Produces for each run:
 
 | Path | Description |
 |---|---|
-| `data/output/dl_signals/dl_signals_h1_v1.parquet` | Consolidated DL signal table |
-| `data/output/dl_signals/DL_SIGNAL_MANIFEST_h1_v1.json` | Build manifest and metadata |
+| `data/output/dl_predictions/{run_id}.parquet` | Time-series payload (pair, entry_time, pred_prob_up, signal_strength, …) |
+| `data/output/dl_predictions/{run_id}.manifest.json` | Identity + provenance (model, dl_regime, target_horizon, feature_set, calibration, …) |
 
-### Generating the artifact
+**Step 2 — Consolidation** (builds the operational cube from all per-run artifacts):
 
 ```bash
-# Populate data/output/dl_predictions/ with per-pair/per-run prediction CSVs
-# (each CSV must have: entry_time, pair, pred_prob_up)
-python scripts/build_dl_signal_artifact.py \
-    --input-dir data/output/dl_predictions \
+python scripts/consolidate_dl_predictions.py \
+    [--input-dir data/output/dl_predictions] \
     [--output-dir data/output/dl_signals]
 ```
 
+Produces:
+
+| Path | Description |
+|---|---|
+| `data/output/dl_signals/dl_signals_h1_v1.parquet` | Consolidated DL signal cube |
+| `data/output/dl_signals/DL_SIGNAL_MANIFEST_h1_v1.json` | Cube manifest and metadata |
+
 ### Schema summary
 
-| Column | Description |
-|---|---|
-| `pair` | Normalised FX pair (`xxx-yyy`) |
-| `entry_time` | H1 bar open timestamp (UTC, tz-naive) |
-| `pred_prob_up` | P(price moves up) ∈ [0, 1] |
-| `signal_strength` | `2 * pred_prob_up − 1` ∈ [−1, 1] |
-| `model` | Model identifier (e.g. `MLP`, `LSTM`) |
-| `dl_regime` | Producer regime: `HVTF` / `LVTF` / `HVR` / `LVR` |
-| `target_horizon` | Prediction horizon in bars |
-| `feature_set` | Feature set identifier |
+| Column | Type | Description |
+|---|---|---|
+| `pair` | string | Normalised FX pair (`xxx-yyy`) |
+| `entry_time` | datetime | H1 bar open timestamp (UTC, tz-naive) |
+| `pred_prob_up` | float64 | P(price moves up) ∈ [0, 1] |
+| `signal_strength` | float64 | `2 * pred_prob_up − 1` ∈ [−1, 1] |
+| `pred_direction` | Int64 | Tri-state: +1 (>0.5), −1 (<0.5), 0 (==0.5) |
+| `prediction_timestamp` | datetime | Per-row inference timestamp (optional) |
+| `model` | string | Model identifier (e.g. `MLP`, `LSTM`) |
+| `dl_regime` | string | Producer regime: `HVTF` / `LVTF` / `HVR` / `LVR` |
+| `target_horizon` | Int64 | Prediction horizon in bars (numeric) |
+| `feature_set` | string | Feature set identifier |
 
-See `docs/DL_SIGNAL_SCHEMA.md` for the complete schema, input CSV format,
-and integration notes.
+Unique key: `(pair, entry_time, model, dl_regime, target_horizon, feature_set)`
+
+> **Deprecated:** `scripts/build_dl_signal_artifact.py` (CSV consolidator) is
+> kept for backward compatibility but will be removed in a future release.
+
+See `docs/DL_SIGNAL_SCHEMA.md` for the complete schema, per-run artifact
+format, and integration notes.
 
 ---
 
