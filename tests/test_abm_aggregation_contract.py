@@ -10,7 +10,7 @@ class _DummyAgent:
     def __init__(self, position: float) -> None:
         self.position = float(position)
 
-    def update(self, price_history: np.ndarray, crowd_sentiment: float, volatility: float = 0.0) -> None:
+    def update(self, price_history: np.ndarray, crowd_sentiment: float, **_: float) -> None:
         pass
 
 
