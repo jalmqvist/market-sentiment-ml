@@ -208,7 +208,7 @@ def main():
         logits = model(torch.tensor(X_test))
         probs = torch.sigmoid(logits).numpy()
 
-        # Flatten explicitly to avoid shape ambiguity during parquet export
+        # Flatten explicitly to avoid parquet/object dtype ambiguity
         pred_prob_up = np.asarray(probs).reshape(-1).astype("float64")
 
         preds = (pred_prob_up > 0.5).astype(int)
@@ -246,6 +246,12 @@ def main():
 
     export_entry_time = pd.to_datetime(df_test["entry_time"])
 
+    # Single inference-time timestamp for the exported prediction batch
+    prediction_timestamp = pd.Timestamp.utcnow().tz_localize(None)
+
+    # Derived canonical signal representation
+    signal_strength = (2.0 * pred_prob_up) - 1.0
+
     # Integrity checks
     n_dupes = (
         pd.DataFrame({
@@ -268,6 +274,24 @@ def main():
         f"{n_nans} of {len(pred_prob_up)} rows are NaN"
     )
 
+    assert np.isfinite(pred_prob_up).all(), (
+        "Non-finite values detected in pred_prob_up"
+    )
+
+    assert np.isfinite(signal_strength).all(), (
+        "Non-finite values detected in signal_strength"
+    )
+
+    assert (
+        (pred_prob_up >= 0.0).all() and
+        (pred_prob_up <= 1.0).all()
+    ), "pred_prob_up outside [0, 1]"
+
+    assert (
+        (signal_strength >= -1.0).all() and
+        (signal_strength <= 1.0).all()
+    ), "signal_strength outside [-1, +1]"
+
     for _pair, _grp in (
         pd.DataFrame({
             "pair": export_pairs,
@@ -285,7 +309,36 @@ def main():
         "pair": export_pairs.values,
         "entry_time": export_entry_time.values,
         "pred_prob_up": pred_prob_up,
+        "signal_strength": signal_strength,
+        "prediction_timestamp": prediction_timestamp,
     })
+
+    # Canonical ordering + stable schema
+    pred_df = pred_df[
+        [
+            "pair",
+            "entry_time",
+            "pred_prob_up",
+            "signal_strength",
+            "prediction_timestamp",
+        ]
+    ]
+
+    pred_df["pred_prob_up"] = (
+        pred_df["pred_prob_up"].astype("float64")
+    )
+
+    pred_df["signal_strength"] = (
+        pred_df["signal_strength"].astype("float64")
+    )
+
+    pred_df["prediction_timestamp"] = pd.to_datetime(
+        pred_df["prediction_timestamp"]
+    )
+
+    pred_df = pred_df.sort_values(
+        ["pair", "entry_time"]
+    ).reset_index(drop=True)
 
     dl_regime = args.regime if args.regime else "MIXED"
 
