@@ -1,5 +1,6 @@
 import argparse
 import logging
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -206,6 +207,61 @@ def main():
     logging.info("=== Test metrics ===")
     for k, v in metrics.items():
         logging.info(f"{k}: {v}")
+
+    # ------------------------------------------------------------------
+    # Export per-run prediction artifact (parquet + manifest)
+    # ------------------------------------------------------------------
+    _scripts_dir = Path(__file__).resolve().parent.parent.parent / "scripts"
+    if str(_scripts_dir) not in sys.path:
+        sys.path.insert(0, str(_scripts_dir))
+    from write_dl_prediction_artifact import (  # noqa: E402
+        write_dl_prediction_artifact,
+        PREDICTIONS_DIR_DEFAULT,
+    )
+
+    df_test = df.iloc[split:].reset_index(drop=True)
+    pred_prob_up = probs.astype("float64")
+
+    # Integrity checks
+    n_dupes = df_test[["pair", "entry_time"]].duplicated().sum()
+    assert n_dupes == 0, (
+        f"Duplicate (pair, entry_time) rows in test set: {n_dupes} duplicates found"
+    )
+    n_nans = int(np.isnan(pred_prob_up).sum())
+    assert n_nans == 0, (
+        f"NaN values in pred_prob_up: {n_nans} of {len(pred_prob_up)} rows are NaN"
+    )
+    for _pair, _grp in df_test.groupby("pair"):
+        _et = pd.to_datetime(_grp["entry_time"])
+        assert _et.is_monotonic_increasing, (
+            f"Non-monotonic entry_time for pair {_pair!r}"
+        )
+
+    pred_df = pd.DataFrame({
+        "pair": df_test["pair"].values,
+        "entry_time": pd.to_datetime(df_test["entry_time"]),
+        "pred_prob_up": pred_prob_up,
+    })
+
+    dl_regime = args.regime if args.regime else "MIXED"
+    identity = {
+        "model": "MLP",
+        "dl_regime": dl_regime,
+        "target_horizon": args.target_horizon,
+        "feature_set": args.feature_set,
+    }
+    provenance = {
+        "dataset_version": args.dataset_version,
+    }
+
+    pq_path, mf_path = write_dl_prediction_artifact(
+        df=pred_df,
+        identity=identity,
+        provenance=provenance,
+        output_dir=PREDICTIONS_DIR_DEFAULT,
+    )
+    logging.info("artifact_parquet: %s", pq_path)
+    logging.info("artifact_manifest: %s", mf_path)
 
 
 if __name__ == "__main__":
