@@ -223,10 +223,14 @@ def main():
     pred_prob_up = probs.astype("float64")
 
     # Integrity checks
-    assert not df_test[["pair", "entry_time"]].duplicated().any(), (
-        "Duplicate (pair, entry_time) rows in test set"
+    n_dupes = df_test[["pair", "entry_time"]].duplicated().sum()
+    assert n_dupes == 0, (
+        f"Duplicate (pair, entry_time) rows in test set: {n_dupes} duplicates found"
     )
-    assert not np.isnan(pred_prob_up).any(), "NaN values in pred_prob_up"
+    n_nans = int(np.isnan(pred_prob_up).sum())
+    assert n_nans == 0, (
+        f"NaN values in pred_prob_up: {n_nans} of {len(pred_prob_up)} rows are NaN"
+    )
     for _pair, _grp in df_test.groupby("pair"):
         _et = pd.to_datetime(_grp["entry_time"])
         assert _et.is_monotonic_increasing, (
