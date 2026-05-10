@@ -570,3 +570,6 @@ if __name__ == "__main__":
     print(f"\nDone. run_id={pq_path.stem}")
     print(f"  Parquet:  {pq_path}")
     print(f"  Manifest: {mf_path}")
+
+PIP_PREDICTIONS_DIR_DEFAULT = PREDICTIONS_DIR_DEFAULT
+pipPREDICTIONS_DIR_DEFAULT = PREDICTIONS_DIR_DEFAULT

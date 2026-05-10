@@ -88,7 +88,10 @@ def main():
     regime_str = args.regime.strip().lower() if args.regime else "all"
     ts = pd.Timestamp.now(tz="UTC").strftime("%Y%m%dT%H%M%SZ")
 
-    log_file = f"logs/mlp_{pair_str}_{regime_str}_h{args.target_horizon}_q{args.label_quantile}_{ts}.log"
+    log_file = (
+        f"logs/mlp_{pair_str}_{regime_str}_"
+        f"h{args.target_horizon}_q{args.label_quantile}_{ts}.log"
+    )
 
     logging.basicConfig(
         level=logging.INFO,
@@ -149,8 +152,13 @@ def main():
     y = df["target_direction"].values.astype("float32")
 
     split = int(len(X) * 0.8)
+
     X_train, X_test = X[:split], X[split:]
     y_train, y_test = y[:split], y[split:]
+
+    # Explicit metadata split to preserve alignment robustness
+    df_train = df.iloc[:split].copy()
+    df_test = df.iloc[split:].copy().reset_index(drop=True)
 
     logging.info(f"train_size: {len(X_train)} | test_size: {len(X_test)}")
 
@@ -173,10 +181,12 @@ def main():
     # Class imbalance handling
     pos_weight_val = (len(y_train) - y_train.sum()) / (y_train.sum() + 1e-8)
     pos_weight = torch.tensor(pos_weight_val, dtype=torch.float32)
+
     logging.info(f"pos_weight: {pos_weight.item():.3f}")
 
     # Train
     model = MLP(X.shape[1], args.hidden_dim)
+
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
     loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
@@ -197,7 +207,11 @@ def main():
     with torch.no_grad():
         logits = model(torch.tensor(X_test))
         probs = torch.sigmoid(logits).numpy()
-        preds = (probs > 0.5).astype(int)
+
+        # Flatten explicitly to avoid shape ambiguity during parquet export
+        pred_prob_up = np.asarray(probs).reshape(-1).astype("float64")
+
+        preds = (pred_prob_up > 0.5).astype(int)
 
     logging.info(f"pred_positive_rate_test: {preds.mean():.3f}")
 
@@ -205,6 +219,7 @@ def main():
     metrics["n"] = len(y_test)
 
     logging.info("=== Test metrics ===")
+
     for k, v in metrics.items():
         logging.info(f"{k}: {v}")
 
@@ -212,44 +227,75 @@ def main():
     # Export per-run prediction artifact (parquet + manifest)
     # ------------------------------------------------------------------
     _scripts_dir = Path(__file__).resolve().parent.parent.parent / "scripts"
+
     if str(_scripts_dir) not in sys.path:
         sys.path.insert(0, str(_scripts_dir))
+
     from write_dl_prediction_artifact import (  # noqa: E402
         write_dl_prediction_artifact,
         PREDICTIONS_DIR_DEFAULT,
     )
 
-    df_test = df.iloc[split:].reset_index(drop=True)
-    pred_prob_up = probs.astype("float64")
+    # Explicit normalization for canonical downstream joins
+    export_pairs = (
+        df_test["pair"]
+        .astype(str)
+        .str.strip()
+        .str.lower()
+    )
+
+    export_entry_time = pd.to_datetime(df_test["entry_time"])
 
     # Integrity checks
-    n_dupes = df_test[["pair", "entry_time"]].duplicated().sum()
+    n_dupes = (
+        pd.DataFrame({
+            "pair": export_pairs,
+            "entry_time": export_entry_time,
+        })
+        .duplicated()
+        .sum()
+    )
+
     assert n_dupes == 0, (
-        f"Duplicate (pair, entry_time) rows in test set: {n_dupes} duplicates found"
+        f"Duplicate (pair, entry_time) rows in test set: "
+        f"{n_dupes} duplicates found"
     )
+
     n_nans = int(np.isnan(pred_prob_up).sum())
+
     assert n_nans == 0, (
-        f"NaN values in pred_prob_up: {n_nans} of {len(pred_prob_up)} rows are NaN"
+        f"NaN values in pred_prob_up: "
+        f"{n_nans} of {len(pred_prob_up)} rows are NaN"
     )
-    for _pair, _grp in df_test.groupby("pair"):
+
+    for _pair, _grp in (
+        pd.DataFrame({
+            "pair": export_pairs,
+            "entry_time": export_entry_time,
+        })
+        .groupby("pair")
+    ):
         _et = pd.to_datetime(_grp["entry_time"])
+
         assert _et.is_monotonic_increasing, (
             f"Non-monotonic entry_time for pair {_pair!r}"
         )
 
     pred_df = pd.DataFrame({
-        "pair": df_test["pair"].values,
-        "entry_time": pd.to_datetime(df_test["entry_time"]),
+        "pair": export_pairs.values,
+        "entry_time": export_entry_time.values,
         "pred_prob_up": pred_prob_up,
     })
 
     dl_regime = args.regime if args.regime else "MIXED"
+
     identity = {
-        "model": "MLP",
+        "model": "mlp",
         "dl_regime": dl_regime,
         "target_horizon": args.target_horizon,
         "feature_set": args.feature_set,
     }
+
     provenance = {
         "dataset_version": args.dataset_version,
     }
@@ -260,6 +306,7 @@ def main():
         provenance=provenance,
         output_dir=PREDICTIONS_DIR_DEFAULT,
     )
+
     logging.info("artifact_parquet: %s", pq_path)
     logging.info("artifact_manifest: %s", mf_path)
 
