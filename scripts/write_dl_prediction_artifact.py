@@ -105,7 +105,27 @@ from build_dl_signal_artifact import (  # noqa: E402
     _normalize_pair,
 )
 
-# Per-run parquet: time-series payload only (no identity columns)
+# ---------------------------------------------------------------------------
+# Per-run parquet schema (v1)
+#
+# IMPORTANT: market-phase-ml filters surfaces directly from parquet row
+# columns, so the identity columns MUST be physically present in the parquet.
+# ---------------------------------------------------------------------------
+
+REQUIRED_PARQUET_COLS = [
+    "pair",
+    "entry_time",
+    "pred_prob_up",
+    "signal_strength",
+    "prediction_timestamp",
+    "model",
+    "dl_regime",
+    "target_horizon",
+    "feature_set",
+]
+
+# Legacy payload-only schema (kept for backward compatibility in code paths
+# that rely on the old constant name).
 RUN_PARQUET_COLS = [
     "pair",
     "entry_time",
@@ -191,7 +211,7 @@ def _build_run_payload(df: pd.DataFrame) -> pd.DataFrame:
             result["prediction_timestamp"]
         )
 
-    # Add any missing columns as NaN
+    # Add any missing columns as NaN (payload-only optional fields)
     for col in RUN_PARQUET_COLS:
         if col not in result.columns:
             result[col] = np.nan
@@ -220,6 +240,7 @@ def _validate_identity(identity: dict) -> None:
     # dl_regime should be from the known taxonomy (warn only)
     if identity["dl_regime"] not in VALID_DL_REGIMES:
         import warnings
+
         warnings.warn(
             f"dl_regime={identity['dl_regime']!r} is not in the known producer taxonomy "
             f"{sorted(VALID_DL_REGIMES)}. This run artifact will still be written.",
@@ -350,6 +371,43 @@ def _make_run_id(identity: dict) -> str:
     return f"{model}__{regime}__{horizon}__{fset}__{ts}"
 
 
+def _attach_identity_columns(payload: pd.DataFrame, identity: dict) -> pd.DataFrame:
+    """
+    Attach surface identity columns to each payload row.
+
+    This is required so downstream consumers (market-phase-ml) can filter
+    the artifact by exact-match on these row-level identity columns.
+    """
+    out = payload.copy()
+    out["model"] = str(identity["model"])
+    out["dl_regime"] = str(identity["dl_regime"])
+    out["feature_set"] = str(identity["feature_set"])
+
+    # Ensure target_horizon is numeric Int64 (nullable integer) for stable parquet schema.
+    out["target_horizon"] = pd.array([int(identity["target_horizon"])] * len(out), dtype="Int64")
+    return out
+
+
+def _coerce_required_dtypes(df: pd.DataFrame) -> pd.DataFrame:
+    """Coerce required column dtypes to ensure a stable parquet schema."""
+    out = df.copy()
+
+    # entry_time must be datetime64[ns] (tz-naive UTC)
+    out["entry_time"] = _normalize_entry_time(out["entry_time"])
+
+    # prediction_timestamp must survive as datetime64[ns]
+    out["prediction_timestamp"] = _normalize_entry_time(out["prediction_timestamp"])
+
+    # numeric coercions
+    out["pred_prob_up"] = pd.to_numeric(out["pred_prob_up"], errors="raise").astype("float64")
+    out["signal_strength"] = pd.to_numeric(out["signal_strength"], errors="raise").astype("float64")
+
+    # target_horizon must be nullable Int64
+    out["target_horizon"] = pd.to_numeric(out["target_horizon"], errors="raise").astype("Int64")
+
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -375,8 +433,11 @@ def write_dl_prediction_artifact(
         DataFrame with at minimum: ``entry_time``, ``pair``, ``pred_prob_up``.
         Optional columns: ``pred_direction``, ``confidence``,
         ``prediction_timestamp``.
-        Identity columns (``model``, ``dl_regime``, etc.) must NOT be present
-        in ``df``; they are provided via ``identity`` and ``provenance``.
+
+        IMPORTANT (v1 downstream constraint):
+        The written parquet MUST contain surface identity columns
+        (model, dl_regime, target_horizon, feature_set) so that consumers can
+        filter surfaces directly from parquet rows.
     identity:
         Required operational signal identity::
 
@@ -436,14 +497,29 @@ def write_dl_prediction_artifact(
     parquet_path = output_dir / f"{run_id}.parquet"
     manifest_path = output_dir / f"{run_id}.manifest.json"
 
-    # Build payload
+    # Build payload (time-series columns)
     payload = _build_run_payload(df)
 
+    # Attach identity columns (required for downstream surface filtering)
+    artifact_df = _attach_identity_columns(payload, identity)
+
+    # Enforce stable deterministic schema & order
+    artifact_df = _coerce_required_dtypes(artifact_df)
+
+    missing_cols = [c for c in REQUIRED_PARQUET_COLS if c not in artifact_df.columns]
+    if missing_cols:
+        raise ValueError(f"Internal error: artifact missing required parquet columns: {missing_cols}")
+
+    artifact_df = artifact_df[REQUIRED_PARQUET_COLS]
+
+    # Debug print required by MPML integration troubleshooting
+    print("artifact_columns:", sorted(artifact_df.columns.tolist()))
+
     # Write parquet
-    payload.to_parquet(parquet_path, index=False)
+    artifact_df.to_parquet(parquet_path, index=False)
     print(f"Wrote parquet:  {parquet_path.resolve()}")
 
-    # Build and write manifest
+    # Build and write manifest (unchanged behavior; uses payload-only DF)
     manifest = _build_run_manifest(
         payload,
         identity,
@@ -571,5 +647,6 @@ if __name__ == "__main__":
     print(f"  Parquet:  {pq_path}")
     print(f"  Manifest: {mf_path}")
 
+# Backwards-compatible aliases kept (as present in original file).
 PIP_PREDICTIONS_DIR_DEFAULT = PREDICTIONS_DIR_DEFAULT
 pipPREDICTIONS_DIR_DEFAULT = PREDICTIONS_DIR_DEFAULT
