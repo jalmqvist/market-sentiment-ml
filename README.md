@@ -247,6 +247,47 @@ to:
 
 ---
 
+## Export DL predictions for market-phase-ml
+
+### A) Train + export predictions
+
+`train.py` exports a per-run DL prediction artifact (parquet + manifest) that
+`market-phase-ml` can consume.
+
+Example:
+
+```bash
+python -m research.deep_learning.train \
+  --dataset-version 1.3.2 \
+  --pairs EURUSD \
+  --regime LVTF \
+  --target-horizon 24 \
+  --feature-set price_trend \
+  --export-after-year 2010 \
+  --export-split all \
+  --export-after-year 2019 \
+  --export-before-year 2024
+```
+
+Artifacts are written under:
+- `data/output/dl_predictions/<run_id>.parquet`
+- `data/output/dl_predictions/<run_id>.manifest.json`
+
+### B) Use artifact in market-phase-ml
+
+```bash
+export DL_SIGNALS_ENABLED=true
+export DL_PREDICTION_ARTIFACT_PATH=../market-sentiment-ml/data/output/dl_predictions/<run_id>.parquet
+python -u main.py
+```
+
+Notes:
+- MPML performs H1→D1 aggregation internally.
+- Surface config must match the artifact identity (`model`, `dl_regime`, `target_horizon`, `feature_set`).
+- Sparse/partial DL coverage is acceptable in v1 (MPML falls back to baseline per pair when coverage is zero).
+
+---
+
 ## DL Signal Artifact (DL → market-phase-ml Integration)
 
 The DL inference outputs are exported as versioned per-run artifacts and
