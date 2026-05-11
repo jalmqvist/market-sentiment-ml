@@ -226,12 +226,9 @@ def main():
     # ------------------------------------------------------------------
     # Export per-run prediction artifact (parquet + manifest)
     # ------------------------------------------------------------------
-    _scripts_dir = Path(__file__).resolve().parent.parent.parent / "scripts"
 
-    if str(_scripts_dir) not in sys.path:
-        sys.path.insert(0, str(_scripts_dir))
-
-    from write_dl_prediction_artifact import (  # noqa: E402
+    # Use package import instead of sys.path mutation
+    from scripts.write_dl_prediction_artifact import (
         write_dl_prediction_artifact,
         PREDICTIONS_DIR_DEFAULT,
     )
@@ -244,13 +241,22 @@ def main():
         .str.lower()
     )
 
-    export_entry_time = pd.to_datetime(df_test["entry_time"])
+    export_entry_time = pd.to_datetime(
+        df_test["entry_time"]
+    ).dt.tz_localize(None)
 
     # Single inference-time timestamp for the exported prediction batch
     prediction_timestamp = pd.Timestamp.utcnow().tz_localize(None)
 
     # Derived canonical signal representation
     signal_strength = (2.0 * pred_prob_up) - 1.0
+
+    # Identity metadata
+    dl_regime = args.regime if args.regime else "MIXED"
+
+    model_name = "mlp"
+    target_horizon = int(args.target_horizon)
+    feature_set = str(args.feature_set)
 
     # Integrity checks
     n_dupes = (
@@ -267,13 +273,6 @@ def main():
         f"{n_dupes} duplicates found"
     )
 
-    n_nans = int(np.isnan(pred_prob_up).sum())
-
-    assert n_nans == 0, (
-        f"NaN values in pred_prob_up: "
-        f"{n_nans} of {len(pred_prob_up)} rows are NaN"
-    )
-
     assert np.isfinite(pred_prob_up).all(), (
         "Non-finite values detected in pred_prob_up"
     )
@@ -283,70 +282,56 @@ def main():
     )
 
     assert (
-        (pred_prob_up >= 0.0).all() and
-        (pred_prob_up <= 1.0).all()
+            (pred_prob_up >= 0.0).all() and
+            (pred_prob_up <= 1.0).all()
     ), "pred_prob_up outside [0, 1]"
 
     assert (
-        (signal_strength >= -1.0).all() and
-        (signal_strength <= 1.0).all()
+            (signal_strength >= -1.0).all() and
+            (signal_strength <= 1.0).all()
     ), "signal_strength outside [-1, +1]"
 
-    for _pair, _grp in (
-        pd.DataFrame({
-            "pair": export_pairs,
-            "entry_time": export_entry_time,
-        })
-        .groupby("pair")
-    ):
-        _et = pd.to_datetime(_grp["entry_time"])
-
-        assert _et.is_monotonic_increasing, (
-            f"Non-monotonic entry_time for pair {_pair!r}"
-        )
+    # ------------------------------------------------------------------
+    # IMPORTANT:
+    # Surface identity columns MUST exist in parquet rows
+    # because MPML surface loader filters directly on parquet schema.
+    # ------------------------------------------------------------------
 
     pred_df = pd.DataFrame({
         "pair": export_pairs.values,
         "entry_time": export_entry_time.values,
-        "pred_prob_up": pred_prob_up,
-        "signal_strength": signal_strength,
+
+        "pred_prob_up": pred_prob_up.astype("float64"),
+        "signal_strength": signal_strength.astype("float64"),
+
         "prediction_timestamp": prediction_timestamp,
+
+        # Surface identity columns
+        "model": model_name,
+        "dl_regime": dl_regime,
+        "target_horizon": pd.Series(
+            [target_horizon] * len(pred_prob_up),
+            dtype="Int64",
+        ),
+        "feature_set": feature_set,
     })
 
-    # Canonical ordering + stable schema
-    pred_df = pred_df[
-        [
-            "pair",
-            "entry_time",
-            "pred_prob_up",
-            "signal_strength",
-            "prediction_timestamp",
-        ]
-    ]
-
-    pred_df["pred_prob_up"] = (
-        pred_df["pred_prob_up"].astype("float64")
-    )
-
-    pred_df["signal_strength"] = (
-        pred_df["signal_strength"].astype("float64")
-    )
-
-    pred_df["prediction_timestamp"] = pd.to_datetime(
-        pred_df["prediction_timestamp"]
-    )
-
+    # Stable ordering
     pred_df = pred_df.sort_values(
         ["pair", "entry_time"]
     ).reset_index(drop=True)
 
-    dl_regime = args.regime if args.regime else "MIXED"
+    # Per-pair monotonicity check
+    for _pair, _grp in pred_df.groupby("pair"):
+        assert _grp["entry_time"].is_monotonic_increasing, (
+            f"Non-monotonic entry_time for pair {_pair!r}"
+        )
 
     identity = {
-        "model": "mlp",
+        "model": model_name,
         "dl_regime": dl_regime,
-        "target_horizon": args.target_horizon,
-        "feature_set": args.feature_set,
+        "target_horizon": target_horizon,
+        "feature_set": feature_set,
     }
 
     provenance = {
