@@ -79,6 +79,38 @@ def main():
     parser.add_argument("--regime", type=str)
     parser.add_argument("--target-horizon", type=int, default=24)
     parser.add_argument("--label-quantile", type=float, default=0.5)
+    parser.add_argument(
+        "--export-after-year",
+        type=int,
+        default=None,
+        help=(
+            "Optional export-only filter: keep only prediction rows with entry_time.year "
+            ">= this year when writing parquet artifacts. Does NOT affect training, "
+            "validation, metrics, or test split."
+        ),
+    )
+    parser.add_argument(
+        "--export-before-year",
+        type=int,
+        default=None,
+        help=(
+            "Optional export-only filter: keep only prediction rows with entry_time.year "
+            "<= this year when writing parquet artifacts. Does NOT affect training, "
+            "validation, metrics, or test split."
+        ),
+    )
+    parser.add_argument(
+        "--export-split",
+        choices=["test", "all"],
+        default="test",
+        help=(
+            "Which split to export predictions for. "
+            "'test' exports only the held-out test split (current behavior). "
+            "'all' exports predictions for the full filtered dataset (train+test) "
+            "for proof-of-integration overlap. Training and evaluation behavior "
+            "remain unchanged."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -185,7 +217,7 @@ def main():
     logging.info(f"pos_weight: {pos_weight.item():.3f}")
 
     # Train
-    model = MLP(X.shape[1], args.hidden_dim)
+    model = MLP(X_train.shape[1], args.hidden_dim)
 
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
     loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
@@ -205,13 +237,20 @@ def main():
             logging.info(f"epoch {epoch+1}/{args.epochs} loss={loss.item():.6f}")
 
     with torch.no_grad():
-        logits = model(torch.tensor(X_test))
-        probs = torch.sigmoid(logits).numpy()
+        # --- Test probabilities (used for metrics; unchanged behavior) ---
+        logits_test = model(torch.tensor(X_test))
+        probs_test = torch.sigmoid(logits_test).numpy()
+        pred_prob_up_test = np.asarray(probs_test).reshape(-1).astype("float64")
 
-        # Flatten explicitly to avoid parquet/object dtype ambiguity
-        pred_prob_up = np.asarray(probs).reshape(-1).astype("float64")
+        # Binary predictions for test metrics
+        preds = (pred_prob_up_test > 0.5).astype(int)
 
-        preds = (pred_prob_up > 0.5).astype(int)
+        # --- Full-dataset probabilities (export-only option; does NOT affect metrics) ---
+        # Build normalized full matrix using the SAME train-derived mean/std.
+        X_all_norm = (X - mean) / std
+        logits_all = model(torch.tensor(X_all_norm.astype("float32")))
+        probs_all = torch.sigmoid(logits_all).numpy()
+        pred_prob_up_all = np.asarray(probs_all).reshape(-1).astype("float64")
 
     logging.info(f"pred_positive_rate_test: {preds.mean():.3f}")
 
@@ -233,23 +272,36 @@ def main():
         PREDICTIONS_DIR_DEFAULT,
     )
 
+    # ------------------------------------------------------------------
+    # Choose export frame (export-only; training/eval unchanged)
+    # ------------------------------------------------------------------
+    if args.export_split == "all":
+        export_meta_df = df.copy().reset_index(drop=True)
+        export_pred_prob_up = pred_prob_up_all
+        logging.info("[export] export_split=all (train+test)")
+    else:
+        export_meta_df = df_test.copy().reset_index(drop=True)
+        export_pred_prob_up = pred_prob_up_test
+        logging.info("[export] export_split=test (held-out test only)")
+
     # Explicit normalization for canonical downstream joins
     export_pairs = (
-        df_test["pair"]
+        export_meta_df["pair"]
         .astype(str)
         .str.strip()
         .str.lower()
     )
 
     export_entry_time = pd.to_datetime(
-        df_test["entry_time"]
+        export_meta_df["entry_time"]
     ).dt.tz_localize(None)
 
     # Single inference-time timestamp for the exported prediction batch
-    prediction_timestamp = pd.Timestamp.utcnow().tz_localize(None)
+    # (avoid deprecated Timestamp.utcnow)
+    prediction_timestamp = pd.Timestamp.now("UTC").tz_localize(None)
 
     # Derived canonical signal representation
-    signal_strength = (2.0 * pred_prob_up) - 1.0
+    signal_strength = (2.0 * export_pred_prob_up) - 1.0
 
     # Identity metadata
     dl_regime = args.regime if args.regime else "MIXED"
@@ -258,7 +310,7 @@ def main():
     target_horizon = int(args.target_horizon)
     feature_set = str(args.feature_set)
 
-    # Integrity checks
+    # Integrity checks (export scope)
     n_dupes = (
         pd.DataFrame({
             "pair": export_pairs,
@@ -269,11 +321,11 @@ def main():
     )
 
     assert n_dupes == 0, (
-        f"Duplicate (pair, entry_time) rows in test set: "
+        f"Duplicate (pair, entry_time) rows in export set: "
         f"{n_dupes} duplicates found"
     )
 
-    assert np.isfinite(pred_prob_up).all(), (
+    assert np.isfinite(export_pred_prob_up).all(), (
         "Non-finite values detected in pred_prob_up"
     )
 
@@ -282,8 +334,8 @@ def main():
     )
 
     assert (
-            (pred_prob_up >= 0.0).all() and
-            (pred_prob_up <= 1.0).all()
+            (export_pred_prob_up >= 0.0).all() and
+            (export_pred_prob_up <= 1.0).all()
     ), "pred_prob_up outside [0, 1]"
 
     assert (
@@ -296,12 +348,11 @@ def main():
     # Surface identity columns MUST exist in parquet rows
     # because MPML surface loader filters directly on parquet schema.
     # ------------------------------------------------------------------
-
     pred_df = pd.DataFrame({
         "pair": export_pairs.values,
         "entry_time": export_entry_time.values,
 
-        "pred_prob_up": pred_prob_up.astype("float64"),
+        "pred_prob_up": export_pred_prob_up.astype("float64"),
         "signal_strength": signal_strength.astype("float64"),
 
         "prediction_timestamp": prediction_timestamp,
@@ -310,7 +361,7 @@ def main():
         "model": model_name,
         "dl_regime": dl_regime,
         "target_horizon": pd.Series(
-            [target_horizon] * len(pred_prob_up),
+            [target_horizon] * len(export_pred_prob_up),
             dtype="Int64",
         ),
         "feature_set": feature_set,
@@ -338,6 +389,43 @@ def main():
         "dataset_version": args.dataset_version,
     }
 
+    # --- Export-only window filter (does not affect training/eval/metrics) ---
+    if (args.export_after_year is not None) or (args.export_before_year is not None):
+        if "entry_time" not in pred_df.columns:
+            raise ValueError("pred_df missing required column 'entry_time' for export-year filtering")
+
+        pred_df["entry_time"] = pd.to_datetime(pred_df["entry_time"])
+        before = len(pred_df)
+
+        export_mask = pd.Series(True, index=pred_df.index)
+
+        if args.export_after_year is not None:
+            export_mask &= (pred_df["entry_time"].dt.year >= int(args.export_after_year))
+
+        if args.export_before_year is not None:
+            export_mask &= (pred_df["entry_time"].dt.year <= int(args.export_before_year))
+
+        pred_df = pred_df.loc[export_mask].copy()
+        after = len(pred_df)
+
+        print(
+            f"[export] export_after_year={args.export_after_year} "
+            f"export_before_year={args.export_before_year} rows: {before:,} -> {after:,}"
+        )
+
+        if len(pred_df) == 0:
+            raise ValueError(
+                "Export produced 0 rows after export filters. "
+                "Adjust export window or export split."
+            )
+
+    logging.info(
+        "[export] pred_df rows=%s pairs=%s entry_time_range=%s -> %s",
+        len(pred_df),
+        pred_df["pair"].nunique(),
+        pred_df["entry_time"].min(),
+        pred_df["entry_time"].max(),
+    )
     pq_path, mf_path = write_dl_prediction_artifact(
         df=pred_df,
         identity=identity,

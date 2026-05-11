@@ -515,6 +515,15 @@ def write_dl_prediction_artifact(
     # Debug print required by MPML integration troubleshooting
     print("artifact_columns:", sorted(artifact_df.columns.tolist()))
 
+    # Compact artifact diagnostics for overlap debugging
+    et_min = artifact_df["entry_time"].min()
+    et_max = artifact_df["entry_time"].max()
+    pairs_n = int(artifact_df["pair"].nunique())
+    print("artifact_entry_time_range:")
+    print(f"{et_min} -> {et_max}")
+    print(f"artifact_row_count: {len(artifact_df):,}")
+    print(f"artifact_unique_pairs: {pairs_n:,}")
+
     # Write parquet
     artifact_df.to_parquet(parquet_path, index=False)
     print(f"Wrote parquet:  {parquet_path.resolve()}")
