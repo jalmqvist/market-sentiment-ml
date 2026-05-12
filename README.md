@@ -2,6 +2,11 @@
 
 A quantitative research project studying whether retail FX sentiment contains predictive signal.
 
+> [!NOTE]
+>
+> **Current status (integration): v1 MSML → MPML DL artifact export is live (proof-of-concept complete).**  
+> This repo can export per-run H1 DL prediction artifacts consumed by `market-phase-ml`, where they are aggregated to D1 and joined as an optional feature layer. Sparse/partial coverage is expected in v1.
+
 ---
 
 ## Executive Summary
@@ -13,7 +18,7 @@ Extensive experimentation with strict validation leads to the following:
 
 - Raw retail sentiment = noise
 - Pipeline-based signals (V20–V21) were invalidated (artifacts)
-- Price-based signals show small but stable predictive power (~0.14 Sharpe)
+- Price-based signals show small but stable predictive power (~0.14 Sharpe)``
 - Sentiment provides **no additive value in static models**
 
 ### Updated Finding (DL v3 — Controlled Experiments)
@@ -38,12 +43,12 @@ Observed performance:
 
 ### Regime hierarchy (empirical)
 
-| Regime | Signal strength |
-| --- | --- |
-| LVTF (low-vol trend) | ✅ strongest, stable |
-| HVR (high-vol range) | ⚠ moderate — **volatility/stability is the missing gating variable** |
-| LVR (low-vol range) | ⚠ unstable / sparse |
-| HVTF (high-vol trend) | ❌ weak / near-random |
+| Regime                | Signal strength                                              |
+| --------------------- | ------------------------------------------------------------ |
+| LVTF (low-vol trend)  | ✅ strongest, stable                                          |
+| HVR (high-vol range)  | ⚠ moderate — **volatility/stability is the missing gating variable** |
+| LVR (low-vol range)   | ⚠ unstable / sparse                                          |
+| HVTF (high-vol trend) | ❌ weak / near-random                                         |
 
 ---
 
@@ -180,7 +185,7 @@ Vary only a few core parameters at a time:
 
 ### 3) Explain pair differences as regimes, not errors
 
-Some pairs (e.g. GBP-JPY) naturally live in negative regimes for long stretches. Treat `pct_time_negative` as a **diagnostic** (what regime is the market in?) rather than a universal failure condition.
+Some pairs (e.g. GBP-JPY) naturally live in negative regimes for long stretches. Treat `pct_time_negative` as a **diagnostic** (what regime is the market in?) rather than a universal failure condition[...]
 
 ---
 
@@ -202,14 +207,14 @@ Some pairs (e.g. GBP-JPY) naturally live in negative regimes for long stretches.
 
 ## Core Findings
 
-| Component | Status |
-| --- | --- |
-| Raw sentiment | ❌ noise |
-| Additive sentiment | ❌ no value |
-| Price signal | ✅ stable |
-| DL signal | ⚠ weak, conditional |
-| Regime dependence | ✅ strong |
-| Pair dependence | ⚠ secondary |
+| Component          | Status              |
+| ------------------ | ------------------- |
+| Raw sentiment      | ❌ noise             |
+| Additive sentiment | ❌ no value          |
+| Price signal       | ✅ stable            |
+| DL signal          | ⚠ weak, conditional |
+| Regime dependence  | ✅ strong            |
+| Pair dependence    | ⚠ secondary         |
 
 ---
 
@@ -247,14 +252,27 @@ to:
 
 ---
 
-## Export DL predictions for market-phase-ml
+## MSML → MPML integration (DL prediction artifacts, v1)
+
+**Status:** live (proof-of-concept complete).  
+This repo exports per-run H1 DL prediction artifacts consumed by `market-phase-ml`, where they are aggregated (H1→D1) and joined as numeric features.
+
+### What works (v1)
+- Per-run artifact export (`data/output/dl_predictions/*.parquet` + `*.manifest.json`)
+- Surface identity embedded in parquet rows: `model`, `dl_regime`, `target_horizon`, `feature_set`
+- Export window controls to produce MPML-overlapping artifacts:
+  - `--export-split {test,all}` (default `test`)
+  - `--export-after-year YEAR` / `--export-before-year YEAR` (export-only filtering)
+- Artifact diagnostics printed at export time (row count, unique pairs, entry_time range)
+
+### Known limitations (v1)
+- Coverage can be sparse depending on regime/pair/date overlap; this is expected in v1
+- Single-surface artifacts (no multi-surface ensembles here; MPML selects a single surface per run)
+- Regime filtering is explicit (`--regime LVTF|HVTF|HVR|LVR`); no “all-regime” export mode in v1
 
 ### A) Train + export predictions
 
-`train.py` exports a per-run DL prediction artifact (parquet + manifest) that
-`market-phase-ml` can consume.
-
-Example:
+Example (produces an artifact that overlaps MPML’s typical 2005–2024 D1 window):
 
 ```bash
 python -m research.deep_learning.train \
@@ -263,7 +281,6 @@ python -m research.deep_learning.train \
   --regime LVTF \
   --target-horizon 24 \
   --feature-set price_trend \
-  --export-after-year 2010 \
   --export-split all \
   --export-after-year 2019 \
   --export-before-year 2024
@@ -284,7 +301,7 @@ python -u main.py
 Notes:
 - MPML performs H1→D1 aggregation internally.
 - Surface config must match the artifact identity (`model`, `dl_regime`, `target_horizon`, `feature_set`).
-- Sparse/partial DL coverage is acceptable in v1 (MPML falls back to baseline per pair when coverage is zero).
+- Sparse/partial DL coverage is acceptable in v1 (MPML falls back per pair when coverage is zero).
 
 ---
 
@@ -309,9 +326,9 @@ python scripts/write_dl_prediction_artifact.py \
 
 Produces for each run:
 
-| Path | Description |
-|---|---|
-| `data/output/dl_predictions/{run_id}.parquet` | Time-series payload (pair, entry_time, pred_prob_up, signal_strength, …) |
+| Path                                                | Description                                                  |
+| --------------------------------------------------- | ------------------------------------------------------------ |
+| `data/output/dl_predictions/{run_id}.parquet`       | Time-series payload (pair, entry_time, pred_prob_up, signal_strength, …) |
 | `data/output/dl_predictions/{run_id}.manifest.json` | Identity + provenance (model, dl_regime, target_horizon, feature_set, calibration, …) |
 
 **Step 2 — Consolidation** (builds the operational cube from all per-run artifacts):
@@ -324,25 +341,25 @@ python scripts/consolidate_dl_predictions.py \
 
 Produces:
 
-| Path | Description |
-|---|---|
-| `data/output/dl_signals/dl_signals_h1_v1.parquet` | Consolidated DL signal cube |
-| `data/output/dl_signals/DL_SIGNAL_MANIFEST_h1_v1.json` | Cube manifest and metadata |
+| Path                                                   | Description                 |
+| ------------------------------------------------------ | --------------------------- |
+| `data/output/dl_signals/dl_signals_h1_v1.parquet`      | Consolidated DL signal cube |
+| `data/output/dl_signals/DL_SIGNAL_MANIFEST_h1_v1.json` | Cube manifest and metadata  |
 
 ### Schema summary
 
-| Column | Type | Description |
-|---|---|---|
-| `pair` | string | Normalised FX pair (`xxx-yyy`) |
-| `entry_time` | datetime | H1 bar open timestamp (UTC, tz-naive) |
-| `pred_prob_up` | float64 | P(price moves up) ∈ [0, 1] |
-| `signal_strength` | float64 | `2 * pred_prob_up − 1` ∈ [−1, 1] |
-| `pred_direction` | Int64 | Tri-state: +1 (>0.5), −1 (<0.5), 0 (==0.5) |
-| `prediction_timestamp` | datetime | Per-row inference timestamp (optional) |
-| `model` | string | Model identifier (e.g. `MLP`, `LSTM`) |
-| `dl_regime` | string | Producer regime: `HVTF` / `LVTF` / `HVR` / `LVR` |
-| `target_horizon` | Int64 | Prediction horizon in bars (numeric) |
-| `feature_set` | string | Feature set identifier |
+| Column                 | Type     | Description                                      |
+| ---------------------- | -------- | ------------------------------------------------ |
+| `pair`                 | string   | Normalised FX pair (`xxx-yyy`)                   |
+| `entry_time`           | datetime | H1 bar open timestamp (UTC, tz-naive)            |
+| `pred_prob_up`         | float64  | P(price moves up) ∈ [0, 1]                       |
+| `signal_strength`      | float64  | `2 * pred_prob_up − 1` ∈ [−1, 1]                 |
+| `pred_direction`       | Int64    | Tri-state: +1 (>0.5), −1 (<0.5), 0 (==0.5)       |
+| `prediction_timestamp` | datetime | Per-row inference timestamp (optional)           |
+| `model`                | string   | Model identifier (e.g. `MLP`, `LSTM`)            |
+| `dl_regime`            | string   | Producer regime: `HVTF` / `LVTF` / `HVR` / `LVR` |
+| `target_horizon`       | Int64    | Prediction horizon in bars (numeric)             |
+| `feature_set`          | string   | Feature set identifier                           |
 
 Unique key: `(pair, entry_time, model, dl_regime, target_horizon, feature_set)`
 
