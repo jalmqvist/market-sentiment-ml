@@ -370,6 +370,8 @@ These change the **actual simulated behavior** of agents and therefore change th
 - Herding/crowd effect weight
 - Asymmetric reinforcement strength (`ABM_REINFORCE_STRENGTH`, default `3.0`)
 - Volatility-conditioned decay/release (`decay_base`, `decay_volatility_scale`, `decay_clip_max`)
+- Disagree-hold probability (`ABM_DISAGREE_HOLD_PROB`, default `0.7`) — probability to ignore a disagreeing score and keep position (ratchet/lock-in control).
+- Contrarian normalization: contrarian implemented by flipping `signal_sign` in `Contrarian.__init__`, so contrarian behavior is consistent in the normalized signal frame (avoids USD-base double-flip cancellation).
 
 **Rule:** Treat these as model parameters. Tune them only in small, controlled factorial experiments, and record changes in the experiment diary.
 
