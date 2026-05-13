@@ -18,6 +18,10 @@ _REINFORCE_STRENGTH = 3.0
 # evidence with some probability (ratchet). Backward-compatible default = 0.7.
 _DISAGREE_HOLD_PROB = 0.7
 
+# Switching anchor strength (resistance to switching direction).
+# Backward-compatible default = 2.0.
+_ANCHOR_STRENGTH = 2.0
+
 # Stage-2 release mechanism (backward compatible defaults: 0.0)
 _DECAY_BASE = 0.0
 _DECAY_VOLATILITY_SCALE = 0.0
@@ -66,6 +70,7 @@ _ESCAPE_ZERO_COOLDOWN = _env_int("ABM_ESCAPE_ZERO_COOLDOWN", _ESCAPE_ZERO_COOLDO
 
 _REINFORCE_STRENGTH = _env_float("ABM_REINFORCE_STRENGTH", _REINFORCE_STRENGTH)
 _DISAGREE_HOLD_PROB = _clip01(_env_float("ABM_DISAGREE_HOLD_PROB", _DISAGREE_HOLD_PROB))
+_ANCHOR_STRENGTH = _env_float("ABM_ANCHOR_STRENGTH", _ANCHOR_STRENGTH)
 
 
 class RetailTrader:
@@ -164,7 +169,6 @@ class RetailTrader:
                 # Positive feedback when aligned.
                 score += float(_REINFORCE_STRENGTH) * np.sign(self.position)
 
-        _ANCHOR_STRENGTH = 2.0
         _SWITCH_BASE_PROB = 1.0
 
         if abs(score) < _INERTIA_THRESHOLD:
