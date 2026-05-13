@@ -20,7 +20,7 @@ _DISAGREE_HOLD_PROB = 0.7
 
 # Switching anchor strength (resistance to switching direction).
 # Backward-compatible default = 2.0.
-_ANCHOR_STRENGTH = 2.0
+_SWITCHING_ANCHOR_STRENGTH = 2.0
 
 # Stage-2 release mechanism (backward compatible defaults: 0.0)
 _DECAY_BASE = 0.0
@@ -70,7 +70,10 @@ _ESCAPE_ZERO_COOLDOWN = _env_int("ABM_ESCAPE_ZERO_COOLDOWN", _ESCAPE_ZERO_COOLDO
 
 _REINFORCE_STRENGTH = _env_float("ABM_REINFORCE_STRENGTH", _REINFORCE_STRENGTH)
 _DISAGREE_HOLD_PROB = _clip01(_env_float("ABM_DISAGREE_HOLD_PROB", _DISAGREE_HOLD_PROB))
-_ANCHOR_STRENGTH = _env_float("ABM_ANCHOR_STRENGTH", _ANCHOR_STRENGTH)
+_SWITCHING_ANCHOR_STRENGTH = _env_float(
+    "ABM_ANCHOR_STRENGTH",
+    _SWITCHING_ANCHOR_STRENGTH,
+)
 
 
 class RetailTrader:
@@ -197,7 +200,7 @@ class RetailTrader:
             return
 
         # Switching with anchoring
-        anchor_bias = _ANCHOR_STRENGTH * float(self.position)
+        anchor_bias = _SWITCHING_ANCHOR_STRENGTH * float(self.position)
         switch_score = score - anchor_bias
 
         switch_prob = 1.0 / (1.0 + np.exp(-switch_score))
