@@ -15,9 +15,10 @@ Constraints
 - One beta per invocation (no internal loops)
 
 Fixed ABM configuration (per runbook / baseline):
-- trend_ratio = 1.0
-- persistence = 0.20
-- threshold = 0.100
+trend/contrarian/noise = 50/50/0
+persistence = 0.1
+threshold = 0.05
+momentum_window = 3
 
 Metrics
 -------
@@ -92,19 +93,20 @@ def main(argv=None) -> None:
     args = _parse_args(argv)
 
     # Fixed configuration (do not expose as CLI)
-    trend_ratio = 1.0
-    persistence = 0.20
-    threshold = 0.100
+    #
+    # IMPORTANT: This harness is used to test Stage-2 decay in the same regime
+    # where we observed USDJPY absorbing behavior and later unlocked dynamics.
+    # Therefore we fix the population to 50/50 trend vs contrarian, with no noise,
+    # and use a short momentum window (3) consistent with the USDJPY debugging runs.
+    persistence = 0.10
+    threshold = 0.05
     seed = int(args.seed)
-    momentum_window = 12
+    momentum_window = 3
 
-    # Agent population composition (mirrors run_abm defaults: 40+40+20)
-    n_non_noise = 80
-    n_noise = 20
-
-    # With trend_ratio=1.0, all non-noise are trend followers
-    n_trend = int(round(trend_ratio * n_non_noise))
-    n_contrarian = n_non_noise - n_trend
+    # Agent population composition (USDJPY calibration / unlock config)
+    n_trend = 50
+    n_contrarian = 50
+    n_noise = 0
 
     # Save original module constants so we can restore them
     orig_persistence = agents_module._PERSISTENCE_WEIGHT
@@ -116,17 +118,36 @@ def main(argv=None) -> None:
 
     # Fixed decay parameters (per experiment definition)
     decay_base = 0.0
-    decay_clip_max = 0.2
+    decay_clip_max = 0.5
 
     try:
         # Apply fixed ABM parameters
         agents_module._PERSISTENCE_WEIGHT = float(persistence)
         agents_module._INERTIA_THRESHOLD = float(threshold)
+        if args.verbose:
+            print(
+                "[decay_beta_sensitivity] applied abm params:",
+                f"persistence={agents_module._PERSISTENCE_WEIGHT}",
+                f"threshold={agents_module._INERTIA_THRESHOLD}",
+                file=sys.stderr,
+                flush=True,
+            )
 
         # Apply decay parameters
         agents_module._DECAY_BASE = float(decay_base)
         agents_module._DECAY_VOLATILITY_SCALE = float(args.beta)
         agents_module._DECAY_CLIP_MAX = float(decay_clip_max)
+        # --- DEBUG / sanity print (Stage-2 wiring) ---
+        if args.verbose:
+            print(
+                "[decay_beta_sensitivity] applied knobs:",
+                f"beta(decay_vol_scale)={agents_module._DECAY_VOLATILITY_SCALE}",
+                f"decay_base={agents_module._DECAY_BASE}",
+                f"decay_clip_max={agents_module._DECAY_CLIP_MAX}",
+                f"anchor_strength={getattr(agents_module, '_SWITCHING_ANCHOR_STRENGTH', None)}",
+                f"disagree_hold_prob={getattr(agents_module, '_DISAGREE_HOLD_PROB', None)}",
+                f"reinforce_strength={getattr(agents_module, '_REINFORCE_STRENGTH', None)}",
+            )
 
         df, _dataset_path = _load_real_data(args.version, variant="core")
         sub = df[df["pair"] == args.pair].copy().sort_values("entry_time")

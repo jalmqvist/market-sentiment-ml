@@ -372,6 +372,7 @@ These change the **actual simulated behavior** of agents and therefore change th
 - Volatility-conditioned decay/release (`decay_base`, `decay_volatility_scale`, `decay_clip_max`)
 - Disagree-hold probability (`ABM_DISAGREE_HOLD_PROB`, default `0.7`) — probability to ignore a disagreeing score and keep position (ratchet/lock-in control).
 - Contrarian normalization: contrarian implemented by flipping `signal_sign` in `Contrarian.__init__`, so contrarian behavior is consistent in the normalized signal frame (avoids USD-base double-flip cancellation).
+- Anchoring strength (`ABM_ANCHOR_STRENGTH`, default `2.0`) — resistance to switching direction. This is a primary control for absorbing vs dynamic regimes on JPY pairs.
 
 **Rule:** Treat these as model parameters. Tune them only in small, controlled factorial experiments, and record changes in the experiment diary.
 
@@ -412,12 +413,30 @@ Stage‑2 sensitivity work uses:
 
 - `abm_experiments/decay_beta_sensitivity.py`
 
+**Important:** `decay_beta_sensitivity.py` is a *fixed-configuration harness*. It is intentionally not identical to `research/abm/sweep.py`.
+It should be treated as an experiment runner that pins a single configuration and sweeps a single mechanism parameter (`beta`).
+
+Current fixed harness configuration (USDJPY calibration / “unlock” regime):
+- Population: `n_trend=50`, `n_contrarian=50`, `n_noise=0`
+- Momentum window: `momentum_window=3`
+- Fixed ABM parameters: `persistence=0.10`, `threshold=0.05`
+- Mechanism sweep: `beta = decay_volatility_scale` (one beta per invocation)
+- Optional (experiment-only): increasing `decay_clip_max` above `0.2` (e.g. `0.5`) can make volatility-conditioned release more observable on JPY pairs by materially reducing internal position magnitudes (`mean_abs_pos`, `max_abs_pos`) and increasing boundary time (`pct_time_abs_le_20`) without necessarily inducing sign flips.
+
 Verbose diagnostics include near-boundary metrics:
 
 - `pct_time_abs_le_20` — fraction of steps with `|net_sentiment| ≤ 20`
 - `pct_time_negative` — fraction of steps with `net_sentiment < 0`
 
 These were added because sign flips can remain rare even when “release” is working.
+
+##### Where / when this fixed harness configuration was introduced
+
+- The USDJPY calibration fixed configuration above was introduced in:
+  - `abm_experiments/decay_beta_sensitivity.py` (Stage‑2 harness)
+- Rationale:
+  - JPY pairs can enter absorbing regimes under the baseline sweep population and inertia settings.
+  - The 50/50 trend/contrarian, `momentum_window=3`, and reduced inertia (`threshold=0.05`) provide a stable, non-degenerate regime where the effect of Stage‑2 decay can be measured and compared to DL “stability under volatility” findings.
 
 #### Escape defaults (reference)
 
