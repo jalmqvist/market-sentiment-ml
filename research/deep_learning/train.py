@@ -310,19 +310,74 @@ def main():
     target_horizon = int(args.target_horizon)
     feature_set = str(args.feature_set)
 
-    # Integrity checks (export scope)
-    n_dupes = (
-        pd.DataFrame({
-            "pair": export_pairs,
-            "entry_time": export_entry_time,
+    # ------------------------------------------------------------------
+    # Collapse multiple intra-hour sentiment snapshots mapping to the
+    # same (pair, entry_time) H1 bar.
+    #
+    # This preserves the richer internal snapshot-level dataset while
+    # enforcing the DL artifact contract:
+    #
+    #   unique(pair, entry_time)
+    #
+    # We average probabilities/signal strength across snapshots that
+    # fall into the same H1 bar.
+    # ------------------------------------------------------------------
+
+    pred_df = pd.DataFrame({
+        "pair": export_pairs,
+        "entry_time": export_entry_time,
+        "pred_prob_up": export_pred_prob_up.astype("float64"),
+        "signal_strength": signal_strength.astype("float64"),
+        "model": model_name,
+        "feature_set": feature_set,
+        "dl_regime": dl_regime,
+        "target_horizon": target_horizon,
+        "prediction_timestamp": prediction_timestamp,
+    })
+
+    pre_collapse_rows = len(pred_df)
+
+    pred_df = (
+        pred_df
+        .groupby(["pair", "entry_time"], as_index=False)
+        .agg({
+            "pred_prob_up": "mean",
+            "signal_strength": "mean",
+            "model": "first",
+            "feature_set": "first",
+            "dl_regime": "first",
+            "target_horizon": "first",
+            "prediction_timestamp": "first",
         })
+    )
+
+    post_collapse_rows = len(pred_df)
+
+    collapsed_rows = pre_collapse_rows - post_collapse_rows
+
+    if collapsed_rows > 0:
+        logging.warning(
+            "[export] collapsed %d intra-hour duplicate rows "
+            "to enforce unique(pair, entry_time)",
+            collapsed_rows,
+        )
+
+    # Re-extract canonical export arrays after collapse
+    export_pairs = pred_df["pair"]
+    export_entry_time = pred_df["entry_time"]
+    export_pred_prob_up = pred_df["pred_prob_up"].values
+    signal_strength = pred_df["signal_strength"].values
+
+    # Final integrity check
+    n_dupes = (
+        pred_df[["pair", "entry_time"]]
         .duplicated()
         .sum()
     )
 
     assert n_dupes == 0, (
-        f"Duplicate (pair, entry_time) rows in export set: "
-        f"{n_dupes} duplicates found"
+        f"Duplicate (pair, entry_time) rows remain after collapse: "
+        f"{n_dupes}"
     )
 
     assert np.isfinite(export_pred_prob_up).all(), (
