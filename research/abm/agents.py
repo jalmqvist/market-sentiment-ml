@@ -251,12 +251,20 @@ class Contrarian(RetailTrader):
         super().__init__(rng, pair, crowd_weight=crowd_weight, noise_scale=noise_scale)
         self.momentum_window = momentum_window
 
+        # Apply contrarian behavior in the *normalized* signal frame by flipping
+        # signal_sign after the pair-level normalization in RetailTrader.__init__.
+        # This avoids a "double flip" cancellation on USD-base pairs (e.g. usd-jpy),
+        # where RetailTrader sets signal_sign = -1.
+        self.signal_sign *= -1
+
     def _price_signal(self, price_history: np.ndarray) -> float:
+        # Same raw signal as TrendFollower; contrarian-ness is implemented via
+        # flipping self.signal_sign in __init__.
         window = min(self.momentum_window, len(price_history) - 1)
         ret = (price_history[-1] - price_history[-(window + 1)]) / (
             abs(price_history[-(window + 1)]) + 1e-12
         )
-        return -float(np.sign(ret))
+        return float(np.sign(ret))
 
 
 class NoiseTrader(RetailTrader):
