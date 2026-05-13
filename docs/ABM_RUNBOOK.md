@@ -368,9 +368,12 @@ These change the **actual simulated behavior** of agents and therefore change th
 - Persistence weight
 - Inertia threshold
 - Herding/crowd effect weight
+- Asymmetric reinforcement strength (`ABM_REINFORCE_STRENGTH`, default `3.0`)
 - Volatility-conditioned decay/release (`decay_base`, `decay_volatility_scale`, `decay_clip_max`)
 
 **Rule:** Treat these as model parameters. Tune them only in small, controlled factorial experiments, and record changes in the experiment diary.
+
+Note: the agent update includes an asymmetric positive-feedback reinforcement term. Keep `ABM_REINFORCE_STRENGTH=3.0` for baseline reproducibility; only reduce it in controlled diagnostics focused on release/persistence modulation.
 
 ### Diagnostic knobs (measurement)
 
