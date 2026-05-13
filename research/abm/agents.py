@@ -9,6 +9,7 @@ import numpy as np
 _SIGNAL_AMPLIFICATION = 5.0
 _PERSISTENCE_WEIGHT = 0.1
 _INERTIA_THRESHOLD = 0.05
+_REINFORCE_STRENGTH = 3.0
 
 # Stage-2 release mechanism (backward compatible defaults: 0.0)
 _DECAY_BASE = 0.0
@@ -47,6 +48,8 @@ if "ABM_ESCAPE_ZERO_PROB" in os.environ:
     _ESCAPE_ZERO_PROB = float(os.environ["ABM_ESCAPE_ZERO_PROB"])
 if "ABM_ESCAPE_ZERO_COOLDOWN" in os.environ:
     _ESCAPE_ZERO_COOLDOWN = int(float(os.environ["ABM_ESCAPE_ZERO_COOLDOWN"]))
+if "ABM_REINFORCE_STRENGTH" in os.environ:
+    _REINFORCE_STRENGTH = float(os.environ["ABM_REINFORCE_STRENGTH"])
 
 
 class RetailTrader:
@@ -173,7 +176,7 @@ class RetailTrader:
                 if self.rng.random() < 0.7:
                     return
             else:
-                score += 3.0 * np.sign(self.position)
+                score += _REINFORCE_STRENGTH * np.sign(self.position)
 
         _ANCHOR_STRENGTH = 2.0
         _SWITCH_BASE_PROB = 1.0
