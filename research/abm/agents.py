@@ -9,7 +9,14 @@ import numpy as np
 _SIGNAL_AMPLIFICATION = 5.0
 _PERSISTENCE_WEIGHT = 0.1
 _INERTIA_THRESHOLD = 0.05
+
+# Asymmetric reinforcement strength (positive feedback when already aligned).
+# Backward-compatible default = 3.0.
 _REINFORCE_STRENGTH = 3.0
+
+# When score disagrees with current position, agents may "hold" and ignore the
+# evidence with some probability (ratchet). Backward-compatible default = 0.7.
+_DISAGREE_HOLD_PROB = 0.7
 
 # Stage-2 release mechanism (backward compatible defaults: 0.0)
 _DECAY_BASE = 0.0
@@ -17,18 +24,6 @@ _DECAY_VOLATILITY_SCALE = 0.0
 _DECAY_CLIP_MAX = 0.2
 
 # Stage-3 regime escape / de-alignment (backward compatible defaults: disabled)
-# These parameters implement a minimal "escape" mechanism to prevent long-lived
-# one-sided herd states. When the crowd is sufficiently one-sided (|crowd_sentiment|
-# above a threshold), agents have a small probability of partially de-aligning
-# (shrinking their accumulated position magnitude). Defaults keep this off.
-#
-# For experiment convenience, these can be overridden via environment variables:
-# - ABM_ESCAPE_PROB_SAT
-# - ABM_ESCAPE_SAT_THRESHOLD
-# - ABM_ESCAPE_SHRINK_FACTOR
-# - ABM_ESCAPE_FLIP_PROB
-# - ABM_ESCAPE_ZERO_PROB
-# - ABM_ESCAPE_ZERO_COOLDOWN
 _ESCAPE_PROB_SAT = 0.0
 _ESCAPE_SAT_THRESHOLD = 0.7
 _ESCAPE_SHRINK_FACTOR = 0.5
@@ -36,20 +31,41 @@ _ESCAPE_FLIP_PROB = 0.0
 _ESCAPE_ZERO_PROB = 0.0
 _ESCAPE_ZERO_COOLDOWN = 6
 
-if "ABM_ESCAPE_PROB_SAT" in os.environ:
-    _ESCAPE_PROB_SAT = float(os.environ["ABM_ESCAPE_PROB_SAT"])
-if "ABM_ESCAPE_SAT_THRESHOLD" in os.environ:
-    _ESCAPE_SAT_THRESHOLD = float(os.environ["ABM_ESCAPE_SAT_THRESHOLD"])
-if "ABM_ESCAPE_SHRINK_FACTOR" in os.environ:
-    _ESCAPE_SHRINK_FACTOR = float(os.environ["ABM_ESCAPE_SHRINK_FACTOR"])
-if "ABM_ESCAPE_FLIP_PROB" in os.environ:
-    _ESCAPE_FLIP_PROB = float(os.environ["ABM_ESCAPE_FLIP_PROB"])
-if "ABM_ESCAPE_ZERO_PROB" in os.environ:
-    _ESCAPE_ZERO_PROB = float(os.environ["ABM_ESCAPE_ZERO_PROB"])
-if "ABM_ESCAPE_ZERO_COOLDOWN" in os.environ:
-    _ESCAPE_ZERO_COOLDOWN = int(float(os.environ["ABM_ESCAPE_ZERO_COOLDOWN"]))
-if "ABM_REINFORCE_STRENGTH" in os.environ:
-    _REINFORCE_STRENGTH = float(os.environ["ABM_REINFORCE_STRENGTH"])
+
+def _env_float(name: str, default: float) -> float:
+    v = os.environ.get(name)
+    if v is None:
+        return float(default)
+    try:
+        return float(v)
+    except ValueError:
+        return float(default)
+
+
+def _env_int(name: str, default: int) -> int:
+    v = os.environ.get(name)
+    if v is None:
+        return int(default)
+    try:
+        return int(float(v))
+    except ValueError:
+        return int(default)
+
+
+def _clip01(x: float) -> float:
+    return float(np.clip(float(x), 0.0, 1.0))
+
+
+# Environment overrides (optional)
+_ESCAPE_PROB_SAT = _env_float("ABM_ESCAPE_PROB_SAT", _ESCAPE_PROB_SAT)
+_ESCAPE_SAT_THRESHOLD = _env_float("ABM_ESCAPE_SAT_THRESHOLD", _ESCAPE_SAT_THRESHOLD)
+_ESCAPE_SHRINK_FACTOR = _env_float("ABM_ESCAPE_SHRINK_FACTOR", _ESCAPE_SHRINK_FACTOR)
+_ESCAPE_FLIP_PROB = _env_float("ABM_ESCAPE_FLIP_PROB", _ESCAPE_FLIP_PROB)
+_ESCAPE_ZERO_PROB = _env_float("ABM_ESCAPE_ZERO_PROB", _ESCAPE_ZERO_PROB)
+_ESCAPE_ZERO_COOLDOWN = _env_int("ABM_ESCAPE_ZERO_COOLDOWN", _ESCAPE_ZERO_COOLDOWN)
+
+_REINFORCE_STRENGTH = _env_float("ABM_REINFORCE_STRENGTH", _REINFORCE_STRENGTH)
+_DISAGREE_HOLD_PROB = _clip01(_env_float("ABM_DISAGREE_HOLD_PROB", _DISAGREE_HOLD_PROB))
 
 
 class RetailTrader:
@@ -84,24 +100,6 @@ class RetailTrader:
         raise NotImplementedError
 
     def _maybe_escape_regime(self, crowd_sentiment: float) -> None:
-        """Optional regime escape / de-alignment mechanism.
-
-        Trigger: only when the crowd is sufficiently one-sided.
-
-        Action (minimal, configurable):
-        - Primary: shrink the magnitude of accumulated position.
-        - Optional: with small probability, flip sign to break sign-lock.
-        - Optional: with small probability, reset to neutral (0) to reduce crowd lock-in.
-          If neutralization happens, an optional cooldown keeps the agent neutral for
-          a few steps.
-
-        This is designed to be minimal and backward compatible:
-        - off by default (probability 0.0)
-        - only depends on crowd_sentiment (already passed into update)
-        - does not require refactors or pipeline changes
-
-        Note: parameters can be overridden via environment variables.
-        """
         if _ESCAPE_PROB_SAT <= 0.0:
             return
         if abs(float(crowd_sentiment)) <= float(_ESCAPE_SAT_THRESHOLD):
@@ -120,8 +118,6 @@ class RetailTrader:
 
         # Optional sign de-alignment (off by default)
         if _ESCAPE_FLIP_PROB > 0.0 and self.rng.random() < float(_ESCAPE_FLIP_PROB):
-            # Flip-to-unit: clamp magnitude to 1 on flip to avoid immediate snap-back
-            # from large persistence/anchoring forces.
             self.position = -1.0 * float(np.sign(self.position))
             return
 
@@ -134,14 +130,6 @@ class RetailTrader:
         crowd_sentiment: float,
         volatility: float = 0.0,
     ) -> None:
-        """Update agent position given price history, crowd sentiment, and volatility.
-
-        Args:
-            price_history: price history up to current timestep.
-            crowd_sentiment: aggregate crowd sentiment (normalised to [-1, 1]).
-            volatility: normalised realised volatility proxy for the current timestep.
-                Defaults to 0.0 for backward compatibility.
-        """
         if len(price_history) < 2:
             return
 
@@ -150,13 +138,9 @@ class RetailTrader:
             self.escape_cooldown -= 1
             return
 
-        # Optional saturation-conditioned escape (Stage-3). Applied before the
-        # main decision logic so it can prevent long-lived lock-in.
+        # Optional saturation-conditioned escape (Stage-3).
         self._maybe_escape_regime(crowd_sentiment)
 
-        # Neutralization sets position to 0.0 and sets cooldown, but since the
-        # cooldown check is at the start of update(), we also prevent immediate
-        # re-entry in the same step.
         if self.position == 0.0 and getattr(self, "escape_cooldown", 0) > 0:
             return
 
@@ -173,10 +157,12 @@ class RetailTrader:
         # --- asymmetric behavior ---
         if self.position != 0:
             if np.sign(score) != np.sign(self.position):
-                if self.rng.random() < 0.7:
+                # Ratchet: ignore disagreeing evidence with some probability.
+                if self.rng.random() < float(_DISAGREE_HOLD_PROB):
                     return
             else:
-                score += _REINFORCE_STRENGTH * np.sign(self.position)
+                # Positive feedback when aligned.
+                score += float(_REINFORCE_STRENGTH) * np.sign(self.position)
 
         _ANCHOR_STRENGTH = 2.0
         _SWITCH_BASE_PROB = 1.0
@@ -196,11 +182,9 @@ class RetailTrader:
 
         # Accumulation (with volatility-conditioned decay / release)
         if np.sign(self.position) == np.sign(direction):
-            # Decay reduces the magnitude of accumulated position before accumulating
             lam = _DECAY_BASE + _DECAY_VOLATILITY_SCALE * float(volatility)
             lam = float(np.clip(lam, 0.0, _DECAY_CLIP_MAX))
 
-            # Apply decay (release) to current accumulation state (continuous)
             if lam > 0.0 and self.position != 0:
                 self.position = (1.0 - lam) * float(self.position)
 
@@ -251,15 +235,13 @@ class Contrarian(RetailTrader):
         super().__init__(rng, pair, crowd_weight=crowd_weight, noise_scale=noise_scale)
         self.momentum_window = momentum_window
 
-        # Apply contrarian behavior in the *normalized* signal frame by flipping
-        # signal_sign after the pair-level normalization in RetailTrader.__init__.
-        # This avoids a "double flip" cancellation on USD-base pairs (e.g. usd-jpy),
-        # where RetailTrader sets signal_sign = -1.
+        # Implement contrarian behavior in the *normalized* signal frame by flipping
+        # signal_sign after pair-level normalization. This avoids “double flip”
+        # cancellation on USD-base pairs (e.g. usd-jpy).
         self.signal_sign *= -1
 
     def _price_signal(self, price_history: np.ndarray) -> float:
-        # Same raw signal as TrendFollower; contrarian-ness is implemented via
-        # flipping self.signal_sign in __init__.
+        # Same raw signal as TrendFollower; contrarian-ness is handled via signal_sign.
         window = min(self.momentum_window, len(price_history) - 1)
         ret = (price_history[-1] - price_history[-(window + 1)]) / (
             abs(price_history[-(window + 1)]) + 1e-12
