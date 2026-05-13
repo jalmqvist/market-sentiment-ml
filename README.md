@@ -191,6 +191,57 @@ Some pairs (e.g. GBP-JPY) naturally live in negative regimes for long stretches.
 
 ## Deep Learning Results
 
+### Grouped Pair-Family Findings (NEW)
+
+Recent controlled multi-pair experiments suggest that FX pairs may separate into
+distinct behavioral “families” with different sentiment dynamics.
+
+#### Persistent / accumulation-oriented family
+Examples:
+- EURUSD
+- GBPUSD
+- NZDUSD
+- EURGBP
+- EURAUD
+
+Observed behavior:
+- weaker directional generalization
+- lower F1 scores
+- smoother / more persistent sentiment structure
+- consistent with ABM accumulation dynamics
+
+#### Reactive / release-oriented family
+Examples:
+- USDJPY
+- EURJPY
+- GBPJPY
+- EURCHF
+- USDCHF
+
+Observed behavior:
+- stronger directional generalization
+- higher F1 scores
+- more state-dependent behavior
+- consistent with volatility-conditioned “release” dynamics in the ABM
+
+Importantly, these differences emerge under:
+- the same architecture
+- same features
+- same training procedure
+- same target horizon
+- same regime filter
+
+This suggests that retail sentiment dynamics may not be universal across FX pairs.
+
+Current hypothesis:
+
+- EUR/GBP/NZD-type pairs are more persistence/accumulation dominated
+- JPY/CHF-type pairs are more reactive / macro-flow dominated
+
+This is now an active research direction.
+
+---
+
 ### MLP (static + lagged features)
 
 - Extracts weak signal under regime conditioning
