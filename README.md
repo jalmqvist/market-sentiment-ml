@@ -337,6 +337,22 @@ python -m research.deep_learning.train \
   --export-before-year 2024
 ```
 
+Cross-family transfer example (train on one family, export inference on another):
+
+```bash
+python -m research.deep_learning.train \
+  --dataset-version 1.3.2 \
+  --train-pairs EURUSD,GBPUSD,NZDUSD,EURGBP,EURAUD \
+  --predict-pairs USDJPY,EURJPY,GBPJPY,EURCHF,USDCHF \
+  --regime LVTF \
+  --target-horizon 24 \
+  --feature-set price_trend
+```
+
+In this mode, exported predictions can originate from a model trained on a
+different pair family; row schema stays unchanged and provenance is recorded in
+the run manifest.
+
 Artifacts are written under:
 - `data/output/dl_predictions/<run_id>.parquet`
 - `data/output/dl_predictions/<run_id>.manifest.json`
