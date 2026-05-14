@@ -136,6 +136,17 @@ The manifest is a JSON file with the **same stem** as the parquet.
 | `start` | string or null | Training period start date (ISO 8601 or null) |
 | `end` | string or null | Training period end date (ISO 8601 or null) |
 
+#### Optional cross-family provenance fields
+
+For runs that train and infer on different pair families, producer manifests may
+include:
+
+- `provenance.training_pairs`
+- `provenance.inference_pairs`
+
+These are manifest-only provenance fields for reproducibility/debugging. They do
+not add or change parquet row columns.
+
 ---
 
 ## B) Consolidated operational cube

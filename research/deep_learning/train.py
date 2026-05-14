@@ -1,6 +1,5 @@
 import argparse
 import logging
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -76,6 +75,24 @@ def main():
     parser.add_argument("--hidden-dim", type=int, default=32)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--pairs", type=str)
+    parser.add_argument(
+        "--train-pairs",
+        type=str,
+        default=None,
+        help=(
+            "Optional training pair universe. If omitted, falls back to --pairs "
+            "(backward-compatible behavior)."
+        ),
+    )
+    parser.add_argument(
+        "--predict-pairs",
+        type=str,
+        default=None,
+        help=(
+            "Optional inference/export pair universe. If omitted, falls back to --pairs "
+            "(backward-compatible behavior)."
+        ),
+    )
     parser.add_argument("--regime", type=str)
     parser.add_argument("--target-horizon", type=int, default=24)
     parser.add_argument("--label-quantile", type=float, default=0.5)
@@ -116,7 +133,17 @@ def main():
 
     Path("logs").mkdir(exist_ok=True)
 
-    pair_str = args.pairs.strip().lower().replace(",", "-") if args.pairs else "all"
+    train_pairs_arg = args.train_pairs if args.train_pairs is not None else args.pairs
+    predict_pairs_arg = args.predict_pairs if args.predict_pairs is not None else args.pairs
+
+    train_pairs = normalize_pairs(train_pairs_arg) if train_pairs_arg else None
+    predict_pairs = normalize_pairs(predict_pairs_arg) if predict_pairs_arg else None
+    use_predict_universe = (
+        args.predict_pairs is not None or
+        train_pairs != predict_pairs
+    )
+
+    pair_str = train_pairs_arg.strip().lower().replace(",", "-") if train_pairs_arg else "all"
     regime_str = args.regime.strip().lower() if args.regime else "all"
     ts = pd.Timestamp.now(tz="UTC").strftime("%Y%m%dT%H%M%SZ")
 
@@ -133,21 +160,35 @@ def main():
 
     logging.info("=== MLP Training ===")
     logging.info(
-        f"CONFIG | model=mlp pair={args.pairs} regime={args.regime} "
+        f"CONFIG | model=mlp pair={args.pairs} train_pairs={train_pairs_arg} "
+        f"predict_pairs={predict_pairs_arg} regime={args.regime} "
         f"horizon={args.target_horizon} quantile={args.label_quantile}"
     )
 
-    df = load_dataset(args.dataset_version, variant="core")
-
-    if args.pairs:
-        pairs = normalize_pairs(args.pairs)
-        logging.info(f"normalized_pairs: {pairs}")
-        df = df[df["pair"].isin(pairs)]
+    df_base = load_dataset(args.dataset_version, variant="core")
+    df = df_base.copy()
+    infer_df = df_base.copy()
 
     if args.regime:
         df = df[df["regime"] == args.regime]
+        infer_df = infer_df[infer_df["regime"] == args.regime]
+
+    if train_pairs:
+        logging.info(f"normalized_train_pairs: {train_pairs}")
+        df = df[df["pair"].isin(train_pairs)]
+    if predict_pairs:
+        logging.info(f"normalized_predict_pairs: {predict_pairs}")
+        infer_df = infer_df[infer_df["pair"].isin(predict_pairs)]
+
+    training_pairs_provenance = sorted(
+        df["pair"].astype(str).str.strip().str.lower().unique().tolist()
+    )
+    inference_pairs_provenance = sorted(
+        infer_df["pair"].astype(str).str.strip().str.lower().unique().tolist()
+    )
 
     logging.info(f"rows_after_filter: {len(df)}")
+    logging.info(f"inference_rows_after_filter: {len(infer_df)}")
 
     if len(df) < 50:
         logging.warning(f"SKIP | reason=too_few_rows | rows={len(df)}")
@@ -252,6 +293,16 @@ def main():
         probs_all = torch.sigmoid(logits_all).numpy()
         pred_prob_up_all = np.asarray(probs_all).reshape(-1).astype("float64")
 
+        # --- Inference-only probabilities on predict universe ---
+        if use_predict_universe:
+            infer_work_df = infer_df.copy()
+            infer_work_df[features] = infer_work_df[features].fillna(0.0)
+            X_infer = infer_work_df[features].values.astype("float32")
+            X_infer_norm = (X_infer - mean) / std
+            logits_infer = model(torch.tensor(X_infer_norm.astype("float32")))
+            probs_infer = torch.sigmoid(logits_infer).numpy()
+            pred_prob_up_infer = np.asarray(probs_infer).reshape(-1).astype("float64")
+
     logging.info(f"pred_positive_rate_test: {preds.mean():.3f}")
 
     metrics = compute_metrics(y_test, preds)
@@ -275,7 +326,11 @@ def main():
     # ------------------------------------------------------------------
     # Choose export frame (export-only; training/eval unchanged)
     # ------------------------------------------------------------------
-    if args.export_split == "all":
+    if use_predict_universe:
+        export_meta_df = infer_df.copy().reset_index(drop=True)
+        export_pred_prob_up = pred_prob_up_infer
+        logging.info("[export] predict universe (inference-only)")
+    elif args.export_split == "all":
         export_meta_df = df.copy().reset_index(drop=True)
         export_pred_prob_up = pred_prob_up_all
         logging.info("[export] export_split=all (train+test)")
@@ -283,6 +338,13 @@ def main():
         export_meta_df = df_test.copy().reset_index(drop=True)
         export_pred_prob_up = pred_prob_up_test
         logging.info("[export] export_split=test (held-out test only)")
+
+    if len(export_meta_df) == 0:
+        raise ValueError(
+            "Export produced 0 rows for selected predict universe. "
+            f"train_pairs={train_pairs_arg!r}, "
+            f"predict_pairs={predict_pairs_arg!r}, regime={args.regime!r}."
+        )
 
     # Explicit normalization for canonical downstream joins
     export_pairs = (
@@ -442,6 +504,8 @@ def main():
 
     provenance = {
         "dataset_version": args.dataset_version,
+        "training_pairs": training_pairs_provenance,
+        "inference_pairs": inference_pairs_provenance,
     }
 
     # --- Export-only window filter (does not affect training/eval/metrics) ---
