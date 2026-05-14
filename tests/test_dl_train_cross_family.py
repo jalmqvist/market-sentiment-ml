@@ -14,6 +14,7 @@ for _p in [str(_REPO_ROOT), str(_SCRIPTS_DIR)]:
         sys.path.insert(0, _p)
 
 from research.deep_learning import train as train_module
+WRITER_MODULE = importlib.import_module("scripts.write_dl_prediction_artifact")
 
 
 def _synthetic_dataset(n_per_pair: int = 120) -> pd.DataFrame:
@@ -45,7 +46,6 @@ def _synthetic_dataset(n_per_pair: int = 120) -> pd.DataFrame:
 
 def _run_train_main(monkeypatch, tmp_path: Path, argv: list[str]) -> dict:
     captured: dict = {}
-    writer_module = importlib.import_module("scripts.write_dl_prediction_artifact")
 
     def _fake_writer(df, identity, provenance, output_dir, run_id=None):
         captured["df"] = df.copy()
@@ -62,8 +62,8 @@ def _run_train_main(monkeypatch, tmp_path: Path, argv: list[str]) -> dict:
         "load_dataset",
         lambda *args, **kwargs: _synthetic_dataset(),
     )
-    monkeypatch.setattr(writer_module, "write_dl_prediction_artifact", _fake_writer)
-    monkeypatch.setattr(writer_module, "PREDICTIONS_DIR_DEFAULT", tmp_path)
+    monkeypatch.setattr(WRITER_MODULE, "write_dl_prediction_artifact", _fake_writer)
+    monkeypatch.setattr(WRITER_MODULE, "PREDICTIONS_DIR_DEFAULT", tmp_path)
     monkeypatch.setattr(sys, "argv", ["train.py", *argv])
 
     train_module.main()

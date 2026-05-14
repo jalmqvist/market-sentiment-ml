@@ -138,6 +138,10 @@ def main():
 
     train_pairs = normalize_pairs(train_pairs_arg) if train_pairs_arg else None
     predict_pairs = normalize_pairs(predict_pairs_arg) if predict_pairs_arg else None
+    use_predict_universe = (
+        args.predict_pairs is not None or
+        train_pairs != predict_pairs
+    )
 
     pair_str = train_pairs_arg.strip().lower().replace(",", "-") if train_pairs_arg else "all"
     regime_str = args.regime.strip().lower() if args.regime else "all"
@@ -175,6 +179,13 @@ def main():
     if predict_pairs:
         logging.info(f"normalized_predict_pairs: {predict_pairs}")
         infer_df = infer_df[infer_df["pair"].isin(predict_pairs)]
+
+    training_pairs_provenance = sorted(
+        df["pair"].astype(str).str.strip().str.lower().unique().tolist()
+    )
+    inference_pairs_provenance = sorted(
+        infer_df["pair"].astype(str).str.strip().str.lower().unique().tolist()
+    )
 
     logging.info(f"rows_after_filter: {len(df)}")
     logging.info(f"inference_rows_after_filter: {len(infer_df)}")
@@ -283,13 +294,14 @@ def main():
         pred_prob_up_all = np.asarray(probs_all).reshape(-1).astype("float64")
 
         # --- Inference-only probabilities on predict universe ---
-        infer_work_df = infer_df.copy()
-        infer_work_df[features] = infer_work_df[features].fillna(0.0)
-        X_infer = infer_work_df[features].values.astype("float32")
-        X_infer_norm = (X_infer - mean) / std
-        logits_infer = model(torch.tensor(X_infer_norm.astype("float32")))
-        probs_infer = torch.sigmoid(logits_infer).numpy()
-        pred_prob_up_infer = np.asarray(probs_infer).reshape(-1).astype("float64")
+        if use_predict_universe:
+            infer_work_df = infer_df.copy()
+            infer_work_df[features] = infer_work_df[features].fillna(0.0)
+            X_infer = infer_work_df[features].values.astype("float32")
+            X_infer_norm = (X_infer - mean) / std
+            logits_infer = model(torch.tensor(X_infer_norm.astype("float32")))
+            probs_infer = torch.sigmoid(logits_infer).numpy()
+            pred_prob_up_infer = np.asarray(probs_infer).reshape(-1).astype("float64")
 
     logging.info(f"pred_positive_rate_test: {preds.mean():.3f}")
 
@@ -314,10 +326,6 @@ def main():
     # ------------------------------------------------------------------
     # Choose export frame (export-only; training/eval unchanged)
     # ------------------------------------------------------------------
-    use_predict_universe = (
-        args.train_pairs is not None or
-        args.predict_pairs is not None
-    )
     if use_predict_universe:
         export_meta_df = infer_df.copy().reset_index(drop=True)
         export_pred_prob_up = pred_prob_up_infer
@@ -334,7 +342,8 @@ def main():
     if len(export_meta_df) == 0:
         raise ValueError(
             "Export produced 0 rows for selected predict universe. "
-            "Adjust --predict-pairs/--pairs/--regime filters."
+            f"train_pairs={train_pairs_arg!r}, "
+            f"predict_pairs={predict_pairs_arg!r}, regime={args.regime!r}."
         )
 
     # Explicit normalization for canonical downstream joins
@@ -495,8 +504,8 @@ def main():
 
     provenance = {
         "dataset_version": args.dataset_version,
-        "training_pairs": train_pairs if train_pairs is not None else "all",
-        "inference_pairs": predict_pairs if predict_pairs is not None else "all",
+        "training_pairs": training_pairs_provenance,
+        "inference_pairs": inference_pairs_provenance,
     }
 
     # --- Export-only window filter (does not affect training/eval/metrics) ---
