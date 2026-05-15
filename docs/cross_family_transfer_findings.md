@@ -411,6 +411,77 @@ Future work will investigate:
 
 ------
 
+# LSTM Replication Findings (2026-05)
+
+The cross-family transfer experiments were replicated using the upgraded
+LSTM export pipeline.
+
+Importantly, the overall behavioral picture remained broadly consistent with
+the earlier MLP findings:
+
+- within-family transfer generally performed better than cross-family transfer
+- persistent-family structure remained more accumulation-oriented
+- reactive-family structure remained more transition/release-oriented
+- transfer asymmetry survived architecture changes
+
+This is important because it suggests the observed family structure is not
+merely an artifact of shallow feedforward modeling.
+
+The experiments also strengthened a possible subdivision inside the reactive
+family itself:
+
+## CHF-reactive subgroup
+
+Examples:
+
+- USDCHF
+- EURCHF
+
+Observed characteristics:
+
+- cleaner transfer behavior
+- more stable downstream MPML improvements
+- stronger consistency under same-family transfer
+
+---
+
+## JPY-reactive subgroup
+
+Examples:
+
+- USDJPY
+- EURJPY
+- GBPJPY
+
+Observed characteristics:
+
+- noisier transfer behavior
+- stronger instability
+- more heterogeneous downstream effects
+
+This raises the possibility that the broader reactive family may itself contain
+multiple distinct mechanisms:
+
+- defensive/release dynamics (CHF)
+- macro/event-driven destabilization dynamics (JPY)
+
+This is now an active research direction.
+
+A second important finding was that LSTM did not dramatically outperform MLP.
+
+Current interpretation:
+
+DL models may primarily be learning:
+
+- behavioral state geometry
+- persistence structure
+- transition boundaries
+- release dynamics
+
+rather than pure long-memory directional forecasting.
+
+---
+
 # Conclusion
 
 The project has transitioned from:
