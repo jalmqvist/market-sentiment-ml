@@ -222,6 +222,114 @@ Current interpretation:
 
 ---
 
+# Sentiment Ablation Findings (NEW)
+
+Controlled sentiment ablation experiments were performed using the new:
+
+- `trend_vol_only`
+
+feature configuration.
+
+This removes all sentiment-derived inputs while preserving:
+
+- trend structure
+- volatility structure
+
+The experiments were replicated across:
+
+- MLP
+- LSTM
+- persistent-family grouped models
+- reactive-family grouped models
+
+---
+
+## Key Finding
+
+Behavioral family structure survives sentiment removal.
+
+This is important because it suggests that:
+
+- pair-family divergence is not purely sentiment-driven
+- deeper structural dynamics exist in price/volatility behavior itself
+
+However:
+
+sentiment removal materially changes model behavior.
+
+---
+
+## Persistent-family interpretation
+
+Removing sentiment generally produced:
+
+- higher raw accuracy
+- lower recall
+- reduced persistence-style continuation behavior
+
+Current interpretation:
+
+sentiment appears to act primarily as:
+
+> a persistence reinforcement / accumulation layer
+
+rather than a pure directional predictor.
+
+This aligns closely with ABM anchor/reinforcement dynamics.
+
+---
+
+## Reactive-family interpretation
+
+Reactive-family structure survived sentiment removal more cleanly.
+
+Performance degraded moderately, but not catastrophically.
+
+Current interpretation:
+
+reactive-family behavior may be more deeply rooted in:
+
+- transition geometry
+- release dynamics
+- volatility-conditioned instability
+
+rather than sentiment alone.
+
+---
+
+## Current Conceptual Interpretation
+
+The project increasingly suggests a layered market structure:
+
+### Price/volatility layer
+
+Represents:
+
+- structural market geometry
+- transition mechanics
+- persistence boundaries
+- volatility clustering
+- instability dynamics
+
+---
+
+### Sentiment layer
+
+Represents:
+
+- collective reinforcement
+- positioning persistence
+- crowd anchoring
+- behavioral amplification
+
+---
+
+Current interpretation:
+
+sentiment modulates underlying structural dynamics rather than fully generating them.
+
+---
+
 # MPML Integration Findings
 
 Cross-repo integration between:

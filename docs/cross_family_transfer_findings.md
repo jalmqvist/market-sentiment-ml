@@ -345,6 +345,124 @@ without sentiment, or whether sentiment is the dominant organizing signal.
 
 ------
 
+# Sentiment Ablation Findings (2026-05)
+
+Controlled sentiment ablation experiments were performed using the new:
+
+- `trend_vol_only`
+
+feature set.
+
+This removed all sentiment-derived inputs while preserving:
+
+- trend features
+- volatility features
+
+The experiments were replicated across:
+
+- MLP
+- LSTM
+- persistent-family grouped models
+- reactive-family grouped models
+
+---
+
+# Key Result
+
+Behavioral family structure survived sentiment removal.
+
+This is one of the strongest findings so far because it suggests that:
+
+- pair-family divergence is not purely driven by sentiment inputs
+- deeper structural dynamics exist in the underlying market process
+
+---
+
+# Persistent-family effects
+
+Removing sentiment typically produced:
+
+- higher raw classification accuracy
+- lower persistence-style recall behavior
+- weaker continuation bias
+
+Current interpretation:
+
+sentiment primarily acts as a persistence reinforcement mechanism in these markets.
+
+This aligns closely with:
+
+- ABM anchor dynamics
+- accumulation behavior
+- slow positioning persistence
+
+---
+
+# Reactive-family effects
+
+Reactive-family structure remained comparatively stable after sentiment removal.
+
+Performance degraded modestly but remained structurally coherent.
+
+Current interpretation:
+
+reactive-family dynamics may be more strongly tied to:
+
+- transition structure
+- volatility/release dynamics
+- instability geometry
+
+rather than sentiment itself.
+
+---
+
+# Cross-Architecture Consistency
+
+Importantly:
+
+both MLP and LSTM produced qualitatively similar ablation behavior.
+
+This suggests the observed effects are unlikely to be:
+
+- shallow architectural artifacts
+- sequence-model-specific effects
+
+Instead, the experiments increasingly support the existence of:
+
+- deeper structural behavioral geometry in FX markets.
+
+---
+
+# Updated Working Interpretation
+
+Current evidence increasingly supports a layered interpretation:
+
+## Structural layer
+
+Driven by:
+
+- price dynamics
+- volatility structure
+- transition geometry
+- persistence/release mechanics
+
+---
+
+## Behavioral layer
+
+Driven by:
+
+- sentiment reinforcement
+- crowd anchoring
+- persistence amplification
+- collective positioning pressure
+
+Under this interpretation:
+
+sentiment modulates structural market behavior rather than fully determining it.
+
+---
+
 # Limitations
 
 These findings remain exploratory.
