@@ -9,6 +9,27 @@ import torch.nn as nn
 
 from research.deep_learning.dataset_loader import load_dataset
 
+FEATURE_SETS = {
+    "price_trend": [
+        "trend_12b",
+        "trend_24b",
+        "trend_48b",
+        "vol_12b",
+        "vol_48b",
+        "net_sentiment",
+        "abs_sentiment",
+        "sentiment_change",
+        "sentiment_z",
+    ],
+    "trend_vol_only": [
+        "trend_12b",
+        "trend_24b",
+        "trend_48b",
+        "vol_12b",
+        "vol_48b",
+    ],
+}
+
 
 class LSTMModel(nn.Module):
     def __init__(self, input_dim, hidden_dim=32):
@@ -228,17 +249,17 @@ def main():
 
     df["target_direction"] = (df[ret_col] > threshold).astype(int)
 
-    BASE_FEATURES = [
-        "trend_12b", "trend_24b", "trend_48b",
-        "vol_12b", "vol_48b",
-        "net_sentiment", "abs_sentiment",
-        "sentiment_change", "sentiment_z"
-    ]
+    if args.feature_set not in FEATURE_SETS:
+        raise ValueError(
+            f"Unknown feature_set={args.feature_set!r}. "
+            f"Available: {sorted(FEATURE_SETS)}"
+        )
 
-    features = [c for c in BASE_FEATURES if c in df.columns]
+    features = [c for c in FEATURE_SETS[args.feature_set] if c in df.columns]
     numeric_cols = set(df.select_dtypes(include=[np.number]).columns)
     features = [c for c in features if c in numeric_cols]
 
+    logging.info(f"feature_set_resolved: {args.feature_set}")
     logging.info(f"using_features: {features}")
 
     df = df.copy()

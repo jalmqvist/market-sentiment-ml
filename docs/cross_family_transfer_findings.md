@@ -333,6 +333,18 @@ retail sentiment may encode multiple partially distinct behavioral processes
 
 ------
 
+# Next Research Direction
+
+Current transfer findings motivate a controlled sentiment ablation phase.
+
+A new `trend_vol_only` feature set has been added to the DL training pipelines
+to remove sentiment-derived inputs while preserving trend/volatility structure.
+
+This enables direct tests of whether observed pair-family behavior survives
+without sentiment, or whether sentiment is the dominant organizing signal.
+
+------
+
 # Limitations
 
 These findings remain exploratory.
