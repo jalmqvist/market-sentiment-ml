@@ -254,6 +254,42 @@ This enables explicit testing of whether learned sentiment structure:
 - generalizes universally
 - or is family-specific.
 
+## Sentiment Ablation Experiments
+
+The DL pipelines now support explicit sentiment ablation via:
+
+`--feature-set trend_vol_only`
+
+This removes all sentiment-derived inputs while preserving:
+
+- trend features
+- volatility features
+
+This enables controlled experiments testing whether observed behavioral
+family structure is driven by sentiment dynamics or generic market structure.
+
+MLP example:
+
+```bash
+python -m research.deep_learning.train \
+  --dataset-version 1.3.2 \
+  --pairs EURUSD,GBPUSD,NZDUSD \
+  --regime LVTF \
+  --target-horizon 24 \
+  --feature-set trend_vol_only
+```
+
+LSTM example:
+
+```bash
+python -m research.deep_learning.train_lstm \
+  --dataset-version 1.3.2 \
+  --pairs USDJPY,EURJPY,GBPJPY \
+  --regime LVTF \
+  --target-horizon 24 \
+  --feature-set trend_vol_only
+```
+
 Example:
 
 ```bash
