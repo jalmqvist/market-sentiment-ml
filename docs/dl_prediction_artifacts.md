@@ -2,6 +2,15 @@
 
 This document specifies the standardized row-level DL prediction export artifacts produced by `market-sentiment-ml`.
 
+Artifact producers now include both:
+
+* `research.deep_learning.train` (MLP)
+* `research.deep_learning.train_lstm` (LSTM)
+
+Both producers emit the same parquet schema and manifest identity contract.
+For LSTM, sequence target-row metadata alignment is preserved during export so
+that exported `(pair, entry_time)` rows match sequence prediction targets.
+
 The exporter is designed as a stable operational boundary between:
 
 * `market-sentiment-ml` (DL signal producer)
@@ -541,4 +550,3 @@ Adds:
 * canonical column ordering
 * stronger invariant validation
 * richer manifest diagnostics/statistics
-

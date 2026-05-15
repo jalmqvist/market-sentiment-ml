@@ -227,6 +227,17 @@ python -m research.deep_learning.train \
 This enables direct testing of whether learned behavioral structure
  generalizes cross-family.
 
+## LSTM Infrastructure Upgrade
+
+LSTM pipeline was upgraded to support:
+
+- metadata-safe sequence export
+- cross-family transfer
+- MPML-compatible parquet artifacts
+- pair-safe grouped sequence construction
+
+This enabled future sequence-based transfer experiments.
+
 ------
 
 # MPML Integration Findings
