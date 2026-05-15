@@ -242,6 +242,72 @@ This is now an active research direction.
 
 ---
 
+### Cross-Family Transfer Experiments (NEW)
+
+The DL export pipeline now supports:
+
+- training on one FX pair family
+- exporting inference predictions on another family
+
+This enables explicit testing of whether learned sentiment structure:
+
+- generalizes universally
+- or is family-specific.
+
+Example:
+
+```bash
+python -m research.deep_learning.train \
+  --dataset-version 1.3.2 \
+  --train-pairs EURUSD,GBPUSD,NZDUSD,EURGBP,EURAUD \
+  --predict-pairs USDJPY,EURJPY,GBPJPY,EURCHF,USDCHF \
+  --regime LVTF \
+  --target-horizon 24 \
+  --feature-set price_trend
+```
+
+This produces predictions for the reactive family using a model trained only on the persistent family.
+
+### Working hypothesis
+
+Current working hypothesis:
+
+- persistent-family pairs encode slower accumulation/inertia dynamics
+- reactive-family pairs encode more volatility-conditioned release dynamics
+
+If true:
+
+- within-family transfer should remain partially stable
+- cross-family transfer should degrade materially
+
+This is now a primary research direction.
+
+---
+
+### Current Research Direction (May 2026)
+
+Recent experiments suggest that FX sentiment dynamics may separate into
+distinct behavioral “families”:
+
+- persistence / accumulation-dominated pairs
+- reactive / release-dominated pairs
+
+This structure appears:
+
+- across grouped DL experiments
+- in downstream MPML integration
+- and increasingly aligns with ABM persistence/release dynamics.
+
+The project focus has therefore shifted from:
+
+    "does sentiment predict returns?"
+
+toward:
+
+    "what behavioral mechanisms generate conditional predictability?"
+
+---
+
 ### MLP (static + lagged features)
 
 - Extracts weak signal under regime conditioning

@@ -44,6 +44,26 @@ The project is now focused on identifying and explaining those conditions.
 
 ---
 
+# Current Priority
+
+The immediate goal is not broader architecture expansion, but:
+
+- validating whether behavioral-family structure is real
+- determining whether it is:
+  - temporal
+  - regime-conditioned
+  - volatility-conditioned
+  - or macro/reactive in nature
+
+Current priority experiments:
+
+1. Cross-family transfer
+2. LSTM transfer replication
+3. Regime-free grouped experiments
+4. ABM persistence vs release reconciliation
+
+---
+
 # Deep Learning — Controlled Signal Cartography
 
 ## Setup
