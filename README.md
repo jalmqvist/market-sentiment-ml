@@ -319,6 +319,9 @@ toward:
 - Recovers similar structure
 - No major advantage over MLP
 - Confirms signal is not architecture-dependent
+- Export pipeline now has parity with MLP
+- Supports cross-family transfer (`--train-pairs` / `--predict-pairs`)
+- Uses pair-safe grouped sequence construction with metadata-aligned export rows
 
 ---
 
@@ -398,6 +401,23 @@ python -m research.deep_learning.train \
   --regime LVTF \
   --target-horizon 24 \
   --feature-set price_trend \
+  --export-split all \
+  --export-after-year 2019 \
+  --export-before-year 2024
+```
+
+LSTM export parity example (same artifact contract, sequence-safe export path):
+
+```bash
+python -m research.deep_learning.train_lstm \
+  --dataset-version 1.3.2 \
+  --train-pairs EURUSD,GBPUSD,NZDUSD,EURGBP,EURAUD \
+  --predict-pairs USDJPY,EURJPY,GBPJPY,EURCHF,USDCHF \
+  --regime LVTF \
+  --target-horizon 24 \
+  --feature-set price_trend \
+  --epochs 50 \
+  --seq-len 24 \
   --export-split all \
   --export-after-year 2019 \
   --export-before-year 2024
