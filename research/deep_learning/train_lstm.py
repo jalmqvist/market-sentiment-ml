@@ -377,6 +377,7 @@ def main():
         export_meta_df["entry_time"]
     ).dt.tz_localize(None)
 
+    # Keep tz-naive UTC to match downstream artifact contract.
     prediction_timestamp = pd.Timestamp.now("UTC").tz_localize(None)
     signal_strength = (2.0 * export_pred_prob_up) - 1.0
 
@@ -458,12 +459,10 @@ def main():
         "prediction_timestamp": prediction_timestamp,
         "model": model_name,
         "dl_regime": dl_regime,
-        "target_horizon": pd.Series(
-            [target_horizon] * len(export_pred_prob_up),
-            dtype="Int64",
-        ),
+        "target_horizon": target_horizon,
         "feature_set": feature_set,
     })
+    pred_df["target_horizon"] = pred_df["target_horizon"].astype("Int64")
     pred_df = pred_df.sort_values(
         ["pair", "entry_time"]
     ).reset_index(drop=True)
