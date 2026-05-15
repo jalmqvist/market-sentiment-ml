@@ -494,7 +494,7 @@ def main():
             export_mask &= (pred_df["entry_time"].dt.year <= int(args.export_before_year))
         pred_df = pred_df.loc[export_mask].copy()
         after = len(pred_df)
-        print(
+        logging.info(
             f"[export] export_after_year={args.export_after_year} "
             f"export_before_year={args.export_before_year} rows: {before:,} -> {after:,}"
         )
