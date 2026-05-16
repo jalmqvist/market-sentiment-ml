@@ -463,8 +463,6 @@ sentiment modulates structural market behavior rather than fully determining it.
 
 ---
 
----
-
 # MPML Downstream Ablation Replication
 
 The ablation findings were propagated through the downstream
@@ -516,6 +514,92 @@ This substantially strengthens the possibility that:
 - pair-family divergence is rooted in deeper market structure
 - ABM persistence/release dynamics are structurally meaningful
 - DL and ABM may be converging on the same underlying behavioral mechanisms
+
+---
+
+## CHF vs JPY Ablation Findings
+
+### Objective
+
+After observing strong family-level structure in both:
+
+- DL transfer behavior
+- sentiment ablation behavior
+
+we further decomposed the reactive family into:
+
+- JPY-heavy pairs
+- CHF-heavy pairs
+
+to test whether the observed structure was actually driven by a smaller latent subgroup.
+
+### Result
+
+The CHF/JPY split produced weaker and less stable differentiation than the earlier:
+
+- persistent vs reactive
+- sentiment vs no-sentiment
+
+experiments.
+
+Both subgroups retained partial DL responsiveness, but:
+
+- results became noisier
+- pair-level variance increased substantially
+- no single dominant behavioral mechanism cleanly separated CHF from JPY pairs
+
+### Interpretation
+
+This suggests that:
+
+- the earlier persistent/reactive separation likely captures a broader behavioral regime structure
+- CHF and JPY behavior may represent overlapping sub-manifolds rather than fully distinct families
+- volatility and macro sensitivity may interact continuously rather than categorically
+
+The findings also reinforce an important methodological point:
+
+DL effects should not be interpreted from single-pair outcomes alone.
+
+Small pair universes produce high variance in:
+
+- Sharpe
+- total return
+- drawdown
+- trade distribution
+
+and therefore:
+
+group-level aggregation remains essential for robust interpretation.
+
+### Research Implication
+
+The project now has evidence for at least three partially separable behavioral layers:
+
+1. Trend/volatility structure
+2. Sentiment-driven behavioral structure
+3. Family-level macro/flow structure
+
+However:
+
+the CHF/JPY split suggests that deeper decomposition may require:
+
+- larger universes
+- additional regimes
+- sequence-aware models
+- dynamic policy selection
+
+rather than increasingly narrow manual pair grouping.
+
+### Infrastructure Outcome
+
+The MPML pipeline is now sufficiently flexible to support:
+
+- family transfer experiments
+- sentiment ablations
+- subgroup decomposition
+- future DL-aware strategy selection research
+
+without major architectural changes.
 
 ---
 
