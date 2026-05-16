@@ -463,6 +463,62 @@ sentiment modulates structural market behavior rather than fully determining it.
 
 ---
 
+---
+
+# MPML Downstream Ablation Replication
+
+The ablation findings were propagated through the downstream
+`market-phase-ml` integration pipeline.
+
+Importantly:
+
+the downstream behavioral effects largely survived removal of
+explicit sentiment features.
+
+This was observed across:
+
+- persistent-family grouped models
+- reactive-family grouped models
+- MLP exports
+- downstream MPML strategy evaluation
+
+---
+
+# Key Interpretation
+
+The experiments increasingly suggest that:
+
+DL models are primarily learning:
+
+- structural transition geometry
+- persistence timing
+- release behavior
+- volatility-conditioned instability
+
+rather than pure sentiment directionality.
+
+Under this interpretation:
+
+sentiment acts primarily as:
+
+- reinforcement
+- persistence amplification
+- behavioral modulation
+
+rather than the sole source of predictive structure.
+
+---
+
+# Important Consequence
+
+This substantially strengthens the possibility that:
+
+- pair-family divergence is rooted in deeper market structure
+- ABM persistence/release dynamics are structurally meaningful
+- DL and ABM may be converging on the same underlying behavioral mechanisms
+
+---
+
 # Limitations
 
 These findings remain exploratory.

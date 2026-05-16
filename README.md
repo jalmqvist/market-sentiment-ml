@@ -304,6 +304,50 @@ python -m research.deep_learning.train \
 
 This produces predictions for the reactive family using a model trained only on the persistent family.
 
+---
+
+### MPML Downstream Ablation Findings (NEW)
+
+The sentiment ablation experiments were also propagated through the
+`market-phase-ml` downstream pipeline.
+
+Importantly:
+
+DL-driven downstream behavior largely survived removal of explicit
+sentiment inputs.
+
+Observed behavior:
+
+- DL-enhanced MPML backtests remained materially different from baseline
+- improvements often survived under:
+  - `trend_vol_only`
+- downstream effects remained:
+  - pair-dependent
+  - family-dependent
+  - structurally coherent
+
+This is important because it suggests that DL models are not learning
+pure sentiment alpha alone.
+
+Current interpretation:
+
+DL models appear to detect a deeper structural layer involving:
+
+- persistence geometry
+- transition timing
+- volatility-conditioned instability
+- release dynamics
+
+while sentiment primarily acts as:
+
+- reinforcement
+- amplification
+- persistence modulation
+
+rather than the sole source of predictability.
+
+---
+
 ### Working hypothesis
 
 Current working hypothesis:

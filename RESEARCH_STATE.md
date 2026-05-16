@@ -330,6 +330,122 @@ sentiment modulates underlying structural dynamics rather than fully generating 
 
 ---
 
+---
+
+# MPML Downstream Ablation Findings (NEW)
+
+Controlled DL ablation artifacts were propagated through the
+`market-phase-ml` downstream pipeline.
+
+Experiments compared:
+
+- baseline (no DL)
+- DL with sentiment
+- DL without sentiment (`trend_vol_only`)
+
+across both:
+
+- persistent-family pairs
+- reactive-family pairs
+
+---
+
+## Key Finding
+
+DL downstream effects survived sentiment removal surprisingly well.
+
+This is important because it suggests that:
+
+- DL is not primarily extracting raw sentiment alpha
+- downstream strategy changes are not purely sentiment-driven
+- deeper structural information exists in the price/volatility layer
+
+---
+
+## Persistent-family behavior
+
+Persistent-family pairs continued to show substantial downstream
+improvements after sentiment removal.
+
+Examples included:
+
+- EURUSD
+- EURGBP
+- EURAUD
+
+Interpretation:
+
+persistent-family structure appears strongly tied to:
+
+- accumulation geometry
+- persistence timing
+- structural continuation behavior
+
+while sentiment primarily reinforces those dynamics.
+
+---
+
+## Reactive-family behavior
+
+Reactive-family pairs also retained substantial DL-driven downstream effects
+under ablation.
+
+Interpretation:
+
+reactive-family structure appears strongly connected to:
+
+- transition timing
+- instability/release dynamics
+- volatility-conditioned structural changes
+
+rather than sentiment alone.
+
+---
+
+## Updated Structural Interpretation
+
+Current evidence increasingly supports a layered interpretation:
+
+### Structural layer
+
+Driven by:
+
+- trend geometry
+- volatility structure
+- persistence boundaries
+- transition dynamics
+- release behavior
+
+This layer appears capable of generating substantial downstream DL effects
+even without sentiment inputs.
+
+---
+
+### Sentiment layer
+
+Driven by:
+
+- crowd persistence
+- reinforcement
+- positioning inertia
+- behavioral amplification
+
+Current interpretation:
+
+sentiment modulates and amplifies structural dynamics rather than fully
+creating them.
+
+---
+
+## Current Working Interpretation
+
+The strongest current interpretation is:
+
+> DL models are primarily learning behavioral state geometry,
+> while sentiment acts as a secondary reinforcement layer.
+
+---
+
 # MPML Integration Findings
 
 Cross-repo integration between:

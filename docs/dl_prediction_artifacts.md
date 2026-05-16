@@ -150,6 +150,28 @@ They are distinct from:
 
 ---
 
+# Feature-set semantics
+
+The `feature_set` identity field is operationally significant.
+
+Current supported feature sets include:
+
+| feature_set      | description                                         |
+| ---------------- | --------------------------------------------------- |
+| `price_trend`    | trend + volatility + sentiment-derived inputs       |
+| `trend_vol_only` | trend + volatility inputs only (sentiment ablation) |
+
+The `trend_vol_only` surface is used for controlled ablation experiments
+to determine whether downstream behavioral structure survives removal
+of explicit sentiment inputs.
+
+Importantly:
+
+artifacts produced with different feature sets are treated as distinct
+DL surfaces by downstream consumers.
+
+---
+
 # Parquet schema (v1.1)
 
 Parquet path:
