@@ -1,149 +1,167 @@
-# Research State Summary — Market Sentiment ML
+# RESEARCH_STATE.md
 
-## Objective
-
-Determine whether retail FX sentiment contains causal, exploitable predictive structure.
-
-The project has evolved from:
-
-- “does sentiment predict returns?”
-to:
-- “under what structural conditions does sentiment become conditionally informative?”
+Current research interpretation and working hypotheses for
+`market-sentiment-ml` (MSML).
 
 ---
 
-# Current Status
+# Current Research Position
 
-| Area                      | Status                           |
-| ------------------------- | -------------------------------- |
-| Data quality              | ✅ verified                       |
-| Pipeline correctness      | ✅ verified                       |
-| Validation framework      | ✅ strong                         |
-| Price signal              | ✅ stable (~0.14 Sharpe baseline) |
-| Sentiment additive signal | ❌ not supported                  |
-| DL signal                 | ⚠ weak but structured            |
-| MPML integration          | ✅ operational                    |
-| ABM baseline              | ✅ stable                         |
-| ABM release dynamics      | ✅ emerging evidence              |
+The project has evolved substantially from its original framing.
 
----
+Early versions of the research focused primarily on:
 
-# Core Finding
+- directional sentiment prediction
+- additive predictive alpha
+- supervised forecasting performance
 
-Retail sentiment does not appear to provide:
+However, the accumulated experimental evidence increasingly suggests that:
 
-- standalone predictive signal
-- simple additive alpha
-- universal directional predictability
+> retail sentiment behaves more like a conditional behavioral-state surface
+> than a universal directional predictor.
 
-However:
+The strongest current evidence supports:
 
-> weak but persistent conditional structure exists under specific behavioral and market conditions.
+- conditional behavioral structure
+- volatility-conditioned organization
+- pair-family asymmetries
+- latent structural persistence
+- sparse downstream behavioral effects
 
-The project is now focused on identifying and explaining those conditions.
+while weakening support for:
 
----
+- stable universal sentiment alpha
+- globally transferable directional prediction
+- purely additive sentiment models
 
-# Current Priority
+The project therefore increasingly studies:
 
-The immediate goal is not broader architecture expansion, but:
+> how behavioral organization emerges under different market conditions,
 
-- validating whether behavioral-family structure is real
-- determining whether it is:
-  - temporal
-  - regime-conditioned
-  - volatility-conditioned
-  - or macro/reactive in nature
+rather than:
 
-Current priority experiments:
-
-1. Cross-family transfer
-2. LSTM transfer replication
-3. Regime-free grouped experiments
-4. ABM persistence vs release reconciliation
+> whether sentiment directly predicts returns.
 
 ---
 
-# Deep Learning — Controlled Signal Cartography
+# Current State of Evidence
 
-## Setup
+## Findings with Strongest Support
 
-Fixed configuration:
+Current experiments most strongly support:
 
-- target horizon = 24
-- quantile = 0.50
-
-Models:
-
-- MLP
-- LSTM
-
-Evaluation:
-
-- weighted F1
-- grouped multi-pair experiments
-- regime-conditioned and regime-agnostic tests
+- persistent/reactive pair-family differentiation
+- conditional regime dependence
+- volatility-conditioned structure
+- latent organization surviving architecture changes
+- partial transfer across pair families
+- survival of structure after sentiment ablation
+- downstream behavioral effects inside adaptive systems
+- partial alignment between DL findings and ABM dynamics
 
 ---
 
-# Key Findings
+## Findings with Weak or Mixed Support
 
-## Weak signal exists
+Current evidence is weaker or inconsistent for:
 
-Typical DL performance:
-
-- F1 ≈ 0.25–0.50
-- highly conditional
-- unstable as a universal predictor
-- but reproducible across experiments
-
-Importantly:
-
-- signal structure survives across architectures
-- sequence models often outperform static models
-- downstream effects persist after MPML integration
+- universal predictive alpha
+- stable directional forecasting
+- globally transferable sentiment behavior
+- additive predictive contribution over structural features
+- universal regime robustness
+- strong standalone trading performance
 
 ---
 
-# Regime Structure
+## Current Interpretation
 
-## Empirical regime hierarchy
+The project increasingly interprets retail sentiment as:
 
-| Regime | Interpretation          |
-| ------ | ----------------------- |
-| LVTF   | strongest / most stable |
-| HVR    | moderate                |
-| LVR    | sparse / unstable       |
-| HVTF   | weak / noisy            |
+- a contextual behavioral signal
+- a conditional modulation layer
+- a sparse behavioral-state surface
 
-### Interpretation
+rather than:
 
-Predictability improves when markets exhibit:
-
-- directional persistence
-- structural stability
-- slower state transitions
-
-Signal structure changes substantially when:
-
-- volatility dominates
-- macro/reactive flow dynamics dominate
+- a standalone predictive engine.
 
 ---
 
-# Pair-Family Structure (NEW)
+# Layered Behavioral Interpretation
 
-Recent grouped multi-pair experiments suggest that FX pairs may separate into distinct behavioral “families”.
-
-This divergence survives removal of explicit regime filtering.
-
-That suggests the structure may be intrinsic rather than purely regime-conditioned.
+A layered interpretation has gradually emerged from the experiments.
 
 ---
 
-## Persistent / accumulation-oriented family
+## Layer 1 — Structural Market Organization
 
-Examples:
+Price, volatility, and trend structure appear to encode substantial
+persistent organization.
+
+This structural layer survives:
+
+- sentiment ablation
+- architecture changes (MLP ↔ LSTM)
+- cross-family transfer
+- downstream MPML integration
+
+The current interpretation is that markets may contain:
+
+- endogenous structural persistence
+- volatility-conditioned geometry
+- adaptive liquidity organization
+- self-reinforcing behavioral clustering
+
+that exists independently of explicit sentiment signals.
+
+---
+
+## Layer 2 — Sentiment Modulation
+
+Sentiment-derived features still appear to contribute:
+
+- conditional asymmetries
+- release/reversion dynamics
+- pair-family differentiation
+- localized behavioral transitions
+- downstream adaptive-routing effects
+
+The current working hypothesis is therefore:
+
+> sentiment modulates latent behavioral structure
+> rather than replacing it.
+
+---
+
+## Layer 3 — Adaptive Exploitation
+
+Downstream experiments in MPML suggest that:
+
+- adaptive systems can preserve substantial behavior
+  even after sentiment ablation
+- local routing behavior changes more strongly
+  than aggregate downstream performance
+- structural organization may dominate final ensemble behavior
+
+This suggests that:
+
+> adaptive downstream architectures may exploit multiple partially
+> overlapping behavioral channels simultaneously.
+
+---
+
+# Pair-Family Findings
+
+One of the strongest and most persistent findings in the project is that
+different FX pair families appear to exhibit meaningfully different
+behavioral organization.
+
+---
+
+## Persistent Families
+
+Pairs such as:
 
 - EURUSD
 - GBPUSD
@@ -151,647 +169,345 @@ Examples:
 - EURGBP
 - EURAUD
 
-Observed behavior:
+appear to exhibit:
 
-- weaker directional generalization
-- smoother persistence structure
-- accumulation-dominated dynamics
-- lower precision
-- stable / slow-moving behavior
+- more stable transfer behavior
+- stronger structural persistence
+- more robust downstream integration
+- less sensitivity to sentiment ablation
 
-DL characteristics:
+These families increasingly resemble:
 
-- lower precision
-- weaker transition sharpness
-- smoother prediction surfaces
-
-Interpretation:
-
-Retail sentiment may behave more like slow-moving positioning pressure.
+> persistent structural systems.
 
 ---
 
-## Reactive / release-oriented family
+## Reactive Families
 
-Examples:
+Pairs such as:
 
 - USDJPY
 - EURJPY
 - GBPJPY
-- EURCHF
 - USDCHF
+- EURCHF
 
-Observed behavior:
+appear to exhibit:
 
-- stronger directional generalization
-- materially higher precision
-- sharper state transitions
-- stronger instability / release dynamics
+- stronger release/reversion dynamics
+- higher local instability
+- more asymmetric transfer behavior
+- more heterogeneous downstream responses
 
-DL characteristics:
+These families increasingly resemble:
 
-- cleaner positive predictions
-- sharper boundary behavior
-- stronger episodic structure
-
-Interpretation:
-
-Retail sentiment may behave more like reactive / macro-sensitive positioning dynamics.
+> reactive release systems.
 
 ---
 
-# Regime-Conditioned vs Intrinsic Structure
+## CHF vs JPY Separation
 
-Earlier experiments suggested that:
+Recent findings increasingly suggest that:
 
-- pair differences might primarily emerge inside LVTF regimes
+- CHF-linked behavior
+- and JPY-linked behavior
 
-However:
+may themselves contain partially distinct latent structure.
 
-grouped experiments without regime filtering still produced:
-
-- stronger precision
-- stronger F1
-- cleaner directional structure
-
-for the reactive-family pairs.
-
-Current interpretation:
-
-> pair-family structure appears to be at least partially intrinsic.
+This remains exploratory,
+but increasingly appears non-random.
 
 ---
 
-# Sentiment Ablation Findings (NEW)
+# Sentiment Ablation Findings
 
-Controlled sentiment ablation experiments were performed using the new:
+One of the most important recent findings is that substantial behavioral
+structure survives after removing sentiment-derived features.
 
-- `trend_vol_only`
+The `trend_vol_only` feature surface preserves:
 
-feature configuration.
+- trend features
+- volatility features
 
-This removes all sentiment-derived inputs while preserving:
+while removing:
 
-- trend structure
-- volatility structure
+- sentiment-derived inputs
 
-The experiments were replicated across:
+Current results suggest that:
 
-- MLP
-- LSTM
-- persistent-family grouped models
-- reactive-family grouped models
+- structure does not collapse completely
+- downstream MPML behavior often remains surprisingly stable
+- adaptive systems continue functioning coherently
+- local routing behavior still changes meaningfully
 
----
+This increasingly suggests that:
 
-## Key Finding
-
-Behavioral family structure survives sentiment removal.
-
-This is important because it suggests that:
-
-- pair-family divergence is not purely sentiment-driven
-- deeper structural dynamics exist in price/volatility behavior itself
-
-However:
-
-sentiment removal materially changes model behavior.
+- volatility/trend organization itself encodes latent behavioral geometry
+- sentiment acts as a conditional modulation layer
+- structural persistence dominates much downstream behavior
 
 ---
 
-## Persistent-family interpretation
+# Cross-Family Transfer Findings
 
-Removing sentiment generally produced:
+Cross-family transfer experiments increasingly suggest:
 
-- higher raw accuracy
-- lower recall
-- reduced persistence-style continuation behavior
+- asymmetric transfer behavior
+- partial universality
+- family-specific organization
+- incomplete generalization
 
-Current interpretation:
+The strongest current interpretation is that:
 
-sentiment appears to act primarily as:
+> markets contain partially shared behavioral structure,
+> but organized differently across pair families.
 
-> a persistence reinforcement / accumulation layer
+This weakens both extremes:
 
-rather than a pure directional predictor.
+- purely universal structure
+- purely isolated pair behavior
 
-This aligns closely with ABM anchor/reinforcement dynamics.
+and instead supports:
 
----
-
-## Reactive-family interpretation
-
-Reactive-family structure survived sentiment removal more cleanly.
-
-Performance degraded moderately, but not catastrophically.
-
-Current interpretation:
-
-reactive-family behavior may be more deeply rooted in:
-
-- transition geometry
-- release dynamics
-- volatility-conditioned instability
-
-rather than sentiment alone.
+> partially overlapping latent manifolds.
 
 ---
 
-## Current Conceptual Interpretation
+# Architecture Robustness
 
-The project increasingly suggests a layered market structure:
+Observed structure survives across:
 
-### Price/volatility layer
+- MLP models
+- LSTM models
+- cross-family transfer
+- downstream MPML integration
 
-Represents:
+This weakens the hypothesis that findings are merely:
 
-- structural market geometry
-- transition mechanics
-- persistence boundaries
-- volatility clustering
-- instability dynamics
+- architecture artifacts
+- optimization artifacts
+- isolated modeling effects
 
----
+while strengthening the interpretation that:
 
-### Sentiment layer
-
-Represents:
-
-- collective reinforcement
-- positioning persistence
-- crowd anchoring
-- behavioral amplification
-
----
-
-Current interpretation:
-
-sentiment modulates underlying structural dynamics rather than fully generating them.
-
----
-
----
-
-# MPML Downstream Ablation Findings (NEW)
-
-Controlled DL ablation artifacts were propagated through the
-`market-phase-ml` downstream pipeline.
-
-Experiments compared:
-
-- baseline (no DL)
-- DL with sentiment
-- DL without sentiment (`trend_vol_only`)
-
-across both:
-
-- persistent-family pairs
-- reactive-family pairs
-
----
-
-## Key Finding
-
-DL downstream effects survived sentiment removal surprisingly well.
-
-This is important because it suggests that:
-
-- DL is not primarily extracting raw sentiment alpha
-- downstream strategy changes are not purely sentiment-driven
-- deeper structural information exists in the price/volatility layer
-
----
-
-## Persistent-family behavior
-
-Persistent-family pairs continued to show substantial downstream
-improvements after sentiment removal.
-
-Examples included:
-
-- EURUSD
-- EURGBP
-- EURAUD
-
-Interpretation:
-
-persistent-family structure appears strongly tied to:
-
-- accumulation geometry
-- persistence timing
-- structural continuation behavior
-
-while sentiment primarily reinforces those dynamics.
-
----
-
-## Reactive-family behavior
-
-Reactive-family pairs also retained substantial DL-driven downstream effects
-under ablation.
-
-Interpretation:
-
-reactive-family structure appears strongly connected to:
-
-- transition timing
-- instability/release dynamics
-- volatility-conditioned structural changes
-
-rather than sentiment alone.
-
----
-
-## Updated Structural Interpretation
-
-Current evidence increasingly supports a layered interpretation:
-
-### Structural layer
-
-Driven by:
-
-- trend geometry
-- volatility structure
-- persistence boundaries
-- transition dynamics
-- release behavior
-
-This layer appears capable of generating substantial downstream DL effects
-even without sentiment inputs.
-
----
-
-### Sentiment layer
-
-Driven by:
-
-- crowd persistence
-- reinforcement
-- positioning inertia
-- behavioral amplification
-
-Current interpretation:
-
-sentiment modulates and amplifies structural dynamics rather than fully
-creating them.
-
----
-
-## Current Working Interpretation
-
-The strongest current interpretation is:
-
-> DL models are primarily learning behavioral state geometry,
-> while sentiment acts as a secondary reinforcement layer.
+> some form of latent organization genuinely exists in the data.
 
 ---
 
 # MPML Integration Findings
 
-Cross-repo integration between:
-
-- market-sentiment-ml
-and:
-- market-phase-ml
-
-is now operational.
-
-DL prediction artifacts:
-
-- export successfully
-- attach to MPML phase pipelines
-- alter downstream ML behavior
-- alter downstream backtest behavior
-
-Importantly:
-
-DL integration effects are:
-
-- asymmetric
-- pair-dependent
-- structurally coherent
-
-rather than random.
+Recent full-pipeline experiments integrating MSML DL surfaces into MPML
+produced several important observations.
 
 ---
 
-# Current Interpretation of DL Effects
+## Important Separation
 
-DL does not primarily appear to improve:
+MSML and MPML answer different questions.
 
-- raw classification accuracy globally
+### MSML studies:
 
-Instead, current evidence suggests DL may improve:
+- behavioral structure
+- latent organization
+- sentiment-conditioned dynamics
+- transfer geometry
 
-- transition sensitivity
-- persistence estimation
-- timing
-- trade filtering
-- regime-state confidence
+### MPML studies:
 
-This is especially visible in downstream MPML backtests where:
+- adaptive exploitation
+- policy routing
+- regime-aware downstream behavior
+- ensemble robustness
 
-- classification improvements are sometimes modest
-- but strategy behavior changes materially
+This distinction is extremely important.
 
----
-
-# Agent-Based Modeling (ABM)
-
-## Current Model
-
-ABM currently reproduces:
-
-- accumulation
-- persistence
-- clustering
-- path dependence
-- asymmetric reinforcement
-
-The baseline ABM is now stable and reproducible.
+MPML findings should therefore NOT be interpreted as direct evidence
+for or against the intrinsic importance of sentiment itself.
 
 ---
 
-# Stage-2 Release Dynamics
+## Current MPML Interpretation
 
-Recent work introduced:
+Recent FP experiments suggest that:
 
-- volatility-conditioned decay / release dynamics
+- DL signals genuinely propagate through MPML
+- walk-forward adaptive systems react to sentiment ablation
+- selector behavior changes materially
+- fold-level dynamics change materially
 
-Key finding:
+However:
 
-- “release” behavior can emerge without requiring full sign flips
+- final downstream ensemble behavior often remains surprisingly stable
 
-Observed effects:
+This increasingly suggests that:
 
-- reduced internal conviction magnitude
-- increased boundary time
-- reduced saturation persistence
+> MPML exploits multiple partially overlapping behavioral channels.
 
-This increasingly aligns with DL observations in reactive-family pairs.
+Possible channels include:
 
----
-
-# Current ABM Interpretation
-
-ABM now appears to model two partially distinct processes:
-
-## Persistence dynamics
-
-Driven by:
-
-- anchor strength
-- reinforcement
-- accumulation
-
-Associated with:
-
-- smoother transitions
-- stable positioning
-- persistent-family behavior
+- sentiment structure
+- volatility structure
+- trend persistence
+- phase memory
+- adaptive routing
+- regime geometry
 
 ---
 
-## Release dynamics
+# ABM Relationship
 
-Driven by:
+Several findings increasingly resemble dynamics observed in ABM work.
 
-- volatility-conditioned decay
-- destabilization
-- boundary behavior
+Observed parallels include:
 
-Associated with:
+- persistence/release cycles
+- asymmetric volatility response
+- clustered behavioral organization
+- reactive regime transitions
+- family-dependent behavior
 
-- reactive-family behavior
-- episodic instability
-- sharper directional transitions
+This does NOT validate ABM directly.
+
+However, the alignment increasingly suggests that:
+
+> DL and ABM may be observing different manifestations
+> of the same underlying behavioral organization.
 
 ---
 
-# DL ↔ ABM Relationship
+# Current Scientific Risks
 
-DL is not validating ABM directly.
+Several important risks remain unresolved.
 
-Instead:
+---
 
-> DL provides empirical constraints on plausible behavioral mechanisms.
+## Leakage Risk
 
-ABM increasingly appears capable of explaining:
+Potential temporal leakage remains one of the most important unresolved
+scientific concerns.
 
-- persistence structure
+This includes:
+
+- rolling normalization leakage
+- timestamp alignment leakage
+- walk-forward contamination
+- export boundary leakage
+- future-state contamination
+
+Leakage audits remain a major priority.
+
+---
+
+## Sparse DL Overlap
+
+Current DL surfaces overlap only a subset of the full historical timeline.
+
+This creates several risks:
+
+- sparse-feature dominance
+- presence-mask artifacts
+- instability in downstream adaptive systems
+- misleading aggregate performance stability
+
+DL-era-only experiments remain important.
+
+---
+
+## Ontology Mismatch
+
+MSML and MPML currently use different regime ontologies.
+
+This creates ambiguity when interpreting:
+
+- regime-conditioned behavior
+- DL coverage behavior
+- downstream routing effects
+
+Regime interpretation therefore requires care.
+
+---
+
+# Immediate Research Priorities
+
+Current priorities include:
+
+---
+
+## Behavioral Research
+
+- CHF vs JPY decomposition
+- latent manifold analysis
+- transition geometry
 - release dynamics
-- pair-family divergence
-- regime-conditioned predictability
-
-The two approaches are beginning to converge conceptually.
+- volatility-conditioned organization
 
 ---
 
-# Important Dataset Observation
+## Validation Research
 
-The sentiment dataset is snapshot-driven rather than strictly bar-driven.
-
-Multiple intra-hour sentiment snapshots can map to the same H1 entry bar.
-
-Operational DL artifacts therefore collapse:
-
-(pair, entry_time)
-
-to a single H1 representation during export.
-
-The underlying dataset remains event-level internally.
+- leakage audits
+- randomized DL controls
+- shuffled-signal experiments
+- sparse-overlap controls
+- DL-era-only evaluation
 
 ---
 
-# What Has Been Ruled Out
+## MPML Integration Research
 
-The following do not appear sufficient:
-
-- raw sentiment signal
-- additive sentiment alpha
-- simple threshold conditioning
-- static nonlinear interactions
-- universal cross-pair signal structure
+- adaptive routing analysis
+- selector sensitivity
+- fold-level behavioral dynamics
+- multi-surface integration
+- downstream robustness analysis
 
 ---
 
-# What Remains Open
+## ABM Research
 
-## Behavioral structure
-
-- why pair families diverge
-- why reactive-family pairs generalize better
-- why persistence-family pairs appear smoother but less exploitable
-
----
-
-## Regime interaction
-
-- how volatility interacts with persistence
-- how release dynamics emerge
-- how structural transitions occur
+- endogenous regime emergence
+- agent coordination
+- calibration stability
+- persistence/release simulation
+- behavioral phase transitions
 
 ---
 
-## DL structure
+# Current Working Hypothesis
 
-- whether family-specific DL surfaces transfer cross-family
-- whether sequence models exploit transition timing
-- whether confidence structure matters more than direction
+The strongest current working hypothesis is now:
 
----
+> FX markets contain partially persistent latent behavioral structure
+> conditioned by volatility, trend organization, and adaptive participation dynamics.
 
-## ABM reconciliation
+Within this structure:
 
-- whether one unified ABM is sufficient
-- whether multiple behavioral families are required
-- whether release dynamics explain reactive-family behavior
+- sentiment acts as a conditional modulation layer
+- adaptive systems exploit multiple overlapping behavioral channels
+- pair families organize differently
+- and structural persistence dominates much long-horizon behavior.
 
----
+The project therefore increasingly studies:
 
-# Immediate Next Steps
+> behavioral geometry and adaptive interaction,
 
-## 1. Cross-family transfer experiments
+rather than:
 
-Test whether:
-
-- persistent-family DL surfaces
-generalize poorly to:
-- reactive-family pairs
-
-and vice versa.
-
-This is currently the highest-value discriminator experiment.
+> simple directional prediction.
 
 ---
 
-## 2. Coverage diagnostics
+# Status
 
-Quantify:
+Active exploratory research project.
 
-- DL row coverage
-- effective sample reduction
-- conditional filtering effects
+The current direction increasingly focuses on:
 
-to separate:
-
-- genuine predictive improvement
-from:
-- implicit selective sampling.
-
----
-
-## 3. ABM refinement
-
-Focus on:
-
-- release dynamics
-- boundary behavior
-- volatility-conditioned destabilization
-
-Avoid major complexity expansion.
-
----
-
-## 4. Controlled DL continuation
-
-Avoid:
-
-- large hyperparameter sweeps
-- architecture proliferation
-
-Prioritize:
-
-- interpretable experiments
-- structural clarity
-- reproducibility
-
----
-
-# Research Phase
-
-The project has transitioned from:
-
-“signal discovery”
-
-to:
-
-> structure discovery and behavioral reconciliation
-
----
-
-# Working Hypothesis
-
-Retail FX sentiment may not represent a single universal behavioral process.
-
-Current evidence suggests at least two broad structures:
-
-## Persistence-dominated markets
-
-Characteristics:
-
-- smoother accumulation
-- slower positioning decay
-- persistent clustering
-- weaker transition signal
-
-Examples:
-
-- EURUSD
-- GBPUSD
-- NZDUSD
-- EURGBP
-- EURAUD
-
----
-
-## Reactive / release-dominated markets
-
-Characteristics:
-
-- sharper boundary behavior
-- stronger instability dynamics
-- more episodic directional unwinds
-- cleaner transition structure
-
-Examples:
-
-- USDJPY
-- EURJPY
-- GBPJPY
-- EURCHF
-- USDCHF
-
----
-
-These findings are now supported across:
-
-- grouped DL experiments
-- MPML downstream integration
-- ABM persistence/release dynamics
-
-Current interpretation:
-
-ABM may be approximating:
-
-- persistence via anchor dynamics
-- release via volatility-conditioned decay
-
-while DL empirically detects the resulting structural differences.
-
----
-
-# Conclusion
-
-The project no longer supports:
-
-- universal sentiment alpha
-- simple additive predictive signal
-
-Instead, current evidence increasingly supports:
-
-> conditional, structurally-dependent behavioral predictability.
-
-The central question is now:
-
-> what mechanisms generate that structure?
+- latent behavioral organization
+- structural persistence
+- conditional modulation
+- adaptive downstream exploitation
+- and reconciliation between:
+  - DL,
+  - ABM,
+  - and adaptive policy systems.

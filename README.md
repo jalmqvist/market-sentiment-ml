@@ -1,274 +1,431 @@
-# FX Retail Sentiment — Behavioral Signal Research
+# Market Sentiment ML (MSML)
 
-A quantitative research project studying whether retail FX sentiment contains predictive signal.
-
-> [!NOTE]
->
-> **Current status (integration): v1 MSML → MPML DL artifact export is live (proof-of-concept complete).**  
-> This repo can export per-run H1 DL prediction artifacts consumed by `market-phase-ml`, where they are aggregated to D1 and joined as an optional feature layer. Sparse/partial coverage is expected in v1.
+Behavioral structure research for retail FX sentiment.
 
 ---
 
-## Executive Summary
+# Executive Summary
 
-**Current status: no standalone or additive alpha.**  
-**However, a weak, regime-dependent predictive signal exists.**
+This project studies whether retail FX sentiment contains conditional
+behavioral structure under different market conditions.
 
-Extensive experimentation with strict validation leads to the following:
+The research combines:
 
-- Raw retail sentiment = noise
-- Pipeline-based signals (V20–V21) were invalidated (artifacts)
-- Price-based signals show small but stable predictive power (~0.14 Sharpe)``
-- Sentiment provides **no additive value in static models**
+- deep learning
+- behavioral modeling (ABM)
+- regime analysis
+- cross-pair transfer experiments
+- downstream integration into adaptive trading systems
 
-### Updated Finding (DL v3 — Controlled Experiments)
+The project no longer treats sentiment as a simple directional predictor.
 
-Using controlled (non-grid) experiments:
+Instead, the current research focus is:
 
-> A **weak but consistent predictive signal** exists when:
-> - using temporal models (MLP/LSTM with lagged features)
-> - conditioning on **market regime**
-> - predicting medium horizons (~24 bars)
+> understanding when and why behavioral structure becomes conditionally informative.
 
-Observed performance:
+Current evidence suggests that:
 
-- F1 ≈ 0.25–0.50 (depending on pair/regime)
-- Consistent across MLP and LSTM
+- raw sentiment is mostly noisy
+- additive sentiment alpha is weak
+- universal predictive behavior does not emerge
+- but conditional behavioral structure appears to exist
 
----
+That structure appears:
 
-## Key Insight
-
-> **Predictability is regime-dependent, not universal**
-
-### Regime hierarchy (empirical)
-
-| Regime                | Signal strength                                              |
-| --------------------- | ------------------------------------------------------------ |
-| LVTF (low-vol trend)  | ✅ strongest, stable                                          |
-| HVR (high-vol range)  | ⚠ moderate — **volatility/stability is the missing gating variable** |
-| LVR (low-vol range)   | ⚠ unstable / sparse                                          |
-| HVTF (high-vol trend) | ❌ weak / near-random                                         |
+- regime-dependent
+- pair-family-dependent
+- volatility-conditioned
+- partially transferable across models
+- and partially aligned with ABM-derived behavioral hypotheses
 
 ---
 
-## Interpretation
+# Repository Role
 
-The signal exists when:
+This repository (`market-sentiment-ml`) focuses on:
 
-- markets are **stable**
-- directional structure persists
-- sentiment can **accumulate over time**
+- behavioral signal discovery
+- sentiment structure analysis
+- transfer-learning experiments
+- deep-learning behavioral surfaces
+- sentiment ablation experiments
+- ABM reconciliation
 
-The signal breaks when:
+Downstream exploitation experiments are performed in:
 
-- volatility is high
-- price is dominated by macro/flow dynamics
-- sentiment becomes reactive rather than predictive
+- `market-phase-ml` (MPML)
 
----
+where exported DL behavioral surfaces are integrated into a
+regime-aware adaptive strategy-selection pipeline.
 
-## Key Conclusion
+MSML should therefore primarily be interpreted as:
 
-Retail sentiment is:
+> a behavioral structure research framework,
 
-- not predictive in isolation
-- not additive to price
-- but contains **weak conditional structure**
+rather than:
 
-> Predictability emerges only under specific **regime conditions**
-
----
-
-## Agent-Based Modeling (ABM)
-
-### Behavioral Insight
-
-Retail sentiment behaves as a **path-dependent accumulation process**:
-
-- accumulation (position building)
-- inertia (resistance to switching)
-- asymmetric reinforcement
-
-This reproduces:
-
-- persistent crowd imbalance
-- clustered regimes
-- realistic sentiment magnitude
+> a standalone trading system.
 
 ---
 
-### Multi-Pair Findings
+# Current State of Evidence
 
-ABM matches data in:
+The strongest current evidence does **not** support:
 
-- EUR, GBP, NZD pairs
+- universal sentiment alpha
+- stable standalone directional predictability
+- globally transferable sentiment behavior
+- additive predictive power over price/volatility structure
 
-Fails in:
+However, current experiments **do** support:
 
-- JPY, CHF, some CAD pairs
+- weak conditional predictive structure
+- pair-family asymmetries
+- regime dependence
+- volatility-conditioned behavior
+- latent structural organization
+- persistent downstream effects after DL integration
+- partial alignment between DL findings and ABM dynamics
 
----
+Current evidence increasingly suggests that:
 
-### Interpretation
-
-Markets differ structurally:
-
-- Trend-dominated → accumulation works
-- Macro/flow-driven → accumulation breaks
-
----
-
-## DL ↔ ABM Synthesis (Updated)
-
-DL results refine ABM:
-
-Previous assumption:
-
-trend → accumulation → signal
-
-Updated:
-
-trend + stability → accumulation → signal  
-trend + high volatility → breakdown
-
-> **Volatility/stability is the missing gating variable**
+> sentiment may act less like a direct predictor
+> and more like a conditional behavioral-state surface.
 
 ---
 
-## Current ABM State (Stage‑2 “Decay/Release”)
+# Behavioral Interpretation
 
-The ABM now includes an **optional, volatility-conditioned decay/release mechanism** (defaults OFF) to prevent absorbing saturation states and to model “escape” behavior under volatility.
+A layered interpretation has gradually emerged from the experiments.
 
-Recent work added a **Stage‑2 beta sensitivity harness**:
+## Structural Layer
 
-- `abm_experiments/decay_beta_sensitivity.py`
+Price, volatility, and trend organization appear to encode a large amount
+of persistent market structure.
 
-It reports:
+This layer survives:
 
-- `pct_time_saturated` (|net_sentiment| ≥ 90)
-- `sign_flips`
-- `autocorr_lag1`
-- plus verbose-only diagnostics for “near-boundary” behavior:
-  - `pct_time_abs_le_20` (|net_sentiment| ≤ 20)
-  - `pct_time_negative`
+- sentiment ablation
+- architecture changes (MLP ↔ LSTM)
+- cross-family transfer
+- downstream MPML integration
 
-This supports explaining why DL can show regime-conditional behavior even when ABM outputs remain sign-stable.
+This suggests that a substantial portion of observed market organization
+may emerge from:
 
----
+- volatility clustering
+- trend persistence
+- liquidity adaptation
+- endogenous structural feedback
 
-## What’s Next (Clear Strategy)
+rather than sentiment alone.
 
-The project is shifting from **parameter sweeps** to **mechanism matching**: aligning ABM dynamics with the *stylized behaviors* implied by DL results.
+## Sentiment Layer
 
-### 1) Make ABM↔DL comparisons metric-aligned
+Sentiment-derived features still appear to contribute:
 
-Add/compute comparable “distance-to-boundary” and regime-transition metrics for both ABM and DL outputs:
+- conditional asymmetries
+- release/reversion behavior
+- pair-family differentiation
+- localized behavioral transitions
+- sparse downstream routing effects
 
-- time near boundary (already: `pct_time_abs_le_20`)
-- run-length / dwell-time in regimes (e.g., time between transitions)
-- saturation frequency vs regime
+The current working hypothesis is therefore:
 
-### 2) Target the structural knobs (not more escape tuning)
-
-Use a small, controlled factorial design on a few representative pairs:
-
-- **USD-JPY** (positive-locking)
-- **EUR-JPY** (near-boundary)
-- **GBP-JPY** (often negative)
-
-Vary only a few core parameters at a time:
-
-- `trend_ratio` (introduce more contrarians)
-- herding/crowd weight (reduce lock-in)
-- aggregation (consider magnitude-weighted voting vs pure sign voting)
-
-### 3) Explain pair differences as regimes, not errors
-
-Some pairs (e.g. GBP-JPY) naturally live in negative regimes for long stretches. Treat `pct_time_negative` as a **diagnostic** (what regime is the market in?) rather than a universal failure condition[...]
+> sentiment modulates behavioral structure
+> rather than replacing it.
 
 ---
 
-## Deep Learning Results
+# Research Architecture
 
-### Grouped Pair-Family Findings (NEW)
+The broader research ecosystem is currently organized into three layers.
 
-Recent controlled multi-pair experiments suggest that FX pairs may separate into
-distinct behavioral “families” with different sentiment dynamics.
+## 1. ABM Layer
 
-#### Persistent / accumulation-oriented family
-Examples:
-- EURUSD
-- GBPUSD
-- NZDUSD
-- EURGBP
-- EURAUD
+Agent-based models explore:
 
-Observed behavior:
-- weaker directional generalization
-- lower F1 scores
-- smoother / more persistent sentiment structure
-- consistent with ABM accumulation dynamics
+- emergent market structure
+- behavioral persistence
+- release dynamics
+- agent coordination
+- endogenous regime formation
 
-#### Reactive / release-oriented family
-Examples:
-- USDJPY
-- EURJPY
-- GBPJPY
-- EURCHF
-- USDCHF
+ABM acts as a theoretical substrate for interpreting DL findings.
 
-Observed behavior:
-- stronger directional generalization
-- higher F1 scores
-- more state-dependent behavior
-- consistent with volatility-conditioned “release” dynamics in the ABM
+Relevant docs:
 
-Importantly, these differences emerge under:
-- the same architecture
-- same features
-- same training procedure
-- same target horizon
-- same regime filter
-
-This suggests that retail sentiment dynamics may not be universal across FX pairs.
-
-Current hypothesis:
-
-- EUR/GBP/NZD-type pairs are more persistence/accumulation dominated
-- JPY/CHF-type pairs are more reactive / macro-flow dominated
-
-This is now an active research direction.
+- `docs/abm/`
 
 ---
 
-### Cross-Family Transfer Experiments (NEW)
+## 2. MSML Layer
 
-The DL export pipeline now supports:
+MSML performs empirical behavioral discovery through:
 
-- training on one FX pair family
-- exporting inference predictions on another family
+- deep learning
+- transfer experiments
+- feature ablations
+- latent structure analysis
+- behavioral surface export
 
-This enables explicit testing of whether learned sentiment structure:
+Relevant docs:
 
-- generalizes universally
-- or is family-specific.
+- `docs/behavioral/`
+- `docs/models/`
+- `docs/data/`
 
-## Sentiment Ablation Experiments
+---
 
-The DL pipelines now support explicit sentiment ablation via:
+## 3. MPML Layer
 
-`--feature-set trend_vol_only`
+MPML acts as a downstream adaptive consumer of behavioral surfaces.
 
-This removes all sentiment-derived inputs while preserving:
+DL surfaces exported from MSML can propagate into:
+
+- walk-forward prediction
+- dynamic strategy routing
+- selector training
+- volatility gating
+- adaptive policy selection
+
+This layer studies:
+
+> how adaptive systems interact with behavioral information surfaces.
+
+---
+
+# Key Findings
+
+## Cross-Family Transfer
+
+Persistent pair families and reactive pair families exhibit
+meaningfully different behavioral organization.
+
+Experiments increasingly suggest:
+
+- persistent families may contain more stable structural organization
+- reactive families may contain more release/reversion dynamics
+- CHF and JPY structures appear partially separable
+- transfer behavior is asymmetric
+
+See:
+
+- `docs/behavioral/cross_family_transfer_findings.md`
+- `docs/behavioral/grouped_pair_family_findings.md`
+
+---
+
+## Sentiment Ablation
+
+Removing sentiment-derived features while preserving:
 
 - trend features
 - volatility features
 
-This enables controlled experiments testing whether observed behavioral
-family structure is driven by sentiment dynamics or generic market structure.
+does **not** fully destroy behavioral structure.
 
-MLP example:
+This suggests that:
+
+- structural organization survives independently of sentiment
+- sentiment acts as a conditional modulation layer
+- price/volatility organization itself may encode latent behavioral geometry
+
+See:
+
+- `docs/behavioral/sentiment_ablation.md`
+
+---
+
+## Architecture Robustness
+
+Observed structure survives across:
+
+- MLP models
+- LSTM models
+- cross-family transfer
+- downstream MPML integration
+
+This weakens the hypothesis that findings are merely
+architecture-specific artifacts.
+
+---
+
+## DL ↔ ABM Alignment
+
+Several DL findings increasingly resemble behaviors observed in ABM:
+
+- persistence/release cycles
+- asymmetric volatility response
+- pair-family differentiation
+- structural regime transitions
+
+This does not prove ABM correctness,
+but increasingly suggests:
+
+> DL and ABM may be observing different manifestations
+> of the same underlying behavioral organization.
+
+See:
+
+- `docs/abm/DL_ABM_RECONCILIATION.md`
+
+---
+
+# Deep Learning Models
+
+Current DL pipelines include:
+
+## MLP
+
+Feedforward behavioral-surface model.
+
+See:
+
+- `docs/models/mlp.md`
+
+---
+
+## LSTM
+
+Sequence-aware behavioral-surface model.
+
+Supports:
+
+- sequence-safe export
+- grouped pair-family training
+- cross-family transfer
+- metadata-aligned prediction export
+
+See:
+
+- `docs/models/lstm.md`
+
+---
+
+# DL Prediction Artifacts
+
+MSML exports standardized behavioral surfaces as parquet artifacts.
+
+These artifacts can be consumed downstream by MPML.
+
+The export contract includes:
+
+- metadata-safe row alignment
+- pair-safe export semantics
+- timestamp alignment guarantees
+- standardized feature schemas
+- manifest diagnostics
+
+See:
+
+- `docs/integration/dl_prediction_artifacts.md`
+- `docs/integration/DL_SIGNAL_SCHEMA.md`
+
+---
+
+# Current Limitations
+
+The current research remains exploratory.
+
+Major unresolved questions include:
+
+- temporal leakage risk
+- sparse DL overlap effects
+- causal interpretation
+- stability across market eras
+- robustness under randomized controls
+- regime ontology mismatch between MSML and MPML
+
+Current findings should therefore be interpreted as:
+
+> evidence for conditional behavioral structure,
+
+not:
+
+> proof of universal predictive alpha.
+
+---
+
+# Research Roadmap
+
+Current priorities include:
+
+## Behavioral Research
+
+- CHF vs JPY decomposition
+- latent manifold analysis
+- transition geometry
+- volatility-conditioned structure
+- transfer asymmetry analysis
+
+---
+
+## Integration Research
+
+- DL-era-only experiments
+- sparse-overlap controls
+- randomized DL controls
+- MPML downstream sensitivity analysis
+
+---
+
+## ABM Research
+
+- improved calibration
+- endogenous regime emergence
+- release dynamics
+- persistent/reactive family simulation
+
+---
+
+# Philosophy
+
+This project increasingly treats markets as:
+
+> adaptive behavioral systems,
+
+rather than:
+
+> stationary prediction problems.
+
+The goal is therefore not merely to predict returns,
+but to understand:
+
+- when behavioral organization emerges
+- how structure persists
+- how adaptive systems exploit structure
+- and how sentiment interacts with broader market geometry.
+
+---
+
+# Documentation
+
+## Behavioral Research
+
+- `docs/behavioral/`
+
+## ABM
+
+- `docs/abm/`
+
+## Models
+
+- `docs/models/`
+
+## Data
+
+- `docs/data/`
+
+## Integration
+
+- `docs/integration/`
+
+---
+
+# Technical Quickstart
+
+## Train MLP
 
 ```bash
 python -m research.deep_learning.train \
@@ -276,337 +433,4 @@ python -m research.deep_learning.train \
   --pairs EURUSD,GBPUSD,NZDUSD \
   --regime LVTF \
   --target-horizon 24 \
-  --feature-set trend_vol_only
-```
-
-LSTM example:
-
-```bash
-python -m research.deep_learning.train_lstm \
-  --dataset-version 1.3.2 \
-  --pairs USDJPY,EURJPY,GBPJPY \
-  --regime LVTF \
-  --target-horizon 24 \
-  --feature-set trend_vol_only
-```
-
-Example:
-
-```bash
-python -m research.deep_learning.train \
-  --dataset-version 1.3.2 \
-  --train-pairs EURUSD,GBPUSD,NZDUSD,EURGBP,EURAUD \
-  --predict-pairs USDJPY,EURJPY,GBPJPY,EURCHF,USDCHF \
-  --regime LVTF \
-  --target-horizon 24 \
   --feature-set price_trend
-```
-
-This produces predictions for the reactive family using a model trained only on the persistent family.
-
----
-
-### MPML Downstream Ablation Findings (NEW)
-
-The sentiment ablation experiments were also propagated through the
-`market-phase-ml` downstream pipeline.
-
-Importantly:
-
-DL-driven downstream behavior largely survived removal of explicit
-sentiment inputs.
-
-Observed behavior:
-
-- DL-enhanced MPML backtests remained materially different from baseline
-- improvements often survived under:
-  - `trend_vol_only`
-- downstream effects remained:
-  - pair-dependent
-  - family-dependent
-  - structurally coherent
-
-This is important because it suggests that DL models are not learning
-pure sentiment alpha alone.
-
-Current interpretation:
-
-DL models appear to detect a deeper structural layer involving:
-
-- persistence geometry
-- transition timing
-- volatility-conditioned instability
-- release dynamics
-
-while sentiment primarily acts as:
-
-- reinforcement
-- amplification
-- persistence modulation
-
-rather than the sole source of predictability.
-
----
-
-### Working hypothesis
-
-Current working hypothesis:
-
-- persistent-family pairs encode slower accumulation/inertia dynamics
-- reactive-family pairs encode more volatility-conditioned release dynamics
-
-If true:
-
-- within-family transfer should remain partially stable
-- cross-family transfer should degrade materially
-
-This is now a primary research direction.
-
----
-
-### Current Research Direction (May 2026)
-
-Recent experiments suggest that FX sentiment dynamics may separate into
-distinct behavioral “families”:
-
-- persistence / accumulation-dominated pairs
-- reactive / release-dominated pairs
-
-This structure appears:
-
-- across grouped DL experiments
-- in downstream MPML integration
-- and increasingly aligns with ABM persistence/release dynamics.
-
-The project focus has therefore shifted from:
-
-    "does sentiment predict returns?"
-
-toward:
-
-    "what behavioral mechanisms generate conditional predictability?"
-
----
-
-### MLP (static + lagged features)
-
-- Extracts weak signal under regime conditioning
-- No additive value from sentiment alone
-- Confirms price dominates
-
-### LSTM (sequence model)
-
-- Recovers similar structure
-- No major advantage over MLP
-- Confirms signal is not architecture-dependent
-- Export pipeline now has parity with MLP
-- Supports cross-family transfer (`--train-pairs` / `--predict-pairs`)
-- Uses pair-safe grouped sequence construction with metadata-aligned export rows
-
----
-
-## Core Findings
-
-| Component          | Status              |
-| ------------------ | ------------------- |
-| Raw sentiment      | ❌ noise             |
-| Additive sentiment | ❌ no value          |
-| Price signal       | ✅ stable            |
-| DL signal          | ⚠ weak, conditional |
-| Regime dependence  | ✅ strong            |
-| Pair dependence    | ⚠ secondary         |
-
----
-
-## Research Direction
-
-The project has shifted from:
-
-> signal discovery
-
-to:
-
-> understanding **when and why signal exists**
-
-### Active directions:
-
-1. **ABM refinement**
-   - add volatility/stability dynamics
-   - reproduce regime-dependent signal
-
-2. **Regime analysis**
-   - persistence / autocorrelation
-   - structural differences across regimes
-
-3. **Controlled DL experiments**
-   - no further grid search
-   - isolate causal structure
-
----
-
-## Philosophy
-
-- correctness over results
-- causality over complexity
-- negative results are valuable
-
----
-
-## MSML → MPML integration (DL prediction artifacts, v1)
-
-**Status:** live (proof-of-concept complete).  
-This repo exports per-run H1 DL prediction artifacts consumed by `market-phase-ml`, where they are aggregated (H1→D1) and joined as numeric features.
-
-### What works (v1)
-- Per-run artifact export (`data/output/dl_predictions/*.parquet` + `*.manifest.json`)
-- Surface identity embedded in parquet rows: `model`, `dl_regime`, `target_horizon`, `feature_set`
-- Export window controls to produce MPML-overlapping artifacts:
-  - `--export-split {test,all}` (default `test`)
-  - `--export-after-year YEAR` / `--export-before-year YEAR` (export-only filtering)
-- Artifact diagnostics printed at export time (row count, unique pairs, entry_time range)
-
-### Known limitations (v1)
-- Coverage can be sparse depending on regime/pair/date overlap; this is expected in v1
-- Single-surface artifacts (no multi-surface ensembles here; MPML selects a single surface per run)
-- Regime filtering is explicit (`--regime LVTF|HVTF|HVR|LVR`); no “all-regime” export mode in v1
-
-### A) Train + export predictions
-
-Example (produces an artifact that overlaps MPML’s typical 2005–2024 D1 window):
-
-```bash
-python -m research.deep_learning.train \
-  --dataset-version 1.3.2 \
-  --pairs EURUSD \
-  --regime LVTF \
-  --target-horizon 24 \
-  --feature-set price_trend \
-  --export-split all \
-  --export-after-year 2019 \
-  --export-before-year 2024
-```
-
-LSTM export parity example (same artifact contract, sequence-safe export path):
-
-```bash
-python -m research.deep_learning.train_lstm \
-  --dataset-version 1.3.2 \
-  --train-pairs EURUSD,GBPUSD,NZDUSD,EURGBP,EURAUD \
-  --predict-pairs USDJPY,EURJPY,GBPJPY,EURCHF,USDCHF \
-  --regime LVTF \
-  --target-horizon 24 \
-  --feature-set price_trend \
-  --epochs 50 \
-  --seq-len 24 \
-  --export-split all \
-  --export-after-year 2019 \
-  --export-before-year 2024
-```
-
-Cross-family transfer example (train on one family, export inference on another):
-
-```bash
-python -m research.deep_learning.train \
-  --dataset-version 1.3.2 \
-  --train-pairs EURUSD,GBPUSD,NZDUSD,EURGBP,EURAUD \
-  --predict-pairs USDJPY,EURJPY,GBPJPY,EURCHF,USDCHF \
-  --regime LVTF \
-  --target-horizon 24 \
-  --feature-set price_trend
-```
-
-In this mode, exported predictions can originate from a model trained on a
-different pair family; row schema stays unchanged and provenance is recorded in
-the run manifest.
-
-Artifacts are written under:
-- `data/output/dl_predictions/<run_id>.parquet`
-- `data/output/dl_predictions/<run_id>.manifest.json`
-
-### B) Use artifact in market-phase-ml
-
-```bash
-export DL_SIGNALS_ENABLED=true
-export DL_PREDICTION_ARTIFACT_PATH=../market-sentiment-ml/data/output/dl_predictions/<run_id>.parquet
-python -u main.py
-```
-
-Notes:
-- MPML performs H1→D1 aggregation internally.
-- Surface config must match the artifact identity (`model`, `dl_regime`, `target_horizon`, `feature_set`).
-- Sparse/partial DL coverage is acceptable in v1 (MPML falls back per pair when coverage is zero).
-
----
-
-## DL Signal Artifact (DL → market-phase-ml Integration)
-
-The DL inference outputs are exported as versioned per-run artifacts and
-consolidated into an operational cube for consumption by `market-phase-ml`.
-
-### v1 Architecture (two-step)
-
-**Step 1 — Per-run artifact** (written after each DL training / inference run):
-
-```bash
-python scripts/write_dl_prediction_artifact.py \
-    --input-csv path/to/predictions.csv \
-    --model MLP \
-    --dl-regime LVTF \
-    --target-horizon 24 \
-    --feature-set price_vol_sentiment \
-    [--output-dir data/output/dl_predictions]
-```
-
-Produces for each run:
-
-| Path                                                | Description                                                  |
-| --------------------------------------------------- | ------------------------------------------------------------ |
-| `data/output/dl_predictions/{run_id}.parquet`       | Time-series payload (pair, entry_time, pred_prob_up, signal_strength, …) |
-| `data/output/dl_predictions/{run_id}.manifest.json` | Identity + provenance (model, dl_regime, target_horizon, feature_set, calibration, …) |
-
-**Step 2 — Consolidation** (builds the operational cube from all per-run artifacts):
-
-```bash
-python scripts/consolidate_dl_predictions.py \
-    [--input-dir data/output/dl_predictions] \
-    [--output-dir data/output/dl_signals]
-```
-
-Produces:
-
-| Path                                                   | Description                 |
-| ------------------------------------------------------ | --------------------------- |
-| `data/output/dl_signals/dl_signals_h1_v1.parquet`      | Consolidated DL signal cube |
-| `data/output/dl_signals/DL_SIGNAL_MANIFEST_h1_v1.json` | Cube manifest and metadata  |
-
-### Schema summary
-
-| Column                 | Type     | Description                                      |
-| ---------------------- | -------- | ------------------------------------------------ |
-| `pair`                 | string   | Normalised FX pair (`xxx-yyy`)                   |
-| `entry_time`           | datetime | H1 bar open timestamp (UTC, tz-naive)            |
-| `pred_prob_up`         | float64  | P(price moves up) ∈ [0, 1]                       |
-| `signal_strength`      | float64  | `2 * pred_prob_up − 1` ∈ [−1, 1]                 |
-| `pred_direction`       | Int64    | Tri-state: +1 (>0.5), −1 (<0.5), 0 (==0.5)       |
-| `prediction_timestamp` | datetime | Per-row inference timestamp (optional)           |
-| `model`                | string   | Model identifier (e.g. `MLP`, `LSTM`)            |
-| `dl_regime`            | string   | Producer regime: `HVTF` / `LVTF` / `HVR` / `LVR` |
-| `target_horizon`       | Int64    | Prediction horizon in bars (numeric)             |
-| `feature_set`          | string   | Feature set identifier                           |
-
-Unique key: `(pair, entry_time, model, dl_regime, target_horizon, feature_set)`
-
-> **Deprecated:** `scripts/build_dl_signal_artifact.py` (CSV consolidator) is
-> kept for backward compatibility but will be removed in a future release.
-
-See `docs/DL_SIGNAL_SCHEMA.md` for the complete schema, per-run artifact
-format, and integration notes.
-
----
-
-## Further Reading
-
-- `docs/ABM_RUNBOOK.md`
-- `docs/RESEARCH_STRATEGY.md`
-- `docs/abm.md`
-- `docs/DL_SIGNAL_SCHEMA.md`
