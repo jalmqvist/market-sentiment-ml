@@ -434,3 +434,61 @@ python -m research.deep_learning.train \
   --regime LVTF \
   --target-horizon 24 \
   --feature-set price_trend
+
+```
+
+---
+
+## Train LSTM
+
+```
+python -m research.deep_learning.train_lstm \
+  --dataset-version 1.3.2 \
+  --pairs USDJPY,EURJPY,GBPJPY \
+  --regime LVTF \
+  --target-horizon 24 \
+  --feature-set price_trend
+```
+
+------
+
+## Sentiment Ablation Example
+
+```
+python -m research.deep_learning.train \
+  --dataset-version 1.3.2 \
+  --pairs EURUSD,GBPUSD,NZDUSD \
+  --regime LVTF \
+  --target-horizon 24 \
+  --feature-set trend_vol_only
+```
+
+------
+
+## Cross-Family Transfer Example
+
+```
+python -m research.deep_learning.train \
+  --dataset-version 1.3.2 \
+  --train-pairs EURUSD,GBPUSD,NZDUSD \
+  --predict-pairs USDJPY,EURJPY,GBPJPY \
+  --regime LVTF \
+  --target-horizon 24 \
+  --feature-set price_trend
+```
+
+------
+
+# Status
+
+Active research project.
+
+The current direction increasingly focuses on:
+
+- conditional behavioral structure
+- latent organization
+- adaptive downstream exploitation
+- and reconciliation between:
+  - DL,
+  - ABM,
+  - and adaptive policy systems.
