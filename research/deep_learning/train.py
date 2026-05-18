@@ -416,9 +416,9 @@ def main():
         export_meta_df["entry_time"]
     ).dt.tz_localize(None)
 
-    # Single inference-time timestamp for the exported prediction batch
-    # (avoid deprecated Timestamp.utcnow)
-    prediction_timestamp = pd.Timestamp.now("UTC").tz_localize(None)
+    # prediction_generated_timestamp: wall-clock time the batch was processed.
+    # For internal diagnostics only — MUST NOT be used for causality.
+    prediction_generated_timestamp = pd.Timestamp.now("UTC").tz_localize(None)
 
     # Derived canonical signal representation
     signal_strength = (2.0 * export_pred_prob_up) - 1.0
@@ -452,7 +452,17 @@ def main():
         "feature_set": feature_set,
         "dl_regime": dl_regime,
         "target_horizon": target_horizon,
-        "prediction_timestamp": prediction_timestamp,
+        # v2 timestamp semantics:
+        # prediction_available_timestamp: earliest historical time the prediction
+        # could be known.  Set to entry_time (bar open) — the model uses only
+        # features available at or before that timestamp.
+        # CONTRACT: prediction_available_timestamp <= entry_time (satisfied as equality).
+        "prediction_available_timestamp": export_entry_time,
+        # prediction_generated_timestamp: wall-clock batch inference time.
+        # For diagnostics only — MUST NOT be used for causality checks.
+        "prediction_generated_timestamp": prediction_generated_timestamp,
+        # Legacy name kept for backward compat (same value as prediction_generated_timestamp).
+        "prediction_timestamp": prediction_generated_timestamp,
     })
 
     pre_collapse_rows = len(pred_df)
@@ -467,6 +477,8 @@ def main():
             "feature_set": "first",
             "dl_regime": "first",
             "target_horizon": "first",
+            "prediction_available_timestamp": "first",
+            "prediction_generated_timestamp": "first",
             "prediction_timestamp": "first",
         })
     )
@@ -530,7 +542,16 @@ def main():
         "pred_prob_up": export_pred_prob_up.astype("float64"),
         "signal_strength": signal_strength.astype("float64"),
 
-        "prediction_timestamp": prediction_timestamp,
+        # v2 timestamp semantics:
+        # prediction_available_timestamp: causal boundary used by MPML.
+        # Set to entry_time (bar open) — model uses only features available
+        # at or before that timestamp.  Satisfies <= entry_time (equality).
+        "prediction_available_timestamp": export_entry_time.values,
+        # prediction_generated_timestamp: wall-clock batch inference time.
+        # For diagnostics only — MUST NOT be used for causality.
+        "prediction_generated_timestamp": prediction_generated_timestamp,
+        # Legacy name kept for backward compat.
+        "prediction_timestamp": prediction_generated_timestamp,
 
         # Surface identity columns
         "model": model_name,

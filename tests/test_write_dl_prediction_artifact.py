@@ -39,7 +39,7 @@ from write_dl_prediction_artifact import (
     RUN_PARQUET_COLS,
     write_dl_prediction_artifact,
 )
-from build_dl_signal_artifact import SCHEMA_VERSION
+from schemas.dl_artifact_schema import DL_SCHEMA_VERSION
 
 
 # ---------------------------------------------------------------------------
@@ -117,7 +117,7 @@ class TestWriteDlPredictionArtifact:
             output_dir=tmp_path, run_id="r3"
         )
         manifest = json.loads(mf.read_text())
-        assert manifest["schema_version"] == SCHEMA_VERSION
+        assert manifest["schema_version"] == DL_SCHEMA_VERSION
         assert manifest["export_frequency"] == "H1"
         assert "generated_at_utc" in manifest
         assert "run_id" in manifest

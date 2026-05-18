@@ -14,8 +14,9 @@ generating row-level predictions.  Each call produces:
 These per-run artifacts are later consolidated into the operational cube by
 ``scripts/consolidate_dl_predictions.py``.
 
-Schema version:  dl_signals_h1_v1
-See also:        docs/DL_SIGNAL_SCHEMA.md
+Schema version:  2.0.0 (see schemas/dl_artifact_schema.py)
+See also:        docs/integration/DL_SIGNAL_SCHEMA.md
+                 docs/integration/dl_artifact_contract.md
 
 Usage (CLI)::
 
@@ -109,9 +110,21 @@ from build_dl_signal_artifact import (  # noqa: E402
     _normalize_pair,
 )
 import config as cfg  # noqa: E402
+from schemas.dl_artifact_schema import (  # noqa: E402
+    DL_SCHEMA_VERSION,
+    DL_AVAILABLE_TS_COL,
+    DL_GENERATED_TS_COL,
+    DL_ARTIFACT_CREATED_COL,
+    validate_dl_artifact,
+)
 
 # ---------------------------------------------------------------------------
-# Per-run parquet schema (v1)
+# Per-run parquet schema (v2)
+#
+# v2 adds explicit timestamp columns with one meaning each:
+#   prediction_available_timestamp — causal boundary used by MPML
+#   prediction_generated_timestamp — wall-clock inference time (diagnostics)
+#   artifact_created_timestamp     — wall-clock export time (provenance)
 #
 # IMPORTANT: market-phase-ml filters surfaces directly from parquet row
 # columns, so the identity columns MUST be physically present in the parquet.
@@ -124,7 +137,10 @@ REQUIRED_PARQUET_COLS = [
     "signal_strength",
     "pred_direction",
     "confidence",
-    "prediction_timestamp",
+    "prediction_timestamp",        # v1 compat: per-row inference time (legacy name)
+    DL_AVAILABLE_TS_COL,           # v2: causal boundary for MPML
+    DL_GENERATED_TS_COL,           # v2: wall-clock inference time (diagnostics only)
+    DL_ARTIFACT_CREATED_COL,       # v2: artifact export time (provenance only)
     "model",
     "dl_regime",
     "target_horizon",
@@ -234,6 +250,14 @@ def _apply_control_mode(payload: pd.DataFrame, semantics_config: dict[str, Any])
             shuffled_times = grp["entry_time"].to_numpy().copy()
             rng.shuffle(shuffled_times)
             grp["entry_time"] = pd.to_datetime(shuffled_times)
+            # After shuffling, prediction_available_timestamp must track the
+            # new entry_time to maintain the causal invariant
+            # (prediction_available_timestamp <= entry_time).
+            # In shuffle mode this is an ablation — the timestamps are
+            # deliberately permuted for experimental control, so equality is
+            # the correct post-shuffle assignment.
+            if DL_AVAILABLE_TS_COL in grp.columns:
+                grp[DL_AVAILABLE_TS_COL] = grp["entry_time"].copy()
             shuffled_frames.append(grp)
         out = pd.concat(shuffled_frames, ignore_index=True)
         return out.sort_values(["pair", "entry_time"]).reset_index(drop=True)
@@ -256,6 +280,13 @@ def _apply_control_mode(payload: pd.DataFrame, semantics_config: dict[str, Any])
         )
         merged["pair"] = pair
         merged["dl_feature_available"] = merged["pred_prob_up"].notna().astype(int)
+
+        # Fill prediction_available_timestamp for synthetically expanded rows.
+        # These rows have no real prediction (dl_feature_available=0), so
+        # default to entry_time to satisfy the causal invariant.
+        if DL_AVAILABLE_TS_COL in merged.columns:
+            null_avail = merged[DL_AVAILABLE_TS_COL].isna()
+            merged.loc[null_avail, DL_AVAILABLE_TS_COL] = merged.loc[null_avail, "entry_time"]
 
         unavailable_mask = merged["dl_feature_available"].eq(0)
         if semantics_config["impute_optional_features"]:
@@ -339,12 +370,31 @@ def _build_run_payload(df: pd.DataFrame, semantics_config: dict[str, Any]) -> pd
     else:
         result["confidence"] = pd.to_numeric(result["confidence"], errors="coerce")
 
-    # prediction_timestamp: optional per-row inference timestamp
+    # prediction_timestamp: optional per-row inference timestamp (v1 legacy name)
     if "prediction_timestamp" not in result.columns:
         result["prediction_timestamp"] = pd.NaT
     else:
         result["prediction_timestamp"] = _normalize_entry_time(
             result["prediction_timestamp"]
+        )
+
+    # prediction_available_timestamp (v2): causal boundary for MPML.
+    # Defaults to entry_time — the prediction is available at the bar open time.
+    # Callers may supply per-row values (must satisfy <= entry_time).
+    if DL_AVAILABLE_TS_COL not in result.columns:
+        result[DL_AVAILABLE_TS_COL] = result["entry_time"].copy()
+    else:
+        result[DL_AVAILABLE_TS_COL] = _normalize_entry_time(
+            result[DL_AVAILABLE_TS_COL]
+        )
+
+    # prediction_generated_timestamp (v2): wall-clock inference time (diagnostics only).
+    # Falls back to prediction_timestamp if not explicitly supplied.
+    if DL_GENERATED_TS_COL not in result.columns:
+        result[DL_GENERATED_TS_COL] = result["prediction_timestamp"].copy()
+    else:
+        result[DL_GENERATED_TS_COL] = _normalize_entry_time(
+            result[DL_GENERATED_TS_COL]
         )
 
     # Add any missing columns as NaN (payload-only optional fields)
@@ -354,7 +404,10 @@ def _build_run_payload(df: pd.DataFrame, semantics_config: dict[str, Any]) -> pd
 
     result["dl_feature_available"] = 1
 
-    result = result[RUN_PARQUET_COLS].sort_values(["pair", "entry_time"]).reset_index(
+    # v2 timestamp columns must be preserved through the slice.
+    _v2_ts_cols = [DL_AVAILABLE_TS_COL, DL_GENERATED_TS_COL]
+    _payload_cols = RUN_PARQUET_COLS + [c for c in _v2_ts_cols if c in result.columns]
+    result = result[_payload_cols].sort_values(["pair", "entry_time"]).reset_index(
         drop=True
     )
     result = _apply_control_mode(result, semantics_config)
@@ -454,20 +507,39 @@ def _build_run_manifest(
         else "sparse_observed_only"
     )
 
+    artifact_created_ts = datetime.now(timezone.utc).isoformat()
+
     artifact_metadata = {
-        "export_timestamp": datetime.now(timezone.utc).isoformat(),
+        "export_timestamp": artifact_created_ts,  # legacy key (kept for compat)
+        DL_ARTIFACT_CREATED_COL: artifact_created_ts,  # v2 canonical key
         "prediction_horizon_hours": prediction_horizon_hours,
         "feature_surface": str(identity["feature_set"]),
         "dl_regime": str(identity["dl_regime"]),
         "availability_semantics": availability_semantics,
         "missing_indicator_mode": missing_indicator_mode,
         "imputation_mode": imputation_mode,
+        "timestamp_semantics": {
+            "entry_time": "H1 bar open timestamp (UTC tz-naive); the bar being predicted",
+            DL_AVAILABLE_TS_COL: (
+                "earliest historical timestamp the prediction could have been observed; "
+                "used by MPML for causality checks; must be <= entry_time"
+            ),
+            DL_GENERATED_TS_COL: (
+                "wall-clock inference time (diagnostics only); "
+                "MUST NOT be used for causality"
+            ),
+            DL_ARTIFACT_CREATED_COL: (
+                "wall-clock artifact export time (provenance only); "
+                "MUST NOT be used for causality"
+            ),
+        },
     }
 
     return {
-        "schema_version": SCHEMA_VERSION,
+        "schema_version": DL_SCHEMA_VERSION,
         "export_frequency": EXPORT_FREQUENCY,
-        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "generated_at_utc": artifact_created_ts,
+        DL_ARTIFACT_CREATED_COL: artifact_created_ts,
         "run_id": run_id,
         "parquet_file": parquet_filename,
         "signal_definition": {
@@ -502,7 +574,10 @@ def _build_run_manifest(
             "DL_IMPUTATION_VALUE": semantics_config["imputation_value"],
         },
         "causal_assumptions": [
-            "DL predictions become visible only AFTER their prediction timestamp.",
+            "prediction_available_timestamp is the causal boundary for MPML; "
+            "it is set to entry_time (bar open) by default.",
+            "prediction_generated_timestamp is wall-clock only; MUST NOT be used for causality.",
+            "artifact_created_timestamp is wall-clock only; MUST NOT be used for causality.",
             "Missing indicators are optional experimental controls, not guaranteed behavioral features.",
         ],
         "provenance": {
@@ -584,8 +659,13 @@ def _coerce_required_dtypes(df: pd.DataFrame) -> pd.DataFrame:
     # entry_time must be datetime64[ns] (tz-naive UTC)
     out["entry_time"] = _normalize_entry_time(out["entry_time"])
 
-    # prediction_timestamp must survive as datetime64[ns]
+    # prediction_timestamp must survive as datetime64[ns] (v1 legacy)
     out["prediction_timestamp"] = _normalize_entry_time(out["prediction_timestamp"])
+
+    # v2 timestamp columns: normalize to tz-naive datetime64[ns]
+    for ts_col in [DL_AVAILABLE_TS_COL, DL_GENERATED_TS_COL, DL_ARTIFACT_CREATED_COL]:
+        if ts_col in out.columns:
+            out[ts_col] = _normalize_entry_time(out[ts_col])
 
     # numeric coercions
     out["pred_prob_up"] = pd.to_numeric(out["pred_prob_up"], errors="raise").astype("float64")
@@ -720,6 +800,14 @@ def write_dl_prediction_artifact(
     # Attach identity columns (required for downstream surface filtering)
     artifact_df = _attach_identity_columns(payload, identity)
 
+    # Attach v2 timestamp columns that are derived per-artifact (not per-row).
+    # artifact_created_timestamp: wall-clock export time (same for all rows).
+    artifact_created_ts = pd.Timestamp(datetime.now(timezone.utc)).tz_localize(None)
+    artifact_df[DL_ARTIFACT_CREATED_COL] = artifact_created_ts
+
+    # prediction_generated_timestamp and prediction_available_timestamp
+    # were already populated in _build_run_payload; carry them through.
+
     # Enforce stable deterministic schema & order
     artifact_df = _coerce_required_dtypes(artifact_df)
 
@@ -731,6 +819,13 @@ def write_dl_prediction_artifact(
         c for c in ["pred_prob_up_missing", "signal_strength_missing"] if c in artifact_df.columns
     ]
     artifact_df = artifact_df[REQUIRED_PARQUET_COLS + optional_missing_indicator_cols]
+
+    # Fail-fast contract validation before any disk write.
+    validate_dl_artifact(
+        artifact_df,
+        metadata={"schema_version": DL_SCHEMA_VERSION},
+        strict=True,
+    )
 
     # Debug print required by MPML integration troubleshooting
     print("artifact_columns:", sorted(artifact_df.columns.tolist()))
@@ -746,7 +841,8 @@ def write_dl_prediction_artifact(
 
     # Write parquet with metadata when possible
     artifact_metadata = {
-        "export_timestamp": datetime.now(timezone.utc).isoformat(),
+        "export_timestamp": artifact_created_ts.isoformat(),  # legacy key
+        DL_ARTIFACT_CREATED_COL: artifact_created_ts.isoformat(),
         "prediction_horizon_hours": int(identity["target_horizon"]),
         "feature_surface": str(identity["feature_set"]),
         "dl_regime": str(identity["dl_regime"]),
