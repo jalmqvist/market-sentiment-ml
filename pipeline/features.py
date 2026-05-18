@@ -133,7 +133,17 @@ def add_crowd_persistence(df: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 def add_acceleration_bucket(df: pd.DataFrame) -> pd.DataFrame:
-    """Add ``acceleration_bucket`` from 6h sentiment change quantiles."""
+    """Add ``acceleration_bucket`` from 6h sentiment change quantiles.
+
+    WARNING (L-02): The quantile boundaries (q_low, q_high) are computed
+    from the entire input DataFrame.  If called on a combined train+test
+    dataset, test-set statistics will contaminate train-fold bucket labels.
+
+    CONTRACT: When used inside a walk-forward or train/test pipeline, this
+    function MUST be called only on train-fold data, with fixed boundaries
+    applied separately to the test fold.  The current dataset-build usage
+    (on the full master dataset) is a known global-normalization risk.
+    """
     out = df.copy()
     out["sentiment_change_6h"] = out.groupby("pair")["net_sentiment"].diff(6)
 
@@ -183,7 +193,18 @@ def add_saturation_bucket(df: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 def add_trend_strength_buckets(df: pd.DataFrame) -> pd.DataFrame:
-    """Add ``trend_strength_bucket_{h}b`` for h in [12, 48] via quartile cut."""
+    """Add ``trend_strength_bucket_{h}b`` for h in [12, 48] via quartile cut.
+
+    WARNING (L-03): ``pd.qcut()`` computes quartile boundaries from all valid
+    rows in the input DataFrame.  If called on a combined train+test dataset,
+    test-set return distribution will contaminate train-fold bucket labels.
+
+    CONTRACT: When used inside a walk-forward or train/test pipeline, this
+    function MUST be called only on train-fold data and the resulting bin
+    edges applied as fixed cut-points to the test fold.  The current
+    dataset-build usage (on the full master dataset) is a known
+    global-normalization risk.
+    """
     out = df.copy()
     for h in [12, 48]:
         col = f"trend_strength_{h}b"

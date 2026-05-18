@@ -244,11 +244,6 @@ def main():
         logging.warning(f"{ret_col} missing → fallback to ret_24b")
         ret_col = "ret_24b"
 
-    threshold = float(df[ret_col].abs().quantile(args.label_quantile))
-    logging.info(f"label_threshold: {threshold:.6f}")
-
-    df["target_direction"] = (df[ret_col] > threshold).astype(int)
-
     if args.feature_set not in FEATURE_SETS:
         raise ValueError(
             f"Unknown feature_set={args.feature_set!r}. "
@@ -264,6 +259,34 @@ def main():
 
     df = df.copy()
     df[features] = df[features].fillna(0.0)
+    df = df.dropna(subset=[ret_col])
+
+    # CONTRACT: Label threshold MUST be computed on train rows only.
+    # Build sequences first to get a consistent row count, then determine
+    # the split boundary, then compute the threshold from train sequences.
+    X_proto, y_proto, meta_proto = build_sequences(df, features, ret_col, args.seq_len)
+
+    if len(X_proto) < 50:
+        logging.warning(f"SKIP | reason=too_few_sequences | seqs={len(X_proto)}")
+        return
+
+    split_proto = int(len(X_proto) * 0.8)
+    assert split_proto > 0 and split_proto < len(X_proto), (
+        f"Invalid split boundary: split={split_proto}, total_seqs={len(X_proto)}"
+    )
+
+    # Threshold derived from train-fold raw return values (y_proto contains ret_col values)
+    train_ret_vals = y_proto[:split_proto]
+    threshold = float(np.quantile(np.abs(train_ret_vals), args.label_quantile))
+    logging.info(
+        "label_threshold (train-only): %.6f  split=%d/%d",
+        threshold,
+        split_proto,
+        len(X_proto),
+    )
+
+    # Assign binary labels using train-derived threshold, then rebuild sequences
+    df["target_direction"] = (df[ret_col] > threshold).astype(int)
     df = df.dropna(subset=["target_direction"])
 
     X, y, meta_df = build_sequences(df, features, "target_direction", args.seq_len)
@@ -287,6 +310,15 @@ def main():
 
     logging.info(f"class_balance_train: {y_train.mean():.3f}")
     logging.info(f"class_balance_test: {y_test.mean():.3f}")
+
+    meta_train_slice = meta_df.iloc[:split]
+    logging.info(
+        "train_entry_time: %s → %s | test_entry_time: %s → %s",
+        meta_train_slice["entry_time"].min() if "entry_time" in meta_train_slice.columns else "?",
+        meta_train_slice["entry_time"].max() if "entry_time" in meta_train_slice.columns else "?",
+        meta_test["entry_time"].min() if "entry_time" in meta_test.columns else "?",
+        meta_test["entry_time"].max() if "entry_time" in meta_test.columns else "?",
+    )
 
     X_train = X_train.astype("float32")
     X_test = X_test.astype("float32")
@@ -363,6 +395,14 @@ def main():
         PREDICTIONS_DIR_DEFAULT,
     )
 
+    # WARNING (L-04): When export_split="all", the exported parquet contains
+    # predictions for both train and test rows.  Train-fold predictions are
+    # IN-SAMPLE (model has seen those labels during training).  The exported
+    # parquet schema does not include an is_train_fold flag, so downstream
+    # MPML consumers cannot distinguish in-sample from out-of-sample rows.
+    # Use export_split="all" only for debugging / integration validation,
+    # never for operational MPML walk-forward evaluation.
+    # The default (export_split="test") is safe.
     if use_predict_universe:
         export_meta_df = infer_meta_df.copy().reset_index(drop=True)
         export_pred_prob_up = pred_prob_up_infer

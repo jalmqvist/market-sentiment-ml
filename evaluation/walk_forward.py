@@ -95,6 +95,13 @@ def walk_forward_expanding(
         apply_signal_fn: Optional callable ``(df) -> df`` for signal
                          selection inside each test fold.  ``None`` means
                          use the full test fold.
+
+                         CONTRACT: Any ``apply_signal_fn`` that performs
+                         fitting (e.g., normalization, threshold selection)
+                         MUST be pre-fitted on prior-year (train) data only
+                         before being called on the test fold.  Passing a
+                         function that fits on the test fold introduces
+                         look-ahead leakage.
         spacing_fn: Optional callable ``(df) -> df`` for non-overlap
                     enforcement within each test fold.
 

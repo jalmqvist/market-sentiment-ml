@@ -81,9 +81,14 @@ PRICE_TREND_SENTIMENT_FEATURES: list[str] = PRICE_TREND_FEATURES + SENTIMENT_FEA
 # ---------------------------------------------------------------------------
 
 # price_trend_sentiment_v2: combines core price, trend, vol, and sentiment v2
-# features. ret_1b / ret_12b / ret_48b are forward returns already in the
-# dataset and included here for DL experiments – confirm no unintended leakage
-# relative to target_cls before use in live research.
+# features.
+#
+# WARNING (L-05): The master research dataset contains ret_1b / ret_12b /
+# ret_48b / contrarian_ret_* columns, which are FORWARD RETURNS used as
+# target labels.  These columns are intentionally EXCLUDED from all feature
+# sets defined here.  Before adding any new feature set, verify that no
+# ret_* or contrarian_ret_* column appears in the list.  Including a forward
+# return as an input feature is a direct leakage path.
 PRICE_TREND_SENTIMENT_V2_FEATURES: list[str] = [
     # price (causal only)
     "trend_12b",
