@@ -237,12 +237,11 @@ def main():
     df[features] = df[features].fillna(0.0)
     df = df.dropna(subset=[ret_col])
 
-    X_raw = df[features].values.astype("float32")
-    split = int(len(X_raw) * 0.8)
+    if len(df) < 2:
+        logging.warning(f"SKIP | reason=too_few_rows_after_dropna | rows={len(df)}")
+        return
 
-    assert split > 0 and split < len(X_raw), (
-        f"Invalid split boundary: split={split}, total_rows={len(X_raw)}"
-    )
+    split = int(len(df) * 0.8)
 
     # CONTRACT: Label threshold MUST be computed on train rows only.
     # Computing threshold from the full dataset (including test rows) would
@@ -253,16 +252,18 @@ def main():
         "label_threshold (train-only): %.6f  split=%d/%d",
         threshold,
         split,
-        len(X_raw),
+        len(df),
     )
 
     df["target_direction"] = (df[ret_col] > threshold).astype(int)
+    # target_direction has no NaNs (assigned from a comparison); dropna is a no-op safety guard
     df = df.dropna(subset=["target_direction"])
 
     X = df[features].values.astype("float32")
     y = df["target_direction"].values.astype("float32")
 
-    # Re-derive split after potential dropna (should be identical if ret_col had no NaNs)
+    # split index is stable: target_direction assignment does not change row count
+    # (ret_col NaNs were already removed above)
     split = int(len(X) * 0.8)
 
     X_train, X_test = X[:split], X[split:]

@@ -271,8 +271,9 @@ def main():
         return
 
     split_proto = int(len(X_proto) * 0.8)
-    assert split_proto > 0 and split_proto < len(X_proto), (
-        f"Invalid split boundary: split={split_proto}, total_seqs={len(X_proto)}"
+    # len(X_proto) >= 50 is guaranteed by the check above, so split_proto >= 40 > 0
+    assert split_proto < len(X_proto), (
+        f"Split boundary equals sequence count (split={split_proto}, total={len(X_proto)})"
     )
 
     # Threshold derived from train-fold raw return values (y_proto contains ret_col values)
