@@ -317,12 +317,102 @@ The export contract includes:
 - standardized feature schemas
 - manifest diagnostics
 
+## DL artifact contract (v2, MSML → MPML)
+
+**Status:** live. Schema v2.0.0 is enforced on every export.
+
+The v2 contract resolves a prior ambiguity where MSML artifact-generation
+timestamps were misread by MPML as causal prediction-availability timestamps.
+
+### Timestamp semantics (one meaning each)
+
+| Column | Meaning | Causal use? |
+|---|---|---|
+| `entry_time` | H1 bar open timestamp (UTC tz-naive); the bar being predicted | ✓ (bar key) |
+| `prediction_available_timestamp` | Earliest historical timestamp the prediction **could have been known**; `≤ entry_time` | ✓ MPML causal boundary |
+| `prediction_generated_timestamp` | Wall-clock inference time | ✗ (diagnostics only) |
+| `artifact_created_timestamp` | Wall-clock artifact export time | ✗ (provenance only) |
+
+**Rule**: MPML must use `prediction_available_timestamp` for all causality
+checks.  Never use `prediction_generated_timestamp` or
+`artifact_created_timestamp` for temporal joins.
+
+### Centralized constants
+
+```python
+from schemas.dl_artifact_schema import (
+    DL_SCHEMA_VERSION,       # "2.0.0"
+    DL_AVAILABLE_TS_COL,     # "prediction_available_timestamp"
+    DL_GENERATED_TS_COL,     # "prediction_generated_timestamp"
+    DL_ARTIFACT_CREATED_COL, # "artifact_created_timestamp"
+    DL_PAIR_COL,             # "pair"
+    validate_dl_artifact,
+)
+```
+
+### Fail-fast validation
+
+`write_dl_prediction_artifact()` calls `validate_dl_artifact()` before
+writing any artifact.  Violations raise `ValueError` immediately.
+
 See:
 
-- `docs/integration/dl_prediction_artifacts.md`
+- `docs/integration/dl_artifact_contract.md`
 - `docs/integration/DL_SIGNAL_SCHEMA.md`
+- `docs/integration/dataset_semantics.md`
 
 ---
+
+# DL Export integration status (v1, MSML → MPML)
+
+**Status:** live (proof-of-concept complete). This repo exports per-run H1 DL
+prediction artifacts consumed by `market-phase-ml`.
+
+What works:
+
+- Per-run artifact export (`data/output/dl_predictions/*.parquet` + manifest)
+- Schema v2.0.0 with explicit timestamp semantics
+- Surface identity columns embedded in parquet rows (`model`, `dl_regime`,
+  `target_horizon`, `feature_set`)
+- Export window controls for MPML-overlapping artifacts (`--export-split`,
+  `--export-after-year`, `--export-before-year`)
+- Fail-fast contract validation before every write
+
+Known limitations (v1):
+
+- Artifacts may have sparse coverage depending on regime/pair/date overlap;
+  this is acceptable for v1
+- No multi-surface ensembles or "all-regime" surfaces in v1
+- MPML consumer-side strict validation of `prediction_available_timestamp`
+  will be implemented in a follow-up PR
+
+### Example: export an overlapping artifact for MPML
+
+```bash
+python -m research.deep_learning.train \
+  --dataset-version 1.3.2 \
+  --pairs EURUSD \
+  --regime LVTF \
+  --target-horizon 24 \
+  --feature-set price_trend \
+  --export-split all \
+  --export-after-year 2019 \
+  --export-before-year 2024
+```
+
+### Use in market-phase-ml
+
+```bash
+export DL_SIGNALS_ENABLED=true
+export DL_PREDICTION_ARTIFACT_PATH=../market-sentiment-ml/data/output/dl_predictions/<run_id>.parquet
+python -u main.py
+```
+
+Notes:
+
+- MPML performs H1→D1 aggregation internally.
+- v1 is intentionally minimal: sparse coverage is acceptable; MPML falls
+  back per pair when DL is absent.
 
 # Current Limitations
 

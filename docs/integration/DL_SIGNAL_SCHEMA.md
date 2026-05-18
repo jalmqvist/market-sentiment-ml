@@ -1,13 +1,51 @@
-# DL Signal Schema — `dl_signals_h1_v1`
+# DL Signal Schema — `dl_signals_h1_v1` / v2.0.0
 
 This document defines the stable schema contract for the hourly DL inference
 signal artifacts produced by `market-sentiment-ml`.
 
-Schema version: **`dl_signals_h1_v1`**
+Current schema version: **`2.0.0`** (see `schemas/dl_artifact_schema.DL_SCHEMA_VERSION`)
+
+Previous schema version: `dl_signals_h1_v1` (backward-compat constants kept)
 
 Related documents:
-- `docs/SENTIMENT_FEATURE_SCHEMA.md` — hourly sentiment feature contract
+- `docs/integration/dl_artifact_contract.md` — formal contract specification (v2)
+- `docs/integration/dataset_semantics.md`   — dataset & export semantics
+- `docs/SENTIMENT_FEATURE_SCHEMA.md`        — hourly sentiment feature contract
 - `data/output/dl_signals/DL_SIGNAL_MANIFEST_h1_v1.json` — per-build metadata
+
+---
+
+## Schema v2 Notes
+
+Schema v2.0.0 adds **explicit timestamp semantics** to resolve a prior
+ambiguity where MSML artifact-generation timestamps were misread by MPML as
+causal prediction-availability timestamps.
+
+### New parquet columns (v2)
+
+| Column | Type | Meaning | Causal? |
+|---|---|---|---|
+| `prediction_available_timestamp` | datetime (UTC) | Earliest historical timestamp the prediction could have been known; **≤ entry_time** | ✓ (MPML causal boundary) |
+| `prediction_generated_timestamp` | datetime | Wall-clock inference time | ✗ (diagnostics only) |
+| `artifact_created_timestamp` | datetime | Wall-clock export time; same for all rows | ✗ (provenance only) |
+
+### New manifest fields (v2)
+
+- `schema_version` = `"2.0.0"` (was `"dl_signals_h1_v1"`)
+- `artifact_created_timestamp` promoted to top-level and to
+  `artifact_metadata.artifact_created_timestamp`
+- `artifact_metadata.timestamp_semantics` block added for explicit
+  per-column documentation
+
+### Centralized constants (v2)
+
+All column names and schema version are centralized in
+`schemas/dl_artifact_schema.py`. Import from there; do not hardcode strings.
+
+### Fail-fast validation (v2)
+
+`write_dl_prediction_artifact()` now calls `validate_dl_artifact()` before
+writing.  Contract violations raise `ValueError` immediately.
 
 ---
 
@@ -47,10 +85,12 @@ scripts/consolidate_dl_predictions.py
 
 Written by `scripts/write_dl_prediction_artifact.py`.
 
-### Per-run Parquet schema (time-series payload only)
+### Per-run Parquet schema (v2)
 
 One row per `(pair, entry_time)`.  Identity columns are **not** stored here —
 they live in the companion manifest.
+
+**Core columns (unchanged from v1)**
 
 | Column | Type | Nullable | Description |
 |---|---|---|---|
@@ -60,7 +100,15 @@ they live in the companion manifest.
 | `signal_strength` | float64 | No | `2 * pred_prob_up − 1` ∈ [−1, 1] |
 | `pred_direction` | Int64 | No | Tri-state: `+1` (>0.5), `−1` (<0.5), `0` (==0.5) |
 | `confidence` | float64 | Yes | Caller-supplied reliability estimate ∈ [0, 1]; null if absent |
-| `prediction_timestamp` | datetime (UTC) | Yes | Per-row inference timestamp (tz-naive UTC); null if absent |
+| `prediction_timestamp` | datetime (UTC) | Yes | v1 legacy: per-row inference timestamp; null if absent |
+
+**New timestamp columns (v2 — explicit semantics)**
+
+| Column | Type | Nullable | v2? | Description |
+|---|---|---|---|---|
+| `prediction_available_timestamp` | datetime (UTC) | No | **NEW** | Causal boundary; earliest historical time prediction could be known; **must be ≤ entry_time** |
+| `prediction_generated_timestamp` | datetime (UTC) | Yes | **NEW** | Wall-clock inference time (diagnostics only; must NOT be used for causality) |
+| `artifact_created_timestamp` | datetime (UTC) | No | **NEW** | Wall-clock export time; same for all rows in artifact (provenance only) |
 
 ### Per-run manifest schema (identity + provenance)
 
@@ -70,7 +118,8 @@ The manifest is a JSON file with the **same stem** as the parquet.
 
 ```json
 {
-  "schema_version": "dl_signals_h1_v1",
+  "schema_version": "2.0.0",
+  "artifact_created_timestamp": "2024-01-15T10:30:00+00:00",
   "export_frequency": "H1",
   "generated_at_utc": "2024-01-15T10:30:00+00:00",
   "run_id": "MLP__LVTF__24__price_vol_sentiment__20240115T103000Z",
@@ -86,10 +135,26 @@ The manifest is a JSON file with the **same stem** as the parquet.
     "target_horizon": 24,
     "feature_set": "price_vol_sentiment"
   },
+  "artifact_metadata": {
+    "artifact_created_timestamp": "2024-01-15T10:30:00+00:00",
+    "export_timestamp": "2024-01-15T10:30:00+00:00",
+    "prediction_horizon_hours": 24,
+    "feature_surface": "price_vol_sentiment",
+    "dl_regime": "LVTF",
+    "availability_semantics": "sparse_observed_only",
+    "timestamp_semantics": {
+      "entry_time": "H1 bar open timestamp (UTC tz-naive); the bar being predicted",
+      "prediction_available_timestamp": "earliest historical timestamp the prediction could have been observed; used by MPML for causality checks; must be <= entry_time",
+      "prediction_generated_timestamp": "wall-clock inference time (diagnostics only); MUST NOT be used for causality",
+      "artifact_created_timestamp": "wall-clock artifact export time (provenance only); MUST NOT be used for causality"
+    }
+  },
   "provenance": {
     "dataset_version": "1.1.0",
     "model_version": "v1.0",
-    "training_run_id": "run_20240115_abc"
+    "training_run_id": "run_20240115_abc",
+    "training_pairs": ["eur-usd", "gbp-usd"],
+    "inference_pairs": ["eur-usd", "gbp-usd"]
   },
   "calibration": {
     "method": "none",
@@ -104,6 +169,11 @@ The manifest is a JSON file with the **same stem** as the parquet.
   "pairs": ["eur-usd", "usd-jpy"],
   "entry_time_min": "2023-01-02T00:00:00",
   "entry_time_max": "2023-12-31T23:00:00",
+  "causal_assumptions": [
+    "prediction_available_timestamp is the causal boundary for MPML; it is set to entry_time (bar open) by default.",
+    "prediction_generated_timestamp is wall-clock only; MUST NOT be used for causality.",
+    "artifact_created_timestamp is wall-clock only; MUST NOT be used for causality."
+  ],
   "warnings": [],
   "missing_provenance_counts": {
     "dataset_version": 0,
@@ -162,7 +232,7 @@ same `(pair, entry_time)`.
 
 ---
 
-## Time semantics
+## Time semantics (v2)
 
 ### `entry_time`
 
@@ -170,6 +240,34 @@ same `(pair, entry_time)`.
 - The DL model's prediction covers the price move from `entry_time`
   over the next `target_horizon` bars.
 - No forward-looking features are permitted.
+
+### `prediction_available_timestamp` (v2, new)
+
+- The **earliest simulated historical timestamp** the prediction could have
+  been known.
+- Used by MPML for causality checks.
+- **Contract**: `prediction_available_timestamp <= entry_time`.
+- Default value: `entry_time` (equality; the model uses only features
+  available at or before bar open time).
+- **Must NOT be a wall-clock `pd.Timestamp.now()` value**.
+
+### `prediction_generated_timestamp` (v2, new)
+
+- Wall-clock time the prediction was generated (diagnostics only).
+- **Must NOT be used for causality checks**.
+- Null is acceptable if not recorded.
+
+### `artifact_created_timestamp` (v2, new)
+
+- Wall-clock time the parquet artifact was exported.
+- Same value for all rows within one artifact.
+- **Must NOT be used for causality checks**.
+
+### `prediction_timestamp` (v1 legacy)
+
+- Kept for backward compatibility; same value as `prediction_generated_timestamp`.
+- Historically ambiguous — use `prediction_available_timestamp` for all causal
+  reasoning in MPML.
 
 ---
 

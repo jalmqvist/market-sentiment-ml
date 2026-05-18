@@ -75,7 +75,9 @@ Supported modes:
    - Deterministic per-pair timestamp shuffle using `DL_AVAILABILITY_SHUFFLE_SEED`.
    - Preserves signal values while perturbing availability timing.
 
-## 5) DL Export Contract
+## 5) DL Export Contract (v2)
+
+Schema version: `2.0.0` (see `schemas/dl_artifact_schema.DL_SCHEMA_VERSION`).
 
 Per-run export function:
 
@@ -85,28 +87,70 @@ Identity contract columns in parquet rows:
 
 - `model`, `dl_regime`, `target_horizon`, `feature_set`
 
+v2 timestamp contract columns in parquet rows (one meaning each):
+
+- `prediction_available_timestamp` — causal boundary for MPML (≤ entry_time)
+- `prediction_generated_timestamp` — wall-clock inference time (diagnostics only)
+- `artifact_created_timestamp` — wall-clock export time (provenance only)
+
 Required metadata fields (`artifact_metadata`) in manifest:
 
-- `export_timestamp`
+- `artifact_created_timestamp`
+- `export_timestamp` (legacy alias, kept for backward compat)
 - `prediction_horizon_hours`
 - `feature_surface`
 - `dl_regime`
 - `availability_semantics`
 - `missing_indicator_mode`
 - `imputation_mode`
+- `timestamp_semantics` — explicit documentation of all four timestamp columns
+
+Fail-fast validation is called before any write:
+
+- `schemas/dl_artifact_schema.py::validate_dl_artifact`
 
 Also persisted in parquet schema metadata (best effort) by:
 
 - `write_dl_prediction_artifact.py::_write_parquet_with_metadata`
 
-## 6) Timestamp & Visibility Semantics
+## 6) Timestamp & Visibility Semantics (v2)
 
-Contracts:
+v2 exports four timestamp columns with **one meaning each**.  All names are
+defined in `schemas/dl_artifact_schema.py` — do not hardcode strings.
 
-- `entry_time` = H1 bar open timestamp for prediction alignment.
-- `prediction_timestamp` = inference visibility timestamp.
-- Predictions are visible only after `prediction_timestamp`.
-- `target_horizon` is in H1 bars and interpreted as hours in export metadata.
+| Column | Semantics | Causal? |
+|---|---|---|
+| `entry_time` | H1 bar open timestamp (UTC tz-naive); the bar being predicted | ✓ (bar key) |
+| `prediction_available_timestamp` | Earliest historical timestamp the prediction could have been known; used by MPML for causality checks; **must be ≤ entry_time** | ✓ (causal boundary) |
+| `prediction_generated_timestamp` | Wall-clock time the prediction was generated (diagnostics only) | ✗ |
+| `artifact_created_timestamp` | Wall-clock time the parquet was exported (provenance only) | ✗ |
+
+### Causal ordering contract
+
+```
+prediction_available_timestamp <= entry_time
+```
+
+This invariant is enforced by `validate_dl_artifact()` before any write.
+
+### Default values
+
+- `prediction_available_timestamp` defaults to `entry_time` (model uses
+  features available at or before bar open; causal constraint satisfied as
+  equality).
+- `prediction_generated_timestamp` defaults to `prediction_timestamp` (v1
+  legacy column; wall-clock inference time).
+- `artifact_created_timestamp` is set to the wall-clock time of the parquet
+  write; same for all rows within one artifact.
+- `prediction_timestamp` is kept for backward compatibility (= same as
+  `prediction_generated_timestamp`).
+
+### What MUST NOT be used for causality (MPML)
+
+- `prediction_generated_timestamp` — wall-clock, not a simulation timestamp.
+- `artifact_created_timestamp` — wall-clock, not a simulation timestamp.
+- The old ambiguous `prediction_timestamp` — was historically confused with
+  causal semantics; use `prediction_available_timestamp` instead.
 
 ## 7) Overlap Semantics
 
@@ -154,10 +198,15 @@ Diagnostics include:
 
 Contracts encoded in code comments/logic:
 
+- `schemas/dl_artifact_schema.py`:
+  - Centralized source of truth for column name constants and schema version.
+  - `validate_dl_artifact()` enforces all contract invariants before write.
 - `write_dl_prediction_artifact.py`:
   - `dl_feature_available` is availability semantics, not value semantics.
+  - `prediction_available_timestamp` defaults to `entry_time`.
+  - `validate_dl_artifact()` is called before any parquet/manifest write.
 - `config.py`:
-  - missing indicators are optional experimental controls.
+  - Missing indicators are optional experimental controls.
 
 ## 10) Example Semantics
 
