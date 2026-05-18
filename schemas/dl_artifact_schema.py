@@ -233,10 +233,7 @@ def validate_dl_artifact(
         series = df[col].dropna()
         if len(series) == 0:
             continue
-        if (
-            hasattr(series.dt, "tz")
-            and series.dt.tz is not None
-        ):
+        if series.dt.tz is not None:
             _fail(
                 f"column '{col}' must be tz-naive (UTC), but has "
                 f"tz={series.dt.tz!r}. Strip timezone with "
