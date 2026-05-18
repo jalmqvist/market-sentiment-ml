@@ -79,6 +79,7 @@ Optional provenance:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from datetime import datetime, timezone
@@ -95,6 +96,9 @@ import pandas as pd
 _SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
+_REPO_ROOT = _SCRIPTS_DIR.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 from build_dl_signal_artifact import (  # noqa: E402
     EXPORT_FREQUENCY,
@@ -104,6 +108,7 @@ from build_dl_signal_artifact import (  # noqa: E402
     _normalize_entry_time,
     _normalize_pair,
 )
+import config as cfg  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Per-run parquet schema (v1)
@@ -117,11 +122,14 @@ REQUIRED_PARQUET_COLS = [
     "entry_time",
     "pred_prob_up",
     "signal_strength",
+    "pred_direction",
+    "confidence",
     "prediction_timestamp",
     "model",
     "dl_regime",
     "target_horizon",
     "feature_set",
+    "dl_feature_available",
 ]
 
 # Legacy payload-only schema (kept for backward compatibility in code paths
@@ -134,16 +142,144 @@ RUN_PARQUET_COLS = [
     "pred_direction",
     "confidence",
     "prediction_timestamp",
+    "dl_feature_available",
 ]
 
 PREDICTIONS_DIR_DEFAULT = Path("data/output/dl_predictions")
+VALID_CONTROL_MODES = {"normal", "constant_presence", "availability_shuffle"}
 
 # ---------------------------------------------------------------------------
 # Core logic
 # ---------------------------------------------------------------------------
 
 
-def _build_run_payload(df: pd.DataFrame) -> pd.DataFrame:
+def _resolve_semantics_config(
+    provenance: dict | None,
+) -> dict[str, Any]:
+    provenance = provenance or {}
+    def _as_bool(value: Any, default: bool) -> bool:
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, np.integer)):
+            return bool(value)
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
+
+    control_mode = str(
+        provenance.get("control_mode", cfg.DL_EXPORT_CONTROL_MODE)
+    ).strip().lower()
+    if control_mode not in VALID_CONTROL_MODES:
+        raise ValueError(
+            f"Unknown control_mode={control_mode!r}. Supported: {sorted(VALID_CONTROL_MODES)}"
+        )
+
+    add_missing_indicators = _as_bool(
+        provenance.get("dl_add_missing_indicators", cfg.DL_ADD_MISSING_INDICATORS),
+        cfg.DL_ADD_MISSING_INDICATORS,
+    )
+    impute_optional_features = _as_bool(
+        provenance.get("dl_impute_optional_features", cfg.DL_IMPUTE_OPTIONAL_FEATURES),
+        cfg.DL_IMPUTE_OPTIONAL_FEATURES,
+    )
+    try:
+        imputation_value = float(
+            provenance.get("dl_imputation_value", cfg.DL_IMPUTATION_VALUE)
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "DL imputation value must be numeric for pred_prob_up semantics."
+        ) from exc
+    shuffle_seed = int(
+        provenance.get("availability_shuffle_seed", cfg.DL_AVAILABILITY_SHUFFLE_SEED)
+    )
+
+    if not (0.0 <= imputation_value <= 1.0):
+        raise ValueError(
+            f"DL imputation value must be in [0, 1] for pred_prob_up semantics. Got {imputation_value}"
+        )
+
+    return {
+        "control_mode": control_mode,
+        "add_missing_indicators": add_missing_indicators,
+        "impute_optional_features": impute_optional_features,
+        "imputation_value": imputation_value,
+        "availability_shuffle_seed": shuffle_seed,
+    }
+
+
+def _apply_control_mode(payload: pd.DataFrame, semantics_config: dict[str, Any]) -> pd.DataFrame:
+    mode = semantics_config["control_mode"]
+    out = payload.copy()
+
+    # CONTRACT:
+    # dl_feature_available represents availability semantics (not value semantics).
+    out["dl_feature_available"] = 1
+
+    if mode == "normal":
+        return out
+
+    if mode == "availability_shuffle":
+        seed = int(semantics_config["availability_shuffle_seed"])
+        shuffled_frames: list[pd.DataFrame] = []
+        for pair, grp in out.groupby("pair", sort=False):
+            grp = grp.sort_values("entry_time").reset_index(drop=True)
+            if len(grp) <= 1:
+                shuffled_frames.append(grp)
+                continue
+            pair_seed = int(hashlib.sha256(str(pair).encode("utf-8")).hexdigest()[:16], 16)
+            rng = np.random.default_rng(seed + pair_seed)
+            shuffled_times = grp["entry_time"].to_numpy().copy()
+            rng.shuffle(shuffled_times)
+            grp["entry_time"] = pd.to_datetime(shuffled_times)
+            shuffled_frames.append(grp)
+        out = pd.concat(shuffled_frames, ignore_index=True)
+        return out.sort_values(["pair", "entry_time"]).reset_index(drop=True)
+
+    # mode == "constant_presence"
+    expanded_frames: list[pd.DataFrame] = []
+    for pair, grp in out.groupby("pair", sort=False):
+        grp = grp.sort_values("entry_time").reset_index(drop=True)
+        et_min = grp["entry_time"].min()
+        et_max = grp["entry_time"].max()
+        if pd.isna(et_min) or pd.isna(et_max):
+            expanded_frames.append(grp)
+            continue
+        full_times = pd.date_range(et_min, et_max, freq="h")
+        full = pd.DataFrame({"pair": pair, "entry_time": full_times})
+        merged = full.merge(
+            grp.drop(columns=["pair"]),
+            on="entry_time",
+            how="left",
+        )
+        merged["pair"] = pair
+        merged["dl_feature_available"] = merged["pred_prob_up"].notna().astype(int)
+
+        unavailable_mask = merged["dl_feature_available"].eq(0)
+        if semantics_config["impute_optional_features"]:
+            imputed_prob = float(semantics_config["imputation_value"])
+            merged.loc[unavailable_mask, "pred_prob_up"] = imputed_prob
+            merged.loc[unavailable_mask, "signal_strength"] = (2.0 * imputed_prob) - 1.0
+            merged.loc[unavailable_mask, "pred_direction"] = 0
+            merged.loc[unavailable_mask, "confidence"] = 0.0
+
+        expanded_frames.append(merged)
+
+    out = pd.concat(expanded_frames, ignore_index=True)
+    return out.sort_values(["pair", "entry_time"]).reset_index(drop=True)
+
+
+def _apply_missing_indicators(payload: pd.DataFrame, semantics_config: dict[str, Any]) -> pd.DataFrame:
+    out = payload.copy()
+    if semantics_config["add_missing_indicators"]:
+        out["pred_prob_up_missing"] = out["pred_prob_up"].isna().astype(int)
+        out["signal_strength_missing"] = out["signal_strength"].isna().astype(int)
+    return out
+
+
+def _build_run_payload(df: pd.DataFrame, semantics_config: dict[str, Any]) -> pd.DataFrame:
     """
     Transform raw prediction rows into the per-run time-series payload schema.
 
@@ -216,9 +352,14 @@ def _build_run_payload(df: pd.DataFrame) -> pd.DataFrame:
         if col not in result.columns:
             result[col] = np.nan
 
-    return result[RUN_PARQUET_COLS].sort_values(["pair", "entry_time"]).reset_index(
+    result["dl_feature_available"] = 1
+
+    result = result[RUN_PARQUET_COLS].sort_values(["pair", "entry_time"]).reset_index(
         drop=True
     )
+    result = _apply_control_mode(result, semantics_config)
+    result = _apply_missing_indicators(result, semantics_config)
+    return result
 
 
 def _validate_identity(identity: dict) -> None:
@@ -255,6 +396,7 @@ def _build_run_manifest(
     provenance: dict | None,
     run_id: str,
     parquet_filename: str,
+    semantics_config: dict[str, Any],
 ) -> dict:
     """Build the per-run manifest dict."""
     provenance = provenance or {}
@@ -278,6 +420,10 @@ def _build_run_manifest(
         )
     if payload["prediction_timestamp"].isna().all():
         warnings_list.append("prediction_timestamp not recorded (all null)")
+    if semantics_config["control_mode"] != "normal":
+        warnings_list.append(
+            f"control_mode={semantics_config['control_mode']} modifies default availability behavior"
+        )
 
     # Missing provenance counts
     missing_provenance_counts = {
@@ -290,6 +436,33 @@ def _build_run_manifest(
             "some optional provenance fields not supplied; "
             "see missing_provenance_counts"
         )
+
+    prediction_horizon_hours = int(identity["target_horizon"])
+    missing_indicator_mode = (
+        "explicit_missing_indicators"
+        if semantics_config["add_missing_indicators"]
+        else "imputation_only"
+    )
+    imputation_mode = (
+        "neutral_imputation"
+        if semantics_config["impute_optional_features"]
+        else "no_imputation"
+    )
+    availability_semantics = (
+        "visibility_by_control_mode"
+        if semantics_config["control_mode"] != "normal"
+        else "sparse_observed_only"
+    )
+
+    artifact_metadata = {
+        "export_timestamp": datetime.now(timezone.utc).isoformat(),
+        "prediction_horizon_hours": prediction_horizon_hours,
+        "feature_surface": str(identity["feature_set"]),
+        "dl_regime": str(identity["dl_regime"]),
+        "availability_semantics": availability_semantics,
+        "missing_indicator_mode": missing_indicator_mode,
+        "imputation_mode": imputation_mode,
+    }
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -318,6 +491,20 @@ def _build_run_manifest(
             "target_horizon": int(identity["target_horizon"]),
             "feature_set": str(identity["feature_set"]),
         },
+        "artifact_metadata": artifact_metadata,
+        "export_config": {
+            "control_mode": semantics_config["control_mode"],
+            "availability_shuffle_seed": semantics_config["availability_shuffle_seed"],
+        },
+        "missingness_config": {
+            "DL_ADD_MISSING_INDICATORS": semantics_config["add_missing_indicators"],
+            "DL_IMPUTE_OPTIONAL_FEATURES": semantics_config["impute_optional_features"],
+            "DL_IMPUTATION_VALUE": semantics_config["imputation_value"],
+        },
+        "causal_assumptions": [
+            "DL predictions become visible only AFTER their prediction timestamp.",
+            "Missing indicators are optional experimental controls, not guaranteed behavioral features.",
+        ],
         "provenance": {
             "dataset_version": provenance.get("dataset_version", None),
             "model_version": provenance.get("model_version", None),
@@ -355,6 +542,8 @@ def _build_run_manifest(
             "pred_prob_up_std": float(payload["pred_prob_up"].std()),
             "signal_strength_mean": float(payload["signal_strength"].mean()),
             "signal_strength_std": float(payload["signal_strength"].std()),
+            "feature_available_frac": float(payload["dl_feature_available"].mean()),
+            "feature_missingness_frac": float(1.0 - payload["dl_feature_available"].mean()),
         },
         "warnings": warnings_list,
         "missing_provenance_counts": missing_provenance_counts,
@@ -404,8 +593,35 @@ def _coerce_required_dtypes(df: pd.DataFrame) -> pd.DataFrame:
 
     # target_horizon must be nullable Int64
     out["target_horizon"] = pd.to_numeric(out["target_horizon"], errors="raise").astype("Int64")
+    out["dl_feature_available"] = pd.to_numeric(
+        out["dl_feature_available"], errors="raise"
+    ).astype("Int64")
+    for col in ["pred_prob_up_missing", "signal_strength_missing"]:
+        if col in out.columns:
+            out[col] = pd.to_numeric(out[col], errors="raise").astype("Int64")
 
     return out
+
+
+def _write_parquet_with_metadata(
+    artifact_df: pd.DataFrame,
+    parquet_path: Path,
+    artifact_metadata: dict[str, Any],
+) -> None:
+    try:
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        table = pa.Table.from_pandas(artifact_df, preserve_index=False)
+        existing = dict(table.schema.metadata or {})
+        extra = {
+            f"msml.{k}".encode("utf-8"): str(v).encode("utf-8")
+            for k, v in artifact_metadata.items()
+        }
+        table = table.replace_schema_metadata({**existing, **extra})
+        pq.write_table(table, parquet_path)
+    except Exception:
+        artifact_df.to_parquet(parquet_path, index=False)
 
 
 # ---------------------------------------------------------------------------
@@ -487,6 +703,7 @@ def write_dl_prediction_artifact(
         )
 
     _validate_identity(identity)
+    semantics_config = _resolve_semantics_config(provenance)
 
     if run_id is None:
         run_id = _make_run_id(identity)
@@ -498,7 +715,7 @@ def write_dl_prediction_artifact(
     manifest_path = output_dir / f"{run_id}.manifest.json"
 
     # Build payload (time-series columns)
-    payload = _build_run_payload(df)
+    payload = _build_run_payload(df, semantics_config)
 
     # Attach identity columns (required for downstream surface filtering)
     artifact_df = _attach_identity_columns(payload, identity)
@@ -510,7 +727,10 @@ def write_dl_prediction_artifact(
     if missing_cols:
         raise ValueError(f"Internal error: artifact missing required parquet columns: {missing_cols}")
 
-    artifact_df = artifact_df[REQUIRED_PARQUET_COLS]
+    optional_missing_indicator_cols = [
+        c for c in ["pred_prob_up_missing", "signal_strength_missing"] if c in artifact_df.columns
+    ]
+    artifact_df = artifact_df[REQUIRED_PARQUET_COLS + optional_missing_indicator_cols]
 
     # Debug print required by MPML integration troubleshooting
     print("artifact_columns:", sorted(artifact_df.columns.tolist()))
@@ -524,8 +744,29 @@ def write_dl_prediction_artifact(
     print(f"artifact_row_count: {len(artifact_df):,}")
     print(f"artifact_unique_pairs: {pairs_n:,}")
 
-    # Write parquet
-    artifact_df.to_parquet(parquet_path, index=False)
+    # Write parquet with metadata when possible
+    artifact_metadata = {
+        "export_timestamp": datetime.now(timezone.utc).isoformat(),
+        "prediction_horizon_hours": int(identity["target_horizon"]),
+        "feature_surface": str(identity["feature_set"]),
+        "dl_regime": str(identity["dl_regime"]),
+        "availability_semantics": (
+            "visibility_by_control_mode"
+            if semantics_config["control_mode"] != "normal"
+            else "sparse_observed_only"
+        ),
+        "missing_indicator_mode": (
+            "explicit_missing_indicators"
+            if semantics_config["add_missing_indicators"]
+            else "imputation_only"
+        ),
+        "imputation_mode": (
+            "neutral_imputation"
+            if semantics_config["impute_optional_features"]
+            else "no_imputation"
+        ),
+    }
+    _write_parquet_with_metadata(artifact_df, parquet_path, artifact_metadata)
     print(f"Wrote parquet:  {parquet_path.resolve()}")
 
     # Build and write manifest (unchanged behavior; uses payload-only DF)
@@ -535,6 +776,7 @@ def write_dl_prediction_artifact(
         provenance,
         run_id=run_id,
         parquet_filename=parquet_path.name,
+        semantics_config=semantics_config,
     )
     with open(manifest_path, "w", encoding="utf-8") as fh:
         json.dump(manifest, fh, indent=2)
@@ -602,6 +844,38 @@ def _parse_args(argv=None):
         default=None,
         help="Training period end date (YYYY-MM-DD).",
     )
+    p.add_argument(
+        "--control-mode",
+        default=cfg.DL_EXPORT_CONTROL_MODE,
+        choices=sorted(VALID_CONTROL_MODES),
+        help="Deterministic availability control mode.",
+    )
+    p.add_argument(
+        "--dl-add-missing-indicators",
+        type=int,
+        choices=[0, 1],
+        default=1 if cfg.DL_ADD_MISSING_INDICATORS else 0,
+        help="Mode A/B toggle: 1 adds *_missing controls, 0 disables them.",
+    )
+    p.add_argument(
+        "--dl-impute-optional-features",
+        type=int,
+        choices=[0, 1],
+        default=1 if cfg.DL_IMPUTE_OPTIONAL_FEATURES else 0,
+        help="Whether optional/synthetic gaps are imputed deterministically.",
+    )
+    p.add_argument(
+        "--dl-imputation-value",
+        type=float,
+        default=cfg.DL_IMPUTATION_VALUE,
+        help="Neutral pred_prob_up value used for imputation.",
+    )
+    p.add_argument(
+        "--availability-shuffle-seed",
+        type=int,
+        default=cfg.DL_AVAILABILITY_SHUFFLE_SEED,
+        help="Seed for deterministic availability shuffling.",
+    )
     # Output
     p.add_argument(
         "--output-dir",
@@ -640,6 +914,11 @@ if __name__ == "__main__":
             "training_run_id": args.training_run_id,
             "train_period_start": args.train_period_start,
             "train_period_end": args.train_period_end,
+            "control_mode": args.control_mode,
+            "dl_add_missing_indicators": bool(args.dl_add_missing_indicators),
+            "dl_impute_optional_features": bool(args.dl_impute_optional_features),
+            "dl_imputation_value": args.dl_imputation_value,
+            "availability_shuffle_seed": args.availability_shuffle_seed,
         }.items()
         if v is not None
     }

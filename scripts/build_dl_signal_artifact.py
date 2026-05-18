@@ -121,6 +121,9 @@ OUTPUT_COLS = [
     "pred_direction",
     "confidence",
     "prediction_timestamp",
+    "dl_feature_available",
+    "pred_prob_up_missing",
+    "signal_strength_missing",
     # Provenance
     "model",
     "dl_regime",
@@ -302,6 +305,9 @@ def _build_artifact(raw: pd.DataFrame) -> pd.DataFrame:
     else:
         df["prediction_timestamp"] = _normalize_entry_time(df["prediction_timestamp"])
 
+    # 7b. Explicit availability semantics for v1 compatibility
+    df["dl_feature_available"] = 1
+
     # 8. Fill string provenance columns with "unknown" when absent
     for col, default in PROVENANCE_COLS.items():
         if col not in df.columns:
@@ -430,6 +436,15 @@ def _run_qa(df: pd.DataFrame) -> None:
     else:
         print("  ✓ dl_regime taxonomy valid")
 
+    # 7) availability semantics column sanity (optional for old artifacts)
+    if "dl_feature_available" in df.columns:
+        invalid_avail = (~df["dl_feature_available"].isin([0, 1])) & df["dl_feature_available"].notna()
+        if invalid_avail.any():
+            raise AssertionError(
+                f"Contract violation: {int(invalid_avail.sum()):,} rows have invalid "
+                "dl_feature_available (expected 0/1)."
+            )
+
     # Summary
     total = len(df)
     pairs = df["pair"].nunique()
@@ -499,11 +514,34 @@ def _write_manifest(
     # Serialize target_horizons_present safely (Int64 may contain pd.NA)
     th_values = df["target_horizon"].dropna().unique().tolist()
     th_values_serializable = sorted([int(v) for v in th_values])
+    pred_direction_up_frac = (
+        float((df["pred_direction"] == 1).fillna(False).astype(float).mean())
+        if "pred_direction" in df.columns
+        else 0.0
+    )
+    feature_available_frac = (
+        float(df["dl_feature_available"].fillna(1).mean())
+        if "dl_feature_available" in df.columns
+        else 1.0
+    )
 
     manifest = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "export_frequency": EXPORT_FREQUENCY,
+        "artifact_metadata": {
+            "export_timestamp": datetime.now(timezone.utc).isoformat(),
+            "prediction_horizon_hours": th_values_serializable if th_values_serializable else [],
+            "feature_surface": sorted(df["feature_set"].unique().tolist()),
+            "dl_regime": sorted(df["dl_regime"].unique().tolist()),
+            "availability_semantics": "surface_row_availability",
+            "missing_indicator_mode": (
+                "explicit_missing_indicators"
+                if any(c.endswith("_missing") for c in df.columns)
+                else "imputation_only"
+            ),
+            "imputation_mode": "manifest_declared_per_run",
+        },
         "signal_definition": {
             "formula": "signal_strength = 2 * pred_prob_up - 1",
             "range": "[-1, +1]",
@@ -560,7 +598,8 @@ def _write_manifest(
             "pred_prob_up_std": float(df["pred_prob_up"].std()),
             "signal_strength_mean": float(df["signal_strength"].mean()),
             "signal_strength_std": float(df["signal_strength"].std()),
-            "pred_direction_up_frac": float((df["pred_direction"] == 1).mean()),
+            "pred_direction_up_frac": pred_direction_up_frac,
+            "feature_available_frac": feature_available_frac,
         },
         "warnings": warnings_list,
         "missing_provenance_counts": missing_provenance_counts,

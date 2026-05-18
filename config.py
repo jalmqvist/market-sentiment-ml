@@ -95,6 +95,36 @@ MAX_RETURN_THRESHOLD: float = 0.20
 EXCLUDED_PAIRS: frozenset[str] = frozenset({"eur-mxn", "gbp-zar"})
 
 # ---------------------------------------------------------------------------
+# DL sparse-feature semantics (dataset integration controls)
+# ---------------------------------------------------------------------------
+
+# CONTRACT:
+# Missing indicators are optional experimental controls,
+# not guaranteed behavioral features.
+DL_ADD_MISSING_INDICATORS: bool = os.environ.get(
+    "DL_ADD_MISSING_INDICATORS", "1"
+).strip().lower() in {"1", "true", "yes", "on"}
+
+# CONTRACT:
+# Optional/synthetic DL feature gaps may be imputed deterministically.
+DL_IMPUTE_OPTIONAL_FEATURES: bool = os.environ.get(
+    "DL_IMPUTE_OPTIONAL_FEATURES", "1"
+).strip().lower() in {"1", "true", "yes", "on"}
+
+# Neutral default for pred_prob_up imputation. signal_strength is derived as
+# (2 * DL_IMPUTATION_VALUE - 1) when imputation is applied.
+DL_IMPUTATION_VALUE: float = float(os.environ.get("DL_IMPUTATION_VALUE", "0.5"))
+
+# Deterministic availability-control mode applied during per-run DL export.
+# Supported values: "normal", "constant_presence", "availability_shuffle"
+DL_EXPORT_CONTROL_MODE: str = os.environ.get("DL_EXPORT_CONTROL_MODE", "normal")
+
+# Seed used for deterministic availability shuffling.
+DL_AVAILABILITY_SHUFFLE_SEED: int = int(
+    os.environ.get("DL_AVAILABILITY_SHUFFLE_SEED", "42")
+)
+
+# ---------------------------------------------------------------------------
 # Signal configuration
 # ---------------------------------------------------------------------------
 

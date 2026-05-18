@@ -35,6 +35,7 @@ for _p in [str(_REPO_ROOT), str(_SCRIPTS_DIR)]:
         sys.path.insert(0, _p)
 
 from write_dl_prediction_artifact import (
+    REQUIRED_PARQUET_COLS,
     RUN_PARQUET_COLS,
     write_dl_prediction_artifact,
 )
@@ -90,19 +91,17 @@ class TestWriteDlPredictionArtifact:
         assert pq.name == "test_run.parquet"
         assert mf.name == "test_run.manifest.json"
 
-    def test_parquet_contains_only_timeseries_cols(self, tmp_path):
+    def test_parquet_contains_required_contract_cols(self, tmp_path):
         pq, _ = write_dl_prediction_artifact(
             _minimal_df(), _valid_identity(), output_dir=tmp_path, run_id="r1"
         )
         loaded = pd.read_parquet(pq)
-        # Must contain all RUN_PARQUET_COLS
-        for col in RUN_PARQUET_COLS:
+        # Must contain all required contract columns
+        for col in REQUIRED_PARQUET_COLS:
             assert col in loaded.columns, f"Missing column: {col}"
-        # Must NOT contain identity columns (those are in the manifest only)
-        for identity_col in ["model", "dl_regime", "target_horizon", "feature_set"]:
-            assert identity_col not in loaded.columns, (
-                f"Identity column {identity_col!r} must not be in the parquet payload"
-            )
+        # Legacy payload columns should still be present.
+        for col in RUN_PARQUET_COLS:
+            assert col in loaded.columns, f"Missing legacy payload column: {col}"
 
     def test_parquet_row_count_matches_input(self, tmp_path):
         df = _minimal_df(n=6)
@@ -135,6 +134,9 @@ class TestWriteDlPredictionArtifact:
         assert "pairs" in manifest
         assert "entry_time_min" in manifest
         assert "entry_time_max" in manifest
+        assert "artifact_metadata" in manifest
+        assert "missingness_config" in manifest
+        assert "export_config" in manifest
 
     def test_manifest_identity_block(self, tmp_path):
         identity = _valid_identity()
@@ -202,6 +204,8 @@ class TestWriteDlPredictionArtifact:
         loaded = pd.read_parquet(pq)
         assert "prediction_timestamp" in loaded.columns
         assert loaded["prediction_timestamp"].isna().all()
+        assert "dl_feature_available" in loaded.columns
+        assert (loaded["dl_feature_available"] == 1).all()
 
     def test_prediction_timestamp_preserved(self, tmp_path):
         df = _minimal_df(4)
@@ -289,3 +293,54 @@ class TestWriteDlPredictionArtifact:
         assert loaded["pair"].nunique() == 2
         manifest = json.loads(mf.read_text())
         assert len(manifest["pairs"]) == 2
+
+    def test_constant_presence_mode_expands_hourly_grid(self, tmp_path):
+        df = _minimal_df(3)
+        # Create a deterministic 1-hour gap in availability.
+        df["entry_time"] = pd.to_datetime(
+            ["2023-01-02 00:00:00", "2023-01-02 01:00:00", "2023-01-02 03:00:00"]
+        )
+        pq, mf = write_dl_prediction_artifact(
+            df,
+            _valid_identity(),
+            provenance={
+                "control_mode": "constant_presence",
+                "dl_add_missing_indicators": True,
+                "dl_impute_optional_features": True,
+                "dl_imputation_value": 0.5,
+            },
+            output_dir=tmp_path,
+            run_id="const_presence",
+        )
+        loaded = pd.read_parquet(pq)
+        manifest = json.loads(mf.read_text())
+        assert len(loaded) == 4  # 00,01,02,03
+        assert "pred_prob_up_missing" in loaded.columns
+        assert int((loaded["dl_feature_available"] == 0).sum()) == 1
+        assert manifest["export_config"]["control_mode"] == "constant_presence"
+
+    def test_availability_shuffle_mode_is_deterministic(self, tmp_path):
+        df = _minimal_df(6)
+        pq1, _ = write_dl_prediction_artifact(
+            df,
+            _valid_identity(),
+            provenance={
+                "control_mode": "availability_shuffle",
+                "availability_shuffle_seed": 7,
+            },
+            output_dir=tmp_path,
+            run_id="shuffle_a",
+        )
+        pq2, _ = write_dl_prediction_artifact(
+            df,
+            _valid_identity(),
+            provenance={
+                "control_mode": "availability_shuffle",
+                "availability_shuffle_seed": 7,
+            },
+            output_dir=tmp_path,
+            run_id="shuffle_b",
+        )
+        a = pd.read_parquet(pq1)[["pair", "entry_time"]]
+        b = pd.read_parquet(pq2)[["pair", "entry_time"]]
+        pd.testing.assert_frame_equal(a.reset_index(drop=True), b.reset_index(drop=True))

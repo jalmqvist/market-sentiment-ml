@@ -180,6 +180,9 @@ def _load_run_artifact(parquet_path: Path, manifest_path: Path) -> pd.DataFrame:
         )
 
     provenance = manifest.get("provenance", {}) or {}
+    artifact_metadata = manifest.get("artifact_metadata", {}) or {}
+    export_config = manifest.get("export_config", {}) or {}
+    missingness_config = manifest.get("missingness_config", {}) or {}
 
     # Read parquet
     df = pd.read_parquet(parquet_path)
@@ -203,11 +206,143 @@ def _load_run_artifact(parquet_path: Path, manifest_path: Path) -> pd.DataFrame:
     # Inject optional provenance
     df["dataset_version"] = str(provenance.get("dataset_version") or "unknown")
     df["model_version"] = str(provenance.get("model_version") or "unknown")
+    df["availability_semantics"] = str(
+        artifact_metadata.get("availability_semantics") or "unknown"
+    )
+    df["missing_indicator_mode"] = str(
+        artifact_metadata.get("missing_indicator_mode") or "unknown"
+    )
+    df["imputation_mode"] = str(artifact_metadata.get("imputation_mode") or "unknown")
+    df["control_mode"] = str(export_config.get("control_mode") or "unknown")
+    df["dl_add_missing_indicators"] = bool(
+        missingness_config.get("DL_ADD_MISSING_INDICATORS", False)
+    )
+    df["dl_impute_optional_features"] = bool(
+        missingness_config.get("DL_IMPUTE_OPTIONAL_FEATURES", False)
+    )
+    imputation_value = missingness_config.get("DL_IMPUTATION_VALUE")
+    df["dl_imputation_value"] = (
+        float(imputation_value) if imputation_value is not None else np.nan
+    )
 
     # Schema version
     df["schema_version"] = SCHEMA_VERSION
 
     return df
+
+
+def _write_provenance_diagnostics(
+    combined: pd.DataFrame,
+    cube: pd.DataFrame,
+    output_dir: Path,
+    input_dir: Path,
+    output_parquet: Path,
+) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    diagnostics_pairs: list[dict] = []
+    coverage_rows: list[dict] = []
+    missingness_rows: list[dict] = []
+
+    feature_cols = [
+        "pred_prob_up",
+        "signal_strength",
+        "pred_direction",
+        "confidence",
+        "prediction_timestamp",
+    ]
+    optional_feature_cols = [c for c in feature_cols if c in cube.columns]
+
+    for pair, grp in cube.groupby("pair"):
+        grp = grp.sort_values("entry_time")
+        first_ts = grp["entry_time"].min()
+        last_ts = grp["entry_time"].max()
+        row_count = int(len(grp))
+
+        expected_rows = int(
+            len(pd.date_range(first_ts, last_ts, freq="h"))
+        ) if pd.notna(first_ts) and pd.notna(last_ts) else row_count
+        overlap_pct = float(row_count / expected_rows) if expected_rows > 0 else 0.0
+
+        feature_missingness = {}
+        for col in optional_feature_cols:
+            miss = float(grp[col].isna().mean())
+            feature_missingness[col] = miss
+            coverage_rows.append(
+                {
+                    "pair": pair,
+                    "feature": col,
+                    "non_null_pct": float(1.0 - miss),
+                    "missingness_pct": miss,
+                    "effective_samples": int(grp[col].notna().sum()),
+                }
+            )
+            missingness_rows.append(
+                {
+                    "pair": pair,
+                    "feature": col,
+                    "missingness_pct": miss,
+                }
+            )
+
+        avg_missing = float(np.mean(list(feature_missingness.values()))) if feature_missingness else 0.0
+        diagnostics_pairs.append(
+            {
+                "pair": str(pair),
+                "first_timestamp": first_ts.isoformat() if pd.notna(first_ts) else None,
+                "last_timestamp": last_ts.isoformat() if pd.notna(last_ts) else None,
+                "overlap_pct": overlap_pct,
+                "non_null_pct": float(1.0 - avg_missing),
+                "missingness_pct": avg_missing,
+                "feature_sparsity": avg_missing,
+                "effective_sample_count": row_count,
+                "expected_sample_count": expected_rows,
+            }
+        )
+
+    provenance = {
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "schema_version": SCHEMA_VERSION,
+        "input_dir": str(input_dir.resolve()),
+        "output_parquet": str(output_parquet.resolve()),
+        "global": {
+            "pair_count": int(cube["pair"].nunique()),
+            "row_count": int(len(cube)),
+            "feature_count": int(len(optional_feature_cols)),
+            "missing_indicator_count": int(
+                sum(
+                    1
+                    for c in combined.columns
+                    if c.endswith("_missing")
+                )
+            ),
+            "overlap_coverage_mean": float(
+                np.mean([p["overlap_pct"] for p in diagnostics_pairs]) if diagnostics_pairs else 0.0
+            ),
+            "export_generation_parameters": {
+                "control_modes": sorted(
+                    combined["control_mode"].astype(str).unique().tolist()
+                ) if "control_mode" in combined.columns else [],
+                "availability_semantics": sorted(
+                    combined["availability_semantics"].astype(str).unique().tolist()
+                ) if "availability_semantics" in combined.columns else [],
+                "missing_indicator_modes": sorted(
+                    combined["missing_indicator_mode"].astype(str).unique().tolist()
+                ) if "missing_indicator_mode" in combined.columns else [],
+                "imputation_modes": sorted(
+                    combined["imputation_mode"].astype(str).unique().tolist()
+                ) if "imputation_mode" in combined.columns else [],
+            },
+        },
+        "pairs": diagnostics_pairs,
+    }
+
+    (output_dir / "dataset_provenance.json").write_text(
+        json.dumps(provenance, indent=2),
+        encoding="utf-8",
+    )
+    pd.DataFrame(coverage_rows).to_csv(output_dir / "feature_coverage.csv", index=False)
+    pd.DataFrame(missingness_rows).to_csv(output_dir / "feature_missingness.csv", index=False)
 
 
 # ---------------------------------------------------------------------------
@@ -308,6 +443,14 @@ def consolidate_dl_predictions(
 
     _write_manifest(cube, input_dir, output_manifest)
     print(f"Wrote manifest: {output_manifest.resolve()}")
+    _write_provenance_diagnostics(
+        combined=combined,
+        cube=cube,
+        output_dir=output_parquet.parent,
+        input_dir=input_dir,
+        output_parquet=output_parquet,
+    )
+    print(f"Wrote diagnostics: {(output_parquet.parent / 'dataset_provenance.json').resolve()}")
 
     return cube
 

@@ -157,6 +157,9 @@ class TestConsolidateDlPredictions:
         assert out_pq.exists()
         assert out_mf.exists()
         assert len(cube) == 4
+        assert (tmp_path / "dataset_provenance.json").exists()
+        assert (tmp_path / "feature_coverage.csv").exists()
+        assert (tmp_path / "feature_missingness.csv").exists()
 
     def test_cube_has_all_required_columns(self, tmp_path):
         pred_dir = tmp_path / "preds"
@@ -221,6 +224,15 @@ class TestConsolidateDlPredictions:
         assert "train_period" in manifest
         assert "warnings" in manifest
         assert "missing_provenance_counts" in manifest
+
+    def test_diagnostics_payload_contains_global_and_pair_sections(self, tmp_path):
+        pred_dir = tmp_path / "preds"
+        _write_run(pred_dir, _minimal_df(), _identity(), "run1")
+        consolidate_dl_predictions(pred_dir, tmp_path / "pq", tmp_path / "mf")
+        provenance = json.loads((tmp_path / "dataset_provenance.json").read_text())
+        assert "global" in provenance
+        assert "pairs" in provenance
+        assert provenance["global"]["pair_count"] >= 1
 
     def test_missing_input_dir_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError, match="not found"):

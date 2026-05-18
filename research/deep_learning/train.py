@@ -7,6 +7,7 @@ import pandas as pd
 import torch
 import torch.nn as nn
 
+import config as cfg
 from research.deep_learning.dataset_loader import load_dataset
 
 FEATURE_SETS = {
@@ -563,6 +564,14 @@ def main():
         "dataset_version": args.dataset_version,
         "training_pairs": training_pairs_provenance,
         "inference_pairs": inference_pairs_provenance,
+        "export_split": args.export_split,
+        "prediction_horizon_hours": int(args.target_horizon),
+        "availability_semantics": "sparse_observed_only",
+        "control_mode": cfg.DL_EXPORT_CONTROL_MODE,
+        "dl_add_missing_indicators": cfg.DL_ADD_MISSING_INDICATORS,
+        "dl_impute_optional_features": cfg.DL_IMPUTE_OPTIONAL_FEATURES,
+        "dl_imputation_value": cfg.DL_IMPUTATION_VALUE,
+        "availability_shuffle_seed": cfg.DL_AVAILABILITY_SHUFFLE_SEED,
     }
 
     # --- Export-only window filter (does not affect training/eval/metrics) ---
