@@ -510,6 +510,7 @@ def _build_run_manifest(
     artifact_created_ts = datetime.now(timezone.utc).isoformat()
 
     artifact_metadata = {
+        "schema_version": DL_SCHEMA_VERSION,
         "export_timestamp": artifact_created_ts,  # legacy key (kept for compat)
         DL_ARTIFACT_CREATED_COL: artifact_created_ts,  # v2 canonical key
         "prediction_horizon_hours": prediction_horizon_hours,
@@ -643,6 +644,7 @@ def _attach_identity_columns(payload: pd.DataFrame, identity: dict) -> pd.DataFr
     the artifact by exact-match on these row-level identity columns.
     """
     out = payload.copy()
+    out["schema_version"] = DL_SCHEMA_VERSION
     out["model"] = str(identity["model"])
     out["dl_regime"] = str(identity["dl_regime"])
     out["feature_set"] = str(identity["feature_set"])
