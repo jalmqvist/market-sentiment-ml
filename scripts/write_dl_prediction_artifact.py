@@ -843,26 +843,55 @@ def write_dl_prediction_artifact(
 
     # Write parquet with metadata when possible
     artifact_metadata = {
+        "schema_version": DL_SCHEMA_VERSION,
+
         "export_timestamp": artifact_created_ts.isoformat(),  # legacy key
         DL_ARTIFACT_CREATED_COL: artifact_created_ts.isoformat(),
+
         "prediction_horizon_hours": int(identity["target_horizon"]),
         "feature_surface": str(identity["feature_set"]),
         "dl_regime": str(identity["dl_regime"]),
+
         "availability_semantics": (
             "visibility_by_control_mode"
             if semantics_config["control_mode"] != "normal"
             else "sparse_observed_only"
         ),
+
         "missing_indicator_mode": (
             "explicit_missing_indicators"
             if semantics_config["add_missing_indicators"]
             else "imputation_only"
         ),
+
         "imputation_mode": (
             "neutral_imputation"
             if semantics_config["impute_optional_features"]
             else "no_imputation"
         ),
+
+        "timestamp_contract_version": "v2",
+
+        "timestamp_semantics": json.dumps({
+            "entry_time": (
+                "H1 bar open timestamp (UTC tz-naive); "
+                "the bar being predicted"
+            ),
+
+            DL_AVAILABLE_TS_COL: (
+                "causal boundary timestamp used by MPML; "
+                "must satisfy <= entry_time"
+            ),
+
+            DL_GENERATED_TS_COL: (
+                "wall-clock inference timestamp; "
+                "diagnostics only; NEVER causal"
+            ),
+
+            DL_ARTIFACT_CREATED_COL: (
+                "artifact export timestamp; provenance only"
+            ),
+        }),
     }
     _write_parquet_with_metadata(artifact_df, parquet_path, artifact_metadata)
     print(f"Wrote parquet:  {parquet_path.resolve()}")
