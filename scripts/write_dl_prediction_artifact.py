@@ -37,7 +37,7 @@ Python API::
     from scripts.write_dl_prediction_artifact import write_dl_prediction_artifact
 
     write_dl_prediction_artifact(
-        df=predictions_df,           # DataFrame with entry_time, pair, pred_prob_up
+        df=predictions_df,           # DataFrame with timestamp, pair, pred_prob_up
         identity={
             "model": "MLP",
             "dl_regime": "LVTF",
@@ -132,15 +132,19 @@ from schemas.dl_artifact_schema import (  # noqa: E402
 
 REQUIRED_PARQUET_COLS = [
     "pair",
+    "timestamp",
+
+    # TEMP backward compatibility alias
     "entry_time",
+
     "pred_prob_up",
     "signal_strength",
     "pred_direction",
     "confidence",
-    "prediction_timestamp",        # v1 compat: per-row inference time (legacy name)
-    DL_AVAILABLE_TS_COL,           # v2: causal boundary for MPML
-    DL_GENERATED_TS_COL,           # v2: wall-clock inference time (diagnostics only)
-    DL_ARTIFACT_CREATED_COL,       # v2: artifact export time (provenance only)
+    "prediction_timestamp",
+    DL_AVAILABLE_TS_COL,
+    DL_GENERATED_TS_COL,
+    DL_ARTIFACT_CREATED_COL,
     "model",
     "dl_regime",
     "target_horizon",
@@ -152,7 +156,11 @@ REQUIRED_PARQUET_COLS = [
 # that rely on the old constant name).
 RUN_PARQUET_COLS = [
     "pair",
+    "timestamp",
+
+    # TEMP backward compatibility alias
     "entry_time",
+
     "pred_prob_up",
     "signal_strength",
     "pred_direction",
@@ -241,41 +249,41 @@ def _apply_control_mode(payload: pd.DataFrame, semantics_config: dict[str, Any])
         seed = int(semantics_config["availability_shuffle_seed"])
         shuffled_frames: list[pd.DataFrame] = []
         for pair, grp in out.groupby("pair", sort=False):
-            grp = grp.sort_values("entry_time").reset_index(drop=True)
+            grp = grp.sort_values("timestamp").reset_index(drop=True)
             if len(grp) <= 1:
                 shuffled_frames.append(grp)
                 continue
             pair_seed = int(hashlib.sha256(str(pair).encode("utf-8")).hexdigest()[:16], 16)
             rng = np.random.default_rng(seed + pair_seed)
-            shuffled_times = grp["entry_time"].to_numpy().copy()
+            shuffled_times = grp["timestamp"].to_numpy().copy()
             rng.shuffle(shuffled_times)
-            grp["entry_time"] = pd.to_datetime(shuffled_times)
+            grp["timestamp"] = pd.to_datetime(shuffled_times)
             # After shuffling, prediction_available_timestamp must track the
-            # new entry_time to maintain the causal invariant
-            # (prediction_available_timestamp <= entry_time).
+            # new timestamp to maintain the causal invariant
+            # (prediction_available_timestamp <= timestamp).
             # In shuffle mode this is an ablation — the timestamps are
             # deliberately permuted for experimental control, so equality is
             # the correct post-shuffle assignment.
             if DL_AVAILABLE_TS_COL in grp.columns:
-                grp[DL_AVAILABLE_TS_COL] = grp["entry_time"].copy()
+                grp[DL_AVAILABLE_TS_COL] = grp["timestamp"].copy()
             shuffled_frames.append(grp)
         out = pd.concat(shuffled_frames, ignore_index=True)
-        return out.sort_values(["pair", "entry_time"]).reset_index(drop=True)
+        return out.sort_values(["pair", "timestamp"]).reset_index(drop=True)
 
     # mode == "constant_presence"
     expanded_frames: list[pd.DataFrame] = []
     for pair, grp in out.groupby("pair", sort=False):
-        grp = grp.sort_values("entry_time").reset_index(drop=True)
-        et_min = grp["entry_time"].min()
-        et_max = grp["entry_time"].max()
+        grp = grp.sort_values("timestamp").reset_index(drop=True)
+        et_min = grp["timestamp"].min()
+        et_max = grp["timestamp"].max()
         if pd.isna(et_min) or pd.isna(et_max):
             expanded_frames.append(grp)
             continue
         full_times = pd.date_range(et_min, et_max, freq="h")
-        full = pd.DataFrame({"pair": pair, "entry_time": full_times})
+        full = pd.DataFrame({"pair": pair, "timestamp": full_times})
         merged = full.merge(
             grp.drop(columns=["pair"]),
-            on="entry_time",
+            on="timestamp",
             how="left",
         )
         merged["pair"] = pair
@@ -286,7 +294,7 @@ def _apply_control_mode(payload: pd.DataFrame, semantics_config: dict[str, Any])
         # default to entry_time to satisfy the causal invariant.
         if DL_AVAILABLE_TS_COL in merged.columns:
             null_avail = merged[DL_AVAILABLE_TS_COL].isna()
-            merged.loc[null_avail, DL_AVAILABLE_TS_COL] = merged.loc[null_avail, "entry_time"]
+            merged.loc[null_avail, DL_AVAILABLE_TS_COL] = merged.loc[null_avail, "timestamp"]
 
         unavailable_mask = merged["dl_feature_available"].eq(0)
         if semantics_config["impute_optional_features"]:
@@ -299,7 +307,7 @@ def _apply_control_mode(payload: pd.DataFrame, semantics_config: dict[str, Any])
         expanded_frames.append(merged)
 
     out = pd.concat(expanded_frames, ignore_index=True)
-    return out.sort_values(["pair", "entry_time"]).reset_index(drop=True)
+    return out.sort_values(["pair", "timestamp"]).reset_index(drop=True)
 
 
 def _apply_missing_indicators(payload: pd.DataFrame, semantics_config: dict[str, Any]) -> pd.DataFrame:
@@ -317,7 +325,10 @@ def _build_run_payload(df: pd.DataFrame, semantics_config: dict[str, Any]) -> pd
     Parameters
     ----------
     df:
-        Raw DataFrame with at minimum: entry_time, pair, pred_prob_up.
+        Raw DataFrame with at minimum: timestamp, pair, pred_prob_up.
+        Legacy compatibility:
+        older pipelines may still provide entry_time; this is canonicalized
+        to timestamp during export.
 
     Returns
     -------
@@ -329,8 +340,11 @@ def _build_run_payload(df: pd.DataFrame, semantics_config: dict[str, Any]) -> pd
     # pair
     result["pair"] = result["pair"].map(_normalize_pair)
 
-    # entry_time
-    result["entry_time"] = _normalize_entry_time(result["entry_time"])
+    # timestamp (canonical v2 contract column)
+    result["timestamp"] = _normalize_entry_time(result["timestamp"])
+
+    # TEMP backward compatibility alias
+    result["entry_time"] = result["timestamp"]
 
     # pred_prob_up
     result["pred_prob_up"] = pd.to_numeric(result["pred_prob_up"], errors="coerce")
@@ -343,7 +357,7 @@ def _build_run_payload(df: pd.DataFrame, semantics_config: dict[str, Any]) -> pd
         n = int(invalid.sum())
         raise ValueError(
             f"{n:,} row(s) have invalid pred_prob_up (must be float in [0, 1]).\n"
-            f"Sample:\n{result.loc[invalid, ['pair', 'entry_time', 'pred_prob_up']].head()}"
+            f"Sample:\n{result.loc[invalid, ['pair', 'timestamp', 'pred_prob_up']].head()}"
         )
 
     # signal_strength
@@ -382,7 +396,7 @@ def _build_run_payload(df: pd.DataFrame, semantics_config: dict[str, Any]) -> pd
     # Defaults to entry_time — the prediction is available at the bar open time.
     # Callers may supply per-row values (must satisfy <= entry_time).
     if DL_AVAILABLE_TS_COL not in result.columns:
-        result[DL_AVAILABLE_TS_COL] = result["entry_time"].copy()
+        result[DL_AVAILABLE_TS_COL] = result["timestamp"].copy()
     else:
         result[DL_AVAILABLE_TS_COL] = _normalize_entry_time(
             result[DL_AVAILABLE_TS_COL]
@@ -407,7 +421,7 @@ def _build_run_payload(df: pd.DataFrame, semantics_config: dict[str, Any]) -> pd
     # v2 timestamp columns must be preserved through the slice.
     _v2_ts_cols = [DL_AVAILABLE_TS_COL, DL_GENERATED_TS_COL]
     _payload_cols = RUN_PARQUET_COLS + [c for c in _v2_ts_cols if c in result.columns]
-    result = result[_payload_cols].sort_values(["pair", "entry_time"]).reset_index(
+    result = result[_payload_cols].sort_values(["pair", "timestamp"]).reset_index(
         drop=True
     )
     result = _apply_control_mode(result, semantics_config)
@@ -457,11 +471,11 @@ def _build_run_manifest(
     # Per-pair stats
     pair_stats: dict = {}
     for pair, grp in payload.groupby("pair"):
-        et = grp["entry_time"].dropna()
+        et = grp["timestamp"].dropna()
         pair_stats[str(pair)] = {
             "row_count": int(len(grp)),
-            "entry_time_min": et.min().isoformat() if len(et) else None,
-            "entry_time_max": et.max().isoformat() if len(et) else None,
+            "timestamp_min": et.min().isoformat() if len(et) else None,
+            "timestamp_max": et.max().isoformat() if len(et) else None,
         }
 
     # Warnings
@@ -520,7 +534,8 @@ def _build_run_manifest(
         "missing_indicator_mode": missing_indicator_mode,
         "imputation_mode": imputation_mode,
         "timestamp_semantics": {
-            "entry_time": "H1 bar open timestamp (UTC tz-naive); the bar being predicted",
+            "timestamp": "H1 bar open timestamp (UTC tz-naive); the bar being predicted",
+            "entry_time": "legacy compatibility alias for timestamp",
             DL_AVAILABLE_TS_COL: (
                 "earliest historical timestamp the prediction could have been observed; "
                 "used by MPML for causality checks; must be <= entry_time"
@@ -602,14 +617,14 @@ def _build_run_manifest(
         "git_commit": _get_git_commit_hash(),
         "row_count": int(len(payload)),
         "pairs": sorted(payload["pair"].unique().tolist()),
-        "entry_time_min": (
-            payload["entry_time"].min().isoformat()
-            if not payload["entry_time"].isna().all()
+        "timestamp_min": (
+            payload["timestamp"].min().isoformat()
+            if not payload["timestamp"].isna().all()
             else None
         ),
-        "entry_time_max": (
-            payload["entry_time"].max().isoformat()
-            if not payload["entry_time"].isna().all()
+        "timestamp_max": (
+            payload["timestamp"].max().isoformat()
+            if not payload["timestamp"].isna().all()
             else None
         ),
         "pair_stats": pair_stats,
@@ -659,7 +674,11 @@ def _coerce_required_dtypes(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
 
     # entry_time must be datetime64[ns] (tz-naive UTC)
-    out["entry_time"] = _normalize_entry_time(out["entry_time"])
+    # Canonical v2 timestamp column
+    out["timestamp"] = _normalize_entry_time(out["timestamp"])
+
+    # TEMP backward compatibility alias
+    out["entry_time"] = out["timestamp"]
 
     # prediction_timestamp must survive as datetime64[ns] (v1 legacy)
     out["prediction_timestamp"] = _normalize_entry_time(out["prediction_timestamp"])
@@ -728,7 +747,7 @@ def write_dl_prediction_artifact(
     Parameters
     ----------
     df:
-        DataFrame with at minimum: ``entry_time``, ``pair``, ``pred_prob_up``.
+        DataFrame with at minimum: ``timestamp``, ``pair``, ``pred_prob_up``.
         Optional columns: ``pred_direction``, ``confidence``,
         ``prediction_timestamp``.
 
@@ -776,7 +795,12 @@ def write_dl_prediction_artifact(
         If required columns are missing, ``pred_prob_up`` is out of range,
         or identity is invalid.
     """
-    required = {"entry_time", "pair", "pred_prob_up"}
+    # Backward compatibility:
+    # older pipelines may still emit entry_time.
+    if "timestamp" not in df.columns and "entry_time" in df.columns:
+        df = df.rename(columns={"entry_time": "timestamp"})
+
+    required = {"timestamp", "pair", "pred_prob_up"}
     missing = required - set(df.columns)
     if missing:
         raise ValueError(
@@ -820,6 +844,10 @@ def write_dl_prediction_artifact(
     optional_missing_indicator_cols = [
         c for c in ["pred_prob_up_missing", "signal_strength_missing"] if c in artifact_df.columns
     ]
+    # TEMP backward compatibility:
+    # retain legacy entry_time column while canonicalizing on timestamp.
+    if "entry_time" not in artifact_df.columns:
+        artifact_df["entry_time"] = artifact_df["timestamp"]
     artifact_df = artifact_df[REQUIRED_PARQUET_COLS + optional_missing_indicator_cols]
 
     # Fail-fast contract validation before any disk write.
@@ -833,11 +861,11 @@ def write_dl_prediction_artifact(
     print("artifact_columns:", sorted(artifact_df.columns.tolist()))
 
     # Compact artifact diagnostics for overlap debugging
-    et_min = artifact_df["entry_time"].min()
-    et_max = artifact_df["entry_time"].max()
+    ts_min = artifact_df["timestamp"].min()
+    ts_max = artifact_df["timestamp"].max()
     pairs_n = int(artifact_df["pair"].nunique())
-    print("artifact_entry_time_range:")
-    print(f"{et_min} -> {et_max}")
+    print("artifact_timestamp_range:")
+    print(f"{ts_min} -> {ts_max}")
     print(f"artifact_row_count: {len(artifact_df):,}")
     print(f"artifact_unique_pairs: {pairs_n:,}")
 
@@ -873,7 +901,7 @@ def write_dl_prediction_artifact(
         "timestamp_contract_version": "v2",
 
         "timestamp_semantics": json.dumps({
-            "entry_time": (
+            "timestamp": (
                 "H1 bar open timestamp (UTC tz-naive); "
                 "the bar being predicted"
             ),
@@ -934,7 +962,9 @@ def _parse_args(argv=None):
         required=True,
         help=(
             "CSV with time-series predictions. "
-            "Required columns: entry_time, pair, pred_prob_up. "
+            "Required columns: timestamp, pair, pred_prob_up."
+            "Legacy compatibility:"
+            "entry_time is accepted and canonicalized to timestamp. "
             "Optional: pred_direction, confidence, prediction_timestamp."
         ),
     )
