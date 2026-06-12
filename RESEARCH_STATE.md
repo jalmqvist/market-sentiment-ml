@@ -74,17 +74,33 @@ Current evidence is weaker or inconsistent for:
 
 ---
 
-## Current Interpretation
+# Current Interpretation
 
-The project increasingly interprets retail sentiment as:
+The project increasingly interprets retail sentiment not as a universal directional predictor, but as a behavioral state space whose transition dynamics vary across market environments.
 
-- a contextual behavioral signal
-- a conditional modulation layer
-- a sparse behavioral-state surface
+The strongest evidence currently supports:
 
-rather than:
+- family-specific behavioral organization,
+- persistence-mediated state evolution,
+- conditional information compression,
+- localized downstream behavioral effects,
+- adaptive exploitation of latent structure.
 
-- a standalone predictive engine.
+Under this interpretation, sentiment is valuable primarily because it helps identify and organize behavioral states rather than because it provides stable directional alpha.
+
+Recent investigations further suggest that sentiment-state dynamics themselves may constitute an important object of study.
+
+In particular, JPY environments appear to exhibit consensus-formation and consensus-maturation processes that strongly influence reversal behavior.
+
+This shifts part of the research focus away from:
+
+sentiment
+→ returns
+
+and toward:
+
+sentiment-state evolution
+→ market behavior.
 
 ---
 
@@ -132,6 +148,29 @@ The current working hypothesis is therefore:
 > sentiment modulates latent behavioral structure
 > rather than replacing it.
 
+## Consensus-State Dynamics
+
+Recent JPY investigations suggest that sentiment may be most useful when viewed as a dynamic state process rather than as a static explanatory variable.
+
+Several candidate external drivers of sentiment reversals were examined, including:
+
+- high-impact news,
+- session structure,
+- volatility-related effects.
+
+These variables provided comparatively little explanatory power once sentiment-state maturity was taken into account.
+
+Instead, reversal behavior appears strongly conditioned on the age and maturity of the underlying consensus state.
+
+Current evidence supports the following behavioral chain:
+
+Consensus Formation
+→ Consensus Maturation
+→ Exit Mechanism
+→ Reversal Probability
+
+This finding strengthens the interpretation that sentiment should be studied as a state-transition process rather than as a standalone predictive signal.
+
 ---
 
 ## Layer 3 — Adaptive Exploitation
@@ -153,11 +192,11 @@ This suggests that:
 
 # Pair-Family Findings
 
-One of the strongest and most persistent findings in the project is that
-different FX pair families appear to exhibit meaningfully different
-behavioral organization.
+One of the strongest and most persistent findings in the project is that different FX pair families exhibit meaningfully different behavioral organization.
 
----
+Importantly, the family distinction does not appear to originate from a single market statistic such as volatility, trend persistence, or sentiment persistence. Historical audits suggest that the family partition emerged empirically through repeated predictive-learning experiments and has subsequently survived multiple independent validation efforts.
+
+Current evidence suggests that pair families should be interpreted as distinct behavioral learning environments rather than simple collections of similar market statistics.
 
 ## Persistent Families
 
@@ -169,18 +208,15 @@ Pairs such as:
 - EURGBP
 - EURAUD
 
-appear to exhibit:
+consistently exhibit:
 
-- more stable transfer behavior
-- stronger structural persistence
-- more robust downstream integration
-- less sensitivity to sentiment ablation
+- stronger information compression under phase partitioning,
+- greater internal cohesion,
+- greater benefits from explicit decomposition,
+- higher consensus-state maturation rates,
+- more stable downstream integration.
 
-These families increasingly resemble:
-
-> persistent structural systems.
-
----
+These environments increasingly resemble persistent behavioral systems whose predictive structure is comparatively well organized.
 
 ## Reactive Families
 
@@ -192,30 +228,51 @@ Pairs such as:
 - USDCHF
 - EURCHF
 
-appear to exhibit:
+remain meaningfully distinct from Persistent families.
 
-- stronger release/reversion dynamics
-- higher local instability
-- more asymmetric transfer behavior
-- more heterogeneous downstream responses
+However, recent evidence suggests that Reactive itself is unlikely to be a fully coherent family.
 
-These families increasingly resemble:
+Instead, the Reactive family increasingly appears to contain at least two partially distinct behavioral environments.
 
-> reactive release systems.
+## CHF-Reactive Environments
 
----
+CHF pairs exhibit:
 
-## CHF vs JPY Separation
+- coherent volatility geometry,
+- elevated information gain under persistence-conditioned decomposition,
+- volatility-mediated persistence effects,
+- strong agreement between EURCHF and USDCHF.
 
-Recent findings increasingly suggest that:
+The current working interpretation is:
 
-- CHF-linked behavior
-- and JPY-linked behavior
+Volatility Context
+→ Crowd-State Persistence
+→ Predictive Structure
 
-may themselves contain partially distinct latent structure.
+rather than volatility acting as a direct predictive signal.
 
-This remains exploratory,
-but increasingly appears non-random.
+## JPY-Reactive Environments
+
+JPY pairs exhibit a different structure.
+
+Recent investigations found that:
+
+- sentiment extremes are overwhelmingly crowd-short,
+- reversal probability depends strongly on consensus maturity,
+- young consensus states frequently terminate via reversal,
+- mature consensus states predominantly decay through threshold exits.
+
+Unlike CHF environments, the strongest explanatory variables appear to arise from the sentiment process itself rather than from external timing variables.
+
+Current evidence therefore supports the provisional interpretation:
+
+Consensus Formation
+→ Consensus Maturation
+→ Consensus Decay
+
+as the primary organizing geometry of JPY-reactive environments.
+
+The strongest open question is no longer whether JPY environments contain structure, but rather what governs the evolution of their consensus states.
 
 ---
 
@@ -475,25 +532,33 @@ Current priorities include:
 
 # Current Working Hypothesis
 
-The strongest current working hypothesis is now:
+The strongest current working hypothesis is that FX markets contain partially persistent behavioral-state structures organized through multiple interacting mechanisms.
 
-> FX markets contain partially persistent latent behavioral structure
-> conditioned by volatility, trend organization, and adaptive participation dynamics.
+Current evidence supports:
 
-Within this structure:
+- latent structural persistence,
+- family-specific information geometry,
+- persistence-mediated behavioral organization,
+- conditional sentiment-state evolution,
+- adaptive downstream exploitation.
 
-- sentiment acts as a conditional modulation layer
-- adaptive systems exploit multiple overlapping behavioral channels
-- pair families organize differently
-- and structural persistence dominates much long-horizon behavior.
+Within this framework:
+
+- sentiment acts as a behavioral-state descriptor,
+- trend and volatility influence state evolution,
+- pair families organize information differently,
+- adaptive systems exploit multiple overlapping behavioral channels.
+
+The strongest emerging interpretation is that sentiment contributes less through direct directional prediction and more through its ability to reveal the structure and evolution of behavioral states.
 
 The project therefore increasingly studies:
 
-> behavioral geometry and adaptive interaction,
+behavioral geometry,
+state-transition dynamics,
+consensus formation,
+and adaptive interaction,
 
-rather than:
-
-> simple directional prediction.
+rather than simple return forecasting.
 
 ---
 
@@ -511,3 +576,201 @@ The current direction increasingly focuses on:
   - DL,
   - ABM,
   - and adaptive policy systems.
+
+---
+
+# Pair-Family Research Audit (2026-06-12)
+
+This section summarizes the major investigations that contributed to the current pair-family interpretation.
+
+The goal is not to document every experiment, but to preserve the key reasoning steps that motivated the current research state.
+
+------
+
+## Summary Table
+
+| Investigation                       | Main Question                                                | Result                                                       | Confidence  | Implication                                                  |
+| ----------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------ | ----------- | ------------------------------------------------------------ |
+| Phase decomposition experiments     | Do pairs benefit from explicit regime decomposition?         | Persistent pairs consistently benefited more than Reactive pairs. | High        | First evidence that pair families reflect genuine behavioral differences. |
+| Cross-family transfer studies       | Does learned structure transfer between families?            | Transfer was asymmetric and incomplete.                      | High        | Supports partially distinct latent manifolds rather than universal structure. |
+| Sentiment ablation experiments      | Does family structure survive sentiment removal?             | Significant structure remained after sentiment removal.      | High        | Family differences are not purely sentiment-driven.          |
+| Trend/Volatility-only surfaces      | Can structure survive on price-derived behavioral proxies?   | Significant organization survived.                           | High        | Supports latent behavioral organization beyond sentiment.    |
+| MPML integration experiments        | Do family differences survive downstream adaptive exploitation? | Yes. Routing behavior and fold dynamics remained family-dependent. | High        | Family structure propagates into adaptive systems.           |
+| CHF decomposition studies           | Why do CHF pairs behave differently?                         | Volatility-conditioned persistence effects repeatedly emerged. | Medium-High | Supports CHF as a volatility-mediated behavioral environment. |
+| JPY reversal studies                | Why do JPY pairs exhibit elevated reversal behavior?         | Reversal probability strongly linked to consensus maturity.  | High        | Supports JPY as a consensus-state system.                    |
+| JPY news-event analysis             | Are reversals primarily news-driven?                         | Little explanatory power observed.                           | Medium      | Weakens external-event explanations.                         |
+| JPY session-dependence analysis     | Are reversals concentrated in specific trading sessions?     | Little explanatory power observed.                           | Medium      | Weakens session-structure explanations.                      |
+| JPY state-transition analysis       | How do extreme sentiment states evolve?                      | Young states frequently failed; mature states persisted.     | High        | Consensus maturity emerged as a key state variable.          |
+| JPY lifecycle analysis              | What determines reversal vs threshold exits?                 | Immature states died via reversal; mature states via threshold exits. | High        | Reversal risk appears governed by state maturity.            |
+| JPY sentiment-reset analysis        | What characterizes reversal events?                          | Reversals frequently associated with large sentiment resets. | High        | Suggests abrupt consensus failure rather than gradual decay. |
+| JPY directional asymmetry analysis  | Are all extremes equivalent?                                 | Extremes were overwhelmingly crowd-short.                    | High        | Revealed strong directional asymmetry in JPY sentiment geometry. |
+| CHF directional asymmetry analysis  | Are CHF extremes symmetric?                                  | Extremes were overwhelmingly crowd-long.                     | High        | Revealed mirror-image asymmetry relative to JPY.             |
+| Trend-strength vs maturity analysis | Does price persistence affect consensus evolution?           | Stronger trends increased maturation probability.            | Medium      | Suggests trend persistence may influence state evolution.    |
+
+------
+
+## Major Conclusions
+
+### Conclusion 1: Pair Families Are Real
+
+The original Persistent vs Reactive distinction was not based on a single metric.
+
+Instead, it emerged repeatedly across:
+
+- decomposition experiments,
+- transfer experiments,
+- sentiment-ablation experiments,
+- downstream MPML integration.
+
+The family structure has survived multiple independent validation attempts and is therefore considered one of the strongest findings in the project.
+
+------
+
+### Conclusion 2: Reactive Is Not a Single Family
+
+Subsequent investigation suggests that the original Reactive family contains at least two distinct behavioral environments:
+
+Reactive-CHF
+and
+Reactive-JPY.
+
+The distinction emerged independently from:
+
+- volatility studies,
+- sentiment-state studies,
+- directional crowding studies,
+- transition-geometry analysis.
+
+------
+
+### Conclusion 3: CHF and JPY Appear Organized by Different Mechanisms
+
+Current evidence suggests:
+
+CHF:
+Volatility Context
+→ Persistence Dynamics
+→ Predictive Structure
+
+JPY:
+Consensus Formation
+→ Consensus Maturation
+→ Consensus Decay
+
+Both families are reactive, but appear reactive for different reasons.
+
+------
+
+### Conclusion 4: Consensus Maturity Is a Core State Variable
+
+The strongest result from the JPY investigation was the discovery that reversal probability depends heavily on consensus maturity.
+
+Observed pattern:
+
+Young Consensus
+→ Reversal-Dominated
+
+Mature Consensus
+→ Threshold-Dominated
+
+This result survived multiple independent analyses:
+
+- hazard analysis,
+- state-transition analysis,
+- lifecycle analysis,
+- directional decomposition.
+
+Consensus maturity is therefore currently considered one of the most important state variables identified in the project.
+
+------
+
+### Conclusion 5: External Timing Variables Were Less Important Than Expected
+
+Several candidate explanations for JPY reversals were investigated:
+
+- high-impact news,
+- medium-impact news,
+- session structure,
+- event timing.
+
+None produced explanatory power comparable to consensus maturity.
+
+This shifted the interpretation from:
+
+External Event
+→ Reversal
+
+toward:
+
+State Evolution
+→ Reversal
+
+------
+
+### Conclusion 6: Trend Persistence May Influence State Evolution
+
+Recent exploratory work found that stronger price-persistence environments were associated with higher consensus-maturation probabilities.
+
+This effect was observed using both:
+
+- 12-bar trend-strength measures,
+- 48-bar trend-strength measures.
+
+The finding is currently considered preliminary.
+
+However, it represents one of the few external variables that exhibited a meaningful relationship with sentiment-state evolution.
+
+Current interpretation:
+
+Trend Persistence
+→ Consensus Maturation
+→ Exit Mechanism
+→ Reversal Probability
+
+Further validation remains necessary.
+
+------
+
+## Current Confidence Ranking
+
+Highest Confidence Findings:
+
+1. Pair families are real.
+2. Persistent and Reactive environments differ meaningfully.
+3. CHF and JPY should not be treated as a single Reactive family.
+4. Consensus maturity governs reversal risk.
+5. JPY extremes are overwhelmingly crowd-short.
+6. CHF extremes are overwhelmingly crowd-long.
+
+Moderate Confidence Findings:
+
+1. CHF organization is volatility-mediated.
+2. Trend persistence influences consensus maturation.
+3. Consensus-state analysis provides a useful description of JPY behavior.
+
+Exploratory Findings:
+
+1. Trend alignment effects.
+2. Hidden-state (HMM) representations of sentiment processes.
+3. Cross-broker validation of directional crowding asymmetries.
+4. Consensus-state generative modeling.
+
+---
+
+## Supporting Artifacts
+
+The conclusions summarized in this section are supported by a collection of standalone analysis scripts, logs, exploratory studies, and intermediate research artifacts that may not be tracked directly within the main repository.
+
+These artifacts were retained because many of the conclusions emerged through iterative investigation rather than through a single experiment.
+
+The purpose of this audit is therefore not to replace the underlying analyses, but to preserve the reasoning chain that led to the current research interpretation.
+
+Future revisions of the research state should update both:
+
+- the current interpretation,
+- and the supporting audit trail,
+
+so that major conclusions remain traceable even as the project evolves.
+
+---
+
