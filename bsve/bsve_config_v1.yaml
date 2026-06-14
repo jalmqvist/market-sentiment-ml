@@ -1,0 +1,214 @@
+# bsve/bsve_config_v1.yaml
+
+bsve:
+  version: "1.0.0"
+  timeframe: "H1"
+  sentiment_timestamp_normalization: "floor_to_h1_bar_open"
+  description: >
+    Behavioral State Validation Engine configuration.
+    Defines the environments, validation protocol, and artifact
+    contracts for MSML behavioral state research.
+    Operates entirely at H1 resolution. Aggregation to D1
+    for MPML consumption is handled downstream via the
+    BSVE artifact aggregation contract (see mpml_aggregation).
+
+  environments:
+    - path: "bsve/state_specs/reactive_jpy_v1.yaml"
+      environment_id: "reactive_jpy"
+    - path: "bsve/state_specs/reactive_chf_v1.yaml"
+      environment_id: "reactive_chf"
+
+  # Threshold calibration policy
+  # Placeholder thresholds in environment specs must be
+  # replaced before a validation run is considered canonical.
+  threshold_calibration:
+    policy: "empirical_from_dl_active_range"
+    method: "hazard_analysis"        # primary
+    fallback: "percentile_distribution"
+    calibration_window: "dl_active_range"
+    requires_sign_off: true          # must be explicitly confirmed before run
+    note: >
+      Thresholds marked as placeholders in environment specs are
+      intentionally left unset. They must be derived from exploratory
+      analysis on the DL-active window and committed to the spec
+      before a canonical validation run. This prevents post-hoc
+      threshold tuning contaminating validation results.
+
+  # State machine definition
+  state_machine:
+    type: "rule_based"               # Option A — no learned boundaries
+    version: "1.0.0"
+    transition_log: true             # every state transition is logged
+    ambiguous_state_policy: "non_extreme"
+    # If entry conditions for multiple states are simultaneously
+    # satisfied, fall back to the non_extreme control state and
+    # emit a warning. Never silently assign an ambiguous state.
+
+  # Causal boundary rules (mirrors DL artifact contract)
+  causal_rules:
+    sentiment_available_at: "bar_open"
+    note: >
+      A sentiment snapshot belonging to bar T (after floor_to_h1
+      normalization) is available at bar T open. It may inform
+      predictions for bar T+1 and beyond. It must NOT be used
+      to predict the outcome of bar T itself.
+    prediction_available_timestamp_rule: >
+      prediction_available_timestamp = entry_time + 1H
+      (i.e. state label for bar T is available at bar T+1 open)
+
+# Output artifact contract (H1 resolution)
+artifact:
+  schema_version: "1.0.0"
+  timeframe: "H1"
+  columns:
+    entry_time:
+      type: "timestamp"
+      tz: "UTC"
+      description: "H1 bar open timestamp"
+      causal: true
+    prediction_available_timestamp:
+      type: "timestamp"
+      tz: "UTC"
+      description: "Earliest time this state label could be known"
+      causal: true
+      rule: "entry_time + 1H"
+    pair:
+      type: "str"
+      description: "Currency pair"
+    environment_id:
+      type: "str"
+      description: "reactive_jpy or reactive_chf"
+    state_id:
+      type: "str"
+      description: "Named state from environment spec"
+    state_version:
+      type: "str"
+      description: "Version of the state definition used"
+    maturity_bars:
+      type: "int"
+      description: "H1 bars since state entry. 0 on entry bar."
+    maturity_class:
+      type: "str"
+      enum: ["young", "maturing", "mature", "n_a"]
+      description: "Discretized maturity. n_a for non_extreme states."
+    state_confidence:
+      type: "float"
+      range: [0.0, 1.0]
+      description: >
+        Confidence in state assignment. For rule-based Option A,
+        this is a deterministic 1.0 or 0.0 unless a soft
+        boundary implementation is added later.
+    transition_event:
+      type: "str"
+      enum: ["entry", "continuation", "exit_reversal",
+             "exit_threshold", "exit_late_reversal", "exit_unknown"]
+      description: "State machine event type for this bar"
+    spec_id:
+      type: "str"
+      description: "Environment spec filename and version. Provenance."
+    calibration_id:
+      type: "str"
+      description: >
+        Identifier of the threshold calibration set used.
+        Must match a committed calibration artifact.
+        Prevents unversioned threshold changes silently
+        affecting downstream validation results.
+
+  validation:
+    fail_fast: true
+    checks:
+      - "no_future_state_leakage"          # entry_time < prediction_available_timestamp
+      - "no_null_state_ids"
+      - "maturity_bars_non_negative"
+      - "maturity_class_consistent_with_bars"
+      - "spec_id_resolvable"
+      - "calibration_id_resolvable"
+      - "no_ambiguous_state_assignments"
+
+# MPML aggregation contract
+# Defines how H1 BSVE artifacts are consumed at D1 resolution
+mpml_aggregation:
+  version: "1.0.0"
+  method: "modal_state_max_maturity"
+  rules:
+    state_id: "modal H1 state within D1 bar"
+    maturity_bars: "max(H1 maturity_bars within D1 bar)"
+    state_confidence: "mean(H1 state_confidence within D1 bar)"
+    transition_event: >
+      'entry' if any H1 bar in day has transition_event='entry',
+      else 'exit_*' if any H1 bar has exit event,
+      else 'continuation'
+  note: >
+    D1 aggregation is lossy by design. It is appropriate for
+    MPML strategy routing but not for state discovery or
+    transition geometry analysis. All BSVE validation runs
+    operate on H1 artifacts directly.
+  causal_boundary: >
+    D1 bar inherits prediction_available_timestamp =
+    max(H1 prediction_available_timestamps within that D1 bar).
+    MPML must not use a D1 state label before this timestamp.
+
+# Validation run protocol
+validation_protocol:
+  run_sequence:
+    - step: 1
+      name: "threshold_calibration"
+      window: "dl_active_range"
+      output: "calibration artifact (versioned)"
+      note: "Exploratory. Results must be committed before step 2."
+
+    - step: 2
+      name: "state_machine_dry_run"
+      window: "dl_active_range"
+      output: "state coverage report"
+      checks:
+        - "minimum_observations_per_state met"
+        - "no ambiguous state assignments > 5% of bars"
+        - "state distribution not degenerate"
+      note: >
+        Verify states are actually populated before running
+        statistical tests. A degenerate partition (one state
+        captures 95%+ of bars) fails here, not in criterion tests.
+
+    - step: 3
+      name: "criterion_validation"
+      window: "dl_active_range"
+      output: "validation report per criterion"
+      criteria:
+        - "criterion_1_behavioral_differentiation"
+        - "criterion_2_family_specificity"
+        - "criterion_3_non_redundancy"
+        - "criterion_4_internal_coherence"  # CHF only
+
+    - step: 4
+      name: "structural_baseline_comparison"
+      window: "full_range"
+      output: "structural vs full-surface comparison"
+      note: >
+        Confirms structural layer behavior across 2012-2026.
+        Provides context for interpreting DL-active findings
+        against the longer history.
+
+    - step: 5
+      name: "transfer_falsification"
+      window: "dl_active_range"
+      output: "cross-family transfer report"
+      description: >
+        Apply JPY state definitions to CHF pairs and vice versa.
+        Expected result: differentiation degrades materially.
+        If it does not, the family-specific interpretation weakens.
+
+  sign_off_required_before:
+    - step: 2   # threshold calibration must be committed
+    - step: 3   # dry run must pass
+    - step: 5   # criterion validation must pass
+
+  result_classification:
+    validated: "all applicable criteria pass at step 3"
+    partially_validated: "criterion_1 passes, criterion_2 or 3 fails"
+    not_validated: "criterion_1 fails"
+    note: >
+      A partially_validated result is still scientifically
+      informative. It means behavioral differentiation exists
+      but is not family-specific or not independent of structure.
+      Document rather than discard.

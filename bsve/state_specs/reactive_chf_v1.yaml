@@ -1,0 +1,205 @@
+# bsve/state_specs/reactive_chf_v1.yaml
+
+environment:
+  name: "reactive_chf"
+  version: "1.0.0"
+  family: "reactive"
+  subfamily: "chf"
+  pairs:
+    - "USDCHF"
+    - "EURCHF"
+  timeframe: "H1"
+  sentiment_required: true
+  description: >
+    CHF-reactive pairs exhibit volatility-mediated behavioral organization.
+    The primary organizing variable is volatility context, which conditions
+    crowd-state persistence. Sentiment extremes are overwhelmingly crowd-long,
+    mirror-image to JPY. Predictive structure emerges through the chain:
+    volatility_context → crowd_state_persistence → predictive_structure.
+
+dataset:
+  full_range:
+    start: "2012-01-01"
+    end: "2026-12-31"
+  dl_active_range:
+    start: "2019-01-01"
+    end: "2026-12-31"
+  sentiment_snapshot_times_utc:
+    - "08:00"
+    - "12:00"
+    - "18:00"
+  sentiment_timestamp_normalization: "floor_to_h1_bar_open"
+
+feature_sets:
+  structural:
+    - "atr_pct"
+    - "atr_pct_rolling_median_24"    # volatility context baseline
+    - "atr_pct_rolling_median_96"    # longer-horizon volatility context
+    - "adx"
+    - "trend_strength_12"
+    - "trend_strength_48"
+  sentiment:
+    - "sentiment_long_pct"
+    - "sentiment_short_pct"
+    - "sentiment_net"
+    - "sentiment_extreme_flag"
+    - "sentiment_direction"          # crowd_long dominant for CHF
+  volatility_context:
+    - "vol_regime"                   # low / medium / high (derived)
+    - "vol_regime_persistence_bars"  # H1 bars in current vol regime
+    - "vol_transition_flag"          # regime boundary proximity
+  state_derived:
+    - "chf_state_id"
+    - "vol_conditioned_persistence"  # crowd state persistence given vol context
+    - "persistence_maturity_bars"
+
+states:
+
+  low_vol_persistent:
+    state_id: "CHF_LOW_VOL_PERSISTENT"
+    version: "1.0.0"
+    description: >
+      Low volatility environment with persistent crowd positioning.
+      CHF-specific: low vol conditions appear to sustain crowd-long
+      sentiment states. Coherent volatility geometry observed.
+      Highest information gain under persistence-conditioned decomposition.
+    entry_conditions:
+      vol_regime: "low"
+      sentiment_extreme_flag: true
+      vol_conditioned_persistence:
+        operator: ">="
+        value: 24                    # placeholder
+    behavioral_hypothesis:
+      dominant_behavior: "persistence"
+      information_gain: "high"
+      confidence: "medium_high"
+      supporting_investigations:
+        - "CHF decomposition studies"
+        - "CHF directional asymmetry analysis"
+    thresholds:
+      low_vol_atr_pct_threshold: null   # derive from pair-specific distribution
+      persistence_boundary_bars: 24     # placeholder
+
+  low_vol_non_persistent:
+    state_id: "CHF_LOW_VOL_NON_PERSISTENT"
+    version: "1.0.0"
+    description: >
+      Low volatility but without sustained crowd positioning.
+      Control state for low-vol regime.
+    entry_conditions:
+      vol_regime: "low"
+      sentiment_extreme_flag: false
+    behavioral_hypothesis:
+      dominant_behavior: "unclear"
+      confidence: "low"
+      note: "Control state. Behavior not yet well characterized."
+
+  elevated_vol_reactive:
+    state_id: "CHF_ELEVATED_VOL_REACTIVE"
+    version: "1.0.0"
+    description: >
+      Elevated volatility environment. CHF pairs show release/reversion
+      dynamics under volatility spikes. Crowd-long positioning becomes
+      unstable. Persistence effects weaken.
+    entry_conditions:
+      vol_regime: "high"
+      sentiment_extreme_flag: true
+    exit_conditions:
+      - condition: "vol_regime_normalizes"
+        target_state: "low_vol_persistent"
+      - condition: "sentiment_reset"
+        target_state: null
+        exit_type: "vol_driven_reversal"
+    behavioral_hypothesis:
+      dominant_behavior: "release_reversion"
+      confidence: "medium_high"
+      note: >
+        Volatility spike appears to destabilize persistent crowd-long
+        positioning. Mechanism differs from JPY consensus failure.
+      supporting_investigations:
+        - "CHF decomposition studies"
+        - "MPML vol guard diagnostics"
+
+  medium_vol_transitional:
+    state_id: "CHF_MEDIUM_VOL_TRANSITIONAL"
+    version: "1.0.0"
+    description: >
+      Intermediate volatility regime. Transitional state between
+      persistent and reactive behavioral modes.
+    entry_conditions:
+      vol_regime: "medium"
+    behavioral_hypothesis:
+      dominant_behavior: "mixed"
+      confidence: "low"
+      note: >
+        Boundary state. May not be a behaviorally coherent partition.
+        Retain as control but do not use as primary validation target.
+
+  non_extreme:
+    state_id: "CHF_NON_EXTREME"
+    version: "1.0.0"
+    description: >
+      Sentiment not at extreme regardless of volatility context.
+      Structural features dominate.
+    entry_conditions:
+      sentiment_extreme_flag: false
+    behavioral_hypothesis:
+      note: "Control state. Baseline for differentiation tests."
+
+validation_criteria:
+  criterion_1_behavioral_differentiation:
+    description: >
+      Volatility-conditioned states produce statistically significant
+      differences in crowd persistence duration and downstream
+      predictive structure.
+    test: "ks_test_persistence_duration_across_vol_states"
+    window: "dl_active_range"
+    significance_threshold: 0.05
+    minimum_observations_per_state: 50
+
+  criterion_2_family_specificity:
+    description: >
+      Volatility-conditioned state definitions do not produce equivalent
+      behavioral differentiation when applied to JPY pairs.
+    test: "cross_family_transfer_differentiation_delta"
+    transfer_target_family: "reactive_jpy"
+    significance_threshold: 0.05
+    expected_direction: "CHF_differentiation > JPY_differentiation"
+
+  criterion_3_non_redundancy:
+    description: >
+      Sentiment-conditioned persistence effects are not fully explained
+      by volatility features alone.
+    test: "ablation_differentiation_delta"
+    ablation: "sentiment_features_removed"
+    feature_set_baseline: "structural"
+    significance_threshold: 0.05
+    expected_direction: "full_differentiation > structural_only_differentiation"
+
+  criterion_4_internal_coherence:
+    description: >
+      USDCHF and EURCHF exhibit consistent behavioral organization
+      under the same state definitions. CHF-specific — not applicable
+      to JPY given its three-pair composition and stronger directional
+      asymmetry signal.
+    test: "cross_pair_state_behavior_consistency"
+    pairs:
+      - "USDCHF"
+      - "EURCHF"
+    metric: "exit_type_distribution_similarity"
+    method: "jensen_shannon_divergence"
+    threshold: 0.15                  # low divergence = consistent behavior
+    window: "dl_active_range"
+    confidence_prior: "high"
+    note: >
+      Strong prior from existing research showing USDCHF and EURCHF
+      agreement. This criterion formalizes that finding as a
+      reproducible validation check.
+
+open_questions:
+  - "Empirical calibration of vol_regime boundaries (pair-specific ATR percentiles)"
+  - "Whether medium_vol_transitional is a genuine behavioral state or a threshold artifact"
+  - "Mechanism difference between CHF vol-driven reversal and JPY consensus failure"
+  - "Whether crowd-long asymmetry is stable across the full 2012-2026 range or era-dependent"
+  - "SNB intervention events as external confounds in CHF vol spikes"
+  - "Cross-broker validation of crowd-long directional asymmetry"
