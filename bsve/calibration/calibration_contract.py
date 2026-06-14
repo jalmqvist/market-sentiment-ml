@@ -93,6 +93,8 @@ def build_calibration_artifact(
     thresholds: dict[str, Any] | None = None,
     diagnostics: dict[str, Any] | None = None,
     null_reason: str | None = None,
+    calibration_mode: str | None = None,
+    threshold_provenance: dict[str, Any] | None = None,
 ) -> CalibrationArtifact:
     """
     Build a complete calibration artifact dict with hash.
@@ -109,6 +111,10 @@ def build_calibration_artifact(
         thresholds: Ontology-specific threshold values (may be empty for null).
         diagnostics: Optional diagnostic statistics to store alongside thresholds.
         null_reason: Human-readable explanation when ``outcome == "null"``.
+        calibration_mode: Intent of this calibration run (e.g. ``"research"``,
+            ``"walkforward"``, ``"production"``).  Stored for auditability.
+        threshold_provenance: Per-threshold derivation metadata describing how
+            each threshold was computed.  Stored for long-term interpretability.
 
     Returns:
         Artifact dict ready for :func:`write_calibration_artifact`.
@@ -127,6 +133,12 @@ def build_calibration_artifact(
         "thresholds": thresholds or {},
         "diagnostics": diagnostics or {},
     }
+
+    if calibration_mode is not None:
+        artifact["calibration_mode"] = calibration_mode
+
+    if threshold_provenance is not None:
+        artifact["threshold_provenance"] = threshold_provenance
 
     if outcome == "null":
         artifact["null_reason"] = null_reason or "unspecified"

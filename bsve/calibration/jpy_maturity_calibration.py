@@ -863,6 +863,23 @@ class JPYMaturityCalibrationPlugin:
         # ------------------------------------------------------------------
         # Step 10 — Build and return calibration artifact
         # ------------------------------------------------------------------
+        calibration_mode: str = p.get("calibration_mode", "research")
+
+        threshold_provenance = {
+            "extreme_threshold_net_pct": {
+                "method": "percentile",
+                "parameter": extreme_percentile,
+            },
+            "young_boundary_bars": {
+                "method": "hazard_crossover_fraction",
+                "fraction": young_fraction,
+            },
+            "mature_boundary_bars": {
+                "method": "hazard_crossover_fraction",
+                "fraction": mature_fraction,
+            },
+        }
+
         return build_calibration_artifact(
             calibration_id=calibration_id,
             ontology_id=ontology_id,
@@ -878,6 +895,8 @@ class JPYMaturityCalibrationPlugin:
                 "mature_boundary_bars": mature_boundary,
             },
             diagnostics=diagnostics,
+            calibration_mode=calibration_mode,
+            threshold_provenance=threshold_provenance,
         )
 
 

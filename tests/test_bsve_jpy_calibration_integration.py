@@ -625,3 +625,153 @@ class TestCalibrationRunnerIntegration:
             evaluation_window_end="2025-01-01",
         )
         assert out.exists()
+
+
+# ---------------------------------------------------------------------------
+# 7. Calibration provenance and mode
+# ---------------------------------------------------------------------------
+
+
+class TestCalibrationProvenance:
+    def test_success_artifact_has_calibration_mode(
+        self, jpy_plugin, jpy_adapter, jpy_params
+    ):
+        artifact = jpy_plugin.calibrate(jpy_adapter, {}, jpy_params)
+        assert "calibration_mode" in artifact
+        assert isinstance(artifact["calibration_mode"], str)
+
+    def test_default_calibration_mode_is_research(
+        self, jpy_plugin, jpy_adapter, jpy_params
+    ):
+        artifact = jpy_plugin.calibrate(jpy_adapter, {}, jpy_params)
+        assert artifact["calibration_mode"] == "research"
+
+    def test_calibration_mode_can_be_overridden(
+        self, jpy_plugin, jpy_adapter, jpy_params
+    ):
+        params = dict(jpy_params, calibration_mode="walkforward")
+        artifact = jpy_plugin.calibrate(jpy_adapter, {}, params)
+        assert artifact["calibration_mode"] == "walkforward"
+
+    def test_success_artifact_has_threshold_provenance(
+        self, jpy_plugin, jpy_adapter, jpy_params
+    ):
+        artifact = jpy_plugin.calibrate(jpy_adapter, {}, jpy_params)
+        assert "threshold_provenance" in artifact
+        assert isinstance(artifact["threshold_provenance"], dict)
+
+    def test_threshold_provenance_covers_all_thresholds(
+        self, jpy_plugin, jpy_adapter, jpy_params
+    ):
+        artifact = jpy_plugin.calibrate(jpy_adapter, {}, jpy_params)
+        provenance = artifact["threshold_provenance"]
+        for key in ("extreme_threshold_net_pct", "young_boundary_bars", "mature_boundary_bars"):
+            assert key in provenance, f"Missing provenance for {key!r}"
+
+    def test_threshold_provenance_has_method_field(
+        self, jpy_plugin, jpy_adapter, jpy_params
+    ):
+        artifact = jpy_plugin.calibrate(jpy_adapter, {}, jpy_params)
+        for key, meta in artifact["threshold_provenance"].items():
+            assert "method" in meta, f"provenance for {key!r} is missing 'method'"
+
+    def test_extreme_threshold_provenance_records_percentile(
+        self, jpy_plugin, jpy_adapter, jpy_params
+    ):
+        artifact = jpy_plugin.calibrate(jpy_adapter, {}, jpy_params)
+        prov = artifact["threshold_provenance"]["extreme_threshold_net_pct"]
+        assert prov["method"] == "percentile"
+        assert prov["parameter"] == jpy_params["extreme_percentile"]
+
+    def test_boundary_provenance_records_fractions(
+        self, jpy_plugin, jpy_adapter, jpy_params
+    ):
+        artifact = jpy_plugin.calibrate(jpy_adapter, {}, jpy_params)
+        young_prov = artifact["threshold_provenance"]["young_boundary_bars"]
+        mature_prov = artifact["threshold_provenance"]["mature_boundary_bars"]
+        assert young_prov["method"] == "hazard_crossover_fraction"
+        assert young_prov["fraction"] == jpy_params["young_fraction"]
+        assert mature_prov["method"] == "hazard_crossover_fraction"
+        assert mature_prov["fraction"] == jpy_params["mature_fraction"]
+
+    def test_artifact_hash_covers_provenance(
+        self, jpy_plugin, jpy_adapter, jpy_params
+    ):
+        """Provenance is part of the artifact and included in hash computation."""
+        from bsve.calibration.calibration_contract import validate_calibration_artifact
+
+        artifact = jpy_plugin.calibrate(jpy_adapter, {}, jpy_params)
+        violations = validate_calibration_artifact(artifact, strict=False)
+        assert violations == []
+
+
+# ---------------------------------------------------------------------------
+# 8. Inspection CLI utility
+# ---------------------------------------------------------------------------
+
+
+class TestInspectUtility:
+    def test_display_artifact_success(self, jpy_plugin, jpy_adapter, jpy_params, capsys):
+        from bsve.calibration.inspect import display_artifact
+
+        artifact = jpy_plugin.calibrate(jpy_adapter, {}, jpy_params)
+        display_artifact(artifact)
+        captured = capsys.readouterr()
+        assert "reactive_jpy" in captured.out
+        assert "success" in captured.out
+        assert "research" in captured.out
+
+    def test_display_artifact_shows_thresholds(
+        self, jpy_plugin, jpy_adapter, jpy_params, capsys
+    ):
+        from bsve.calibration.inspect import display_artifact
+
+        artifact = jpy_plugin.calibrate(jpy_adapter, {}, jpy_params)
+        display_artifact(artifact)
+        captured = capsys.readouterr()
+        assert "Extreme threshold" in captured.out
+        assert "Young boundary" in captured.out
+        assert "Mature boundary" in captured.out
+
+    def test_display_artifact_shows_provenance(
+        self, jpy_plugin, jpy_adapter, jpy_params, capsys
+    ):
+        from bsve.calibration.inspect import display_artifact
+
+        artifact = jpy_plugin.calibrate(jpy_adapter, {}, jpy_params)
+        display_artifact(artifact)
+        captured = capsys.readouterr()
+        assert "provenance" in captured.out.lower()
+
+    def test_display_null_artifact(self, jpy_plugin, capsys):
+        from bsve.calibration.inspect import display_artifact
+
+        sparse_df = _make_sparse_dataset(n_bars=10)
+        adapter = _make_adapter(sparse_df)
+        params = _base_params(calibration_id="inspect_null_test", min_sample_count=500)
+        artifact = jpy_plugin.calibrate(adapter, {}, params)
+        assert artifact["outcome"] == "null"
+        display_artifact(artifact)
+        captured = capsys.readouterr()
+        assert "null" in captured.out.lower()
+
+    def test_inspect_main_displays_artifact_from_file(
+        self, jpy_plugin, jpy_adapter, jpy_params, tmp_path, capsys
+    ):
+        from bsve.calibration.inspect import main
+        import json
+
+        artifact = jpy_plugin.calibrate(jpy_adapter, {}, jpy_params)
+        artifact_path = tmp_path / "test_artifact.json"
+        artifact_path.write_text(json.dumps(artifact), encoding="utf-8")
+
+        main([str(artifact_path)])
+        captured = capsys.readouterr()
+        assert "reactive_jpy" in captured.out
+
+    def test_inspect_main_missing_file_exits(self, tmp_path):
+        from bsve.calibration.inspect import main
+
+        missing = tmp_path / "nonexistent.json"
+        with pytest.raises(SystemExit):
+            main([str(missing)])
