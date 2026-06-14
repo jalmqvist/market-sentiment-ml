@@ -31,3 +31,37 @@ bsve:
     framework_ontology_separation: true
     ontology_logic_allowed_in_framework: false
     state_assignment_in_adapter: false
+
+  calibration:
+    reactive_jpy:
+      calibration_method: "hazard_analysis"
+      # Percentile of |net_sentiment| used to define the extreme-consensus
+      # threshold.  70th percentile is grounded in research observations that
+      # crowd-short dominance in JPY pairs frequently exceeds the bulk of the
+      # distribution; see RESEARCH_STATE.md § JPY-Reactive Environments.
+      extreme_percentile: 70.0
+      # Quality gates — calibration emits a null artifact rather than raising
+      # if either gate fails.
+      min_episode_count: 50
+      min_sample_count: 500
+      # Hazard-curve smoothing window (H1 bars).
+      hazard_smoothing_window: 12
+      # Boundary fractions relative to the hazard crossover point.
+      # young_fraction < 1.0  → well inside the high-hazard zone.
+      # mature_fraction > 1.0 → well past the crossover into the stable zone.
+      young_fraction: 0.4
+      mature_fraction: 1.6
+      # Default calibration window mirrors the DL-active range from the spec.
+      calibration_window_start: "2019-01-01"
+      calibration_window_end: "2026-12-31"
+      pairs:
+        - "USDJPY"
+        - "EURJPY"
+        - "GBPJPY"
+      # Percentiles reported in calibration diagnostics (informational only).
+      diagnostic_percentiles:
+        - 10
+        - 25
+        - 50
+        - 75
+        - 90

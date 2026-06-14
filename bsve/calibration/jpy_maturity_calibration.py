@@ -31,7 +31,7 @@ import json
 import warnings
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -278,14 +278,14 @@ def find_hazard_crossover(
     diff = smoothed.diff().abs()
 
     # Find where the hazard rate stops declining sharply
-    # (second derivative approaches zero after initial drop)
+    # (second derivative approaches zero after initial drop).
+    # Take the first qualifying bar — the earliest point where the curve
+    # has settled, rather than an arbitrary aggregation of all stable bars.
     stable_idx = diff[diff < diff.quantile(0.25)].index
     if len(stable_idx) == 0:
         return float(hazard_df["maturity_bar"].median())
 
-    crossover_bar = float(
-        hazard_df.loc[stable_idx, "maturity_bar"]
-    )
+    crossover_bar = float(hazard_df.loc[stable_idx[0], "maturity_bar"])
     return crossover_bar
 
 
@@ -575,6 +575,310 @@ def plot_hazard_curve(
         print(f"[BSVE] Hazard plot saved → {output_path}")
     else:
         plt.show()
+
+
+# ---------------------------------------------------------------------------
+# CalibrationPlugin implementation
+# ---------------------------------------------------------------------------
+
+class JPYMaturityCalibrationPlugin:
+    """
+    Calibration plugin for the ``reactive_jpy`` ontology (v1).
+
+    Implements :class:`~bsve.calibration.registry.CalibrationPlugin`.
+
+    Produces a versioned :data:`~bsve.calibration.calibration_contract.CalibrationArtifact`
+    containing:
+
+    * ``thresholds`` — empirically derived maturity boundaries.
+    * ``diagnostics`` — informational statistics (not validation outcomes).
+
+    Null artifacts are emitted (rather than exceptions) when quality gates
+    fail due to insufficient data or unstable estimates.
+
+    This plugin calibrates thresholds only.  It does NOT assign states.
+    """
+
+    # Default calibration parameters — all can be overridden via
+    # ``calibration_params`` at call time, which in turn can be loaded
+    # from ``bsve_config_v1.yaml``.
+    _DEFAULTS: dict = {
+        "calibration_method": "hazard_analysis",
+        "extreme_percentile": 70.0,
+        "min_episode_count": 50,
+        "min_sample_count": 500,
+        "hazard_smoothing_window": 12,
+        "young_fraction": 0.4,
+        "mature_fraction": 1.6,
+        "calibration_window_start": "2019-01-01",
+        "calibration_window_end": "2026-12-31",
+        "pairs": ["USDJPY", "EURJPY", "GBPJPY"],
+        "diagnostic_percentiles": [10, 25, 50, 75, 90],
+    }
+
+    def calibrate(
+        self,
+        dataset_adapter: Any,
+        state_spec: dict,
+        calibration_params: dict,
+    ) -> dict:
+        """
+        Run JPY maturity calibration end-to-end.
+
+        Steps:
+            1. Resolve effective parameters (params override defaults).
+            2. Load sentiment observations through ``dataset_adapter``.
+            3. Apply calibration window filter.
+            4. Quality-gate: sample count.
+            5. Derive extreme-consensus threshold from empirical distribution.
+            6. Extract consensus lifecycles per pair.
+            7. Quality-gate: episode count.
+            8. Compute hazard curve and derive maturity boundaries.
+            9. Compute calibration diagnostics.
+            10. Emit a success or null artifact.
+
+        Args:
+            dataset_adapter: A
+                :class:`~bsve.adapters.dataset_adapter.MasterResearchDatasetAdapter`
+                instance (or any compatible object).
+            state_spec: Parsed state-spec YAML for ``reactive_jpy``.
+            calibration_params: Run-time parameters; merged on top of
+                :attr:`_DEFAULTS`.
+
+        Returns:
+            A :data:`~bsve.calibration.calibration_contract.CalibrationArtifact`
+            with ``outcome`` = ``"success"`` or ``"null"``.
+        """
+        from bsve.calibration.calibration_contract import build_calibration_artifact
+        from bsve.adapters.dataset_adapter import MasterResearchDatasetAdapter
+
+        # ------------------------------------------------------------------
+        # Step 1 — Resolve effective parameters
+        # ------------------------------------------------------------------
+        p = {**self._DEFAULTS, **calibration_params}
+
+        calibration_id: str = p["calibration_id"]
+        ontology_id: str = p.get("ontology_id", "reactive_jpy")
+        ontology_version: str = p.get("ontology_version", "1.0.0")
+        window_start: str = p["calibration_window_start"]
+        window_end: str = p["calibration_window_end"]
+        dataset_version: str = p.get("dataset_version", "unknown")
+        calibration_method: str = p["calibration_method"]
+        extreme_percentile: float = float(p["extreme_percentile"])
+        min_episode_count: int = int(p["min_episode_count"])
+        min_sample_count: int = int(p["min_sample_count"])
+        hazard_window: int = int(p["hazard_smoothing_window"])
+        young_fraction: float = float(p["young_fraction"])
+        mature_fraction: float = float(p["mature_fraction"])
+        raw_pairs: list = list(p["pairs"])
+        diagnostic_percentiles: list = list(p["diagnostic_percentiles"])
+
+        # Normalize pair names to match adapter internals.
+        normalized_pairs = [
+            MasterResearchDatasetAdapter.normalize_pair(pair)
+            for pair in raw_pairs
+        ]
+
+        def _null(reason: str) -> dict:
+            """Emit a null artifact with a diagnostic reason."""
+            return build_calibration_artifact(
+                calibration_id=calibration_id,
+                ontology_id=ontology_id,
+                ontology_version=ontology_version,
+                calibration_window_start=window_start,
+                calibration_window_end=window_end,
+                dataset_version=dataset_version,
+                calibration_method=calibration_method,
+                outcome="null",
+                null_reason=reason,
+            )
+
+        # ------------------------------------------------------------------
+        # Step 2 — Load sentiment observations
+        # ------------------------------------------------------------------
+        pair_col = dataset_adapter.config.pair_col
+        ts_col = dataset_adapter.config.timestamp_col
+
+        try:
+            obs = dataset_adapter.get_sentiment_observations(
+                pairs=normalized_pairs,
+                columns=["net_sentiment"],
+            )
+        except Exception as exc:  # pragma: no cover — adapter contract error
+            return _null(f"Failed to load sentiment observations: {exc}")
+
+        # ------------------------------------------------------------------
+        # Step 3 — Apply calibration window filter
+        # ------------------------------------------------------------------
+        ts = obs[ts_col]
+        mask = (ts >= pd.Timestamp(window_start)) & (ts <= pd.Timestamp(window_end))
+        obs = obs[mask].copy()
+
+        # ------------------------------------------------------------------
+        # Step 4 — Quality gate: sample count
+        # ------------------------------------------------------------------
+        n_samples = len(obs)
+        if n_samples < min_sample_count:
+            return _null(
+                f"Insufficient observations in calibration window: "
+                f"{n_samples} < {min_sample_count} (min_sample_count)"
+            )
+
+        # ------------------------------------------------------------------
+        # Step 5 — Derive extreme-consensus threshold
+        # ------------------------------------------------------------------
+        # The adapter exposes the column as ``net_sentiment``; the lifecycle
+        # extraction helpers expect ``sentiment_net``.  We rename after
+        # fetching to keep the adapter interface clean.
+        sentiment_series = obs["net_sentiment"].dropna()
+        extreme_threshold = compute_extreme_threshold(
+            sentiment_series,
+            method="percentile",
+            percentile=extreme_percentile,
+        )
+
+        # ------------------------------------------------------------------
+        # Step 6 — Extract consensus lifecycles per pair
+        # ------------------------------------------------------------------
+        all_lifecycles: list[ConsensusLifecycle] = []
+        n_episodes_per_pair: dict = {}
+
+        for pair in normalized_pairs:
+            pair_data = obs[obs[pair_col] == pair].copy()
+            # Rename to match lifecycle extraction conventions.
+            pair_data = pair_data.rename(
+                columns={"net_sentiment": "sentiment_net", ts_col: "entry_time"}
+            )
+            try:
+                lifecycles = extract_consensus_lifecycles(
+                    pair_data, pair, extreme_threshold
+                )
+            except Exception as exc:  # pragma: no cover
+                lifecycles = []
+                warnings.warn(
+                    f"[JPYCalibration] lifecycle extraction failed for {pair}: {exc}"
+                )
+            all_lifecycles.extend(lifecycles)
+            n_episodes_per_pair[pair] = len(lifecycles)
+
+        # ------------------------------------------------------------------
+        # Step 7 — Quality gate: episode count
+        # ------------------------------------------------------------------
+        n_episodes = len(all_lifecycles)
+        if n_episodes < min_episode_count:
+            return _null(
+                f"Insufficient consensus episodes: "
+                f"{n_episodes} < {min_episode_count} (min_episode_count). "
+                f"Check extreme_percentile ({extreme_percentile}) and data availability."
+            )
+
+        # ------------------------------------------------------------------
+        # Step 8 — Hazard analysis and boundary derivation
+        # ------------------------------------------------------------------
+        hazard_df = compute_hazard_by_maturity(all_lifecycles)
+
+        if hazard_df.empty:
+            return _null(
+                "Hazard analysis produced an empty result — too few episodes "
+                "reached the minimum at-risk count per maturity bar."
+            )
+
+        crossover_bar = find_hazard_crossover(hazard_df, window=hazard_window)
+
+        try:
+            young_boundary, mature_boundary = derive_maturity_boundaries(
+                hazard_df,
+                crossover_bar,
+                young_fraction=young_fraction,
+                mature_fraction=mature_fraction,
+            )
+        except Exception as exc:  # pragma: no cover
+            return _null(f"Boundary derivation failed: {exc}")
+
+        # Stability check: boundaries must be positive and ordered.
+        if not (0 < young_boundary < mature_boundary):
+            return _null(
+                f"Derived boundaries are unstable: "
+                f"young_boundary={young_boundary}, mature_boundary={mature_boundary}. "
+                "Hazard crossover estimate may be unreliable."
+            )
+
+        # ------------------------------------------------------------------
+        # Step 9 — Compute calibration diagnostics
+        # ------------------------------------------------------------------
+        completed = [lc for lc in all_lifecycles if lc.exit_type != "censored"]
+        censored = [lc for lc in all_lifecycles if lc.exit_type == "censored"]
+
+        young_eps = [lc for lc in completed if lc.duration_bars < young_boundary]
+        mature_eps = [lc for lc in completed if lc.duration_bars >= mature_boundary]
+
+        reversal_rate_young = (
+            sum(1 for lc in young_eps if lc.exit_type == "reversal") / len(young_eps)
+            if young_eps else float("nan")
+        )
+        reversal_rate_mature = (
+            sum(1 for lc in mature_eps if lc.exit_type == "reversal") / len(mature_eps)
+            if mature_eps else float("nan")
+        )
+        censoring_rate = len(censored) / n_episodes if n_episodes else 0.0
+
+        durations = [lc.duration_bars for lc in all_lifecycles]
+        completed_durations = [lc.duration_bars for lc in completed]
+        median_duration = (
+            float(np.median(completed_durations)) if completed_durations else float("nan")
+        )
+
+        # Maturity distribution percentiles (informational).
+        maturity_pct: dict = {}
+        if durations:
+            for pct in diagnostic_percentiles:
+                maturity_pct[f"p{pct}"] = float(np.percentile(durations, pct))
+
+        # Calibration window coverage in calendar days.
+        try:
+            coverage_days = (
+                pd.Timestamp(window_end) - pd.Timestamp(window_start)
+            ).days
+        except Exception:  # pragma: no cover
+            coverage_days = None
+
+        diagnostics = {
+            "sample_count": n_samples,
+            "episode_count": n_episodes,
+            "episode_count_per_pair": n_episodes_per_pair,
+            "censoring_rate": round(censoring_rate, 4),
+            "median_episode_duration_bars": round(median_duration, 2),
+            "reversal_rate_young": (
+                round(reversal_rate_young, 4) if not np.isnan(reversal_rate_young) else None
+            ),
+            "reversal_rate_mature": (
+                round(reversal_rate_mature, 4) if not np.isnan(reversal_rate_mature) else None
+            ),
+            "hazard_crossover_bar": round(crossover_bar, 2),
+            "extreme_threshold_used": round(extreme_threshold, 4),
+            "maturity_distribution_percentiles": maturity_pct,
+            "calibration_window_coverage_days": coverage_days,
+        }
+
+        # ------------------------------------------------------------------
+        # Step 10 — Build and return calibration artifact
+        # ------------------------------------------------------------------
+        return build_calibration_artifact(
+            calibration_id=calibration_id,
+            ontology_id=ontology_id,
+            ontology_version=ontology_version,
+            calibration_window_start=window_start,
+            calibration_window_end=window_end,
+            dataset_version=dataset_version,
+            calibration_method=calibration_method,
+            outcome="success",
+            thresholds={
+                "extreme_threshold_net_pct": round(extreme_threshold, 2),
+                "young_boundary_bars": young_boundary,
+                "mature_boundary_bars": mature_boundary,
+            },
+            diagnostics=diagnostics,
+        )
 
 
 # ---------------------------------------------------------------------------
