@@ -1,0 +1,61 @@
+# bsve/state_specs/reactive_jpy_v1.yaml
+
+environment:
+  id: "reactive_jpy"
+  version: "1.0.0"
+  family: "reactive"
+  subfamily: "jpy"
+  pairs:
+    - "USDJPY"
+    - "EURJPY"
+    - "GBPJPY"
+  timeframe: "H1"
+  sentiment_required: true
+
+dataset_windows:
+  full_range:
+    start: "2012-01-01"
+    end: "2026-12-31"
+  dl_active_range:
+    start: "2019-01-01"
+    end: "2026-12-31"
+
+feature_sets:
+  structural:
+    - "atr_pct"
+    - "trend_strength_12"
+    - "trend_strength_48"
+  sentiment:
+    - "net_sentiment"
+    - "abs_sentiment"
+    - "crowd_side"
+    - "sentiment_change"
+  state_derived:
+    - "consensus_maturity_bars"
+    - "consensus_velocity"
+
+threshold_placeholders:
+  extreme_threshold_net_pct: null
+  young_boundary_bars: null
+  mature_boundary_bars: null
+
+states:
+  - state_id: "JPY_CONSENSUS_YOUNG"
+    description: "Extreme consensus state with early maturity."
+    entry_conditions:
+      sentiment_extreme_flag: true
+      maturity_class: "young"
+  - state_id: "JPY_CONSENSUS_MATURING"
+    description: "Extreme consensus state in mid maturity."
+    entry_conditions:
+      sentiment_extreme_flag: true
+      maturity_class: "maturing"
+  - state_id: "JPY_CONSENSUS_MATURE"
+    description: "Extreme consensus state in mature phase."
+    entry_conditions:
+      sentiment_extreme_flag: true
+      maturity_class: "mature"
+  - state_id: "JPY_NON_EXTREME"
+    description: "Control state when sentiment is not extreme."
+    entry_conditions:
+      sentiment_extreme_flag: false
