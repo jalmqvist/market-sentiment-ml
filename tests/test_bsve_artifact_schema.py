@@ -11,6 +11,7 @@ from schemas.bsve_artifact_schema import (
     BSVE_MATURITY_BARS_COL,
     BSVE_MATURITY_CLASS_COL,
     BSVE_PAIR_COL,
+    BSVE_REQUIRED_ARTIFACT_COLS,
     BSVE_SCHEMA_VERSION,
     BSVE_SPEC_ID_COL,
     BSVE_STATE_CONFIDENCE_COL,
@@ -85,6 +86,11 @@ def test_spec_and_calibration_resolvers_enforced() -> None:
 
     with pytest.raises(ValueError, match="calibration_id not resolvable"):
         validate_bsve_artifact(df, strict=True, calibration_resolver=lambda _v: False)
+
+
+def test_spec_and_calibration_ids_are_required_contract_fields() -> None:
+    assert BSVE_SPEC_ID_COL in BSVE_REQUIRED_ARTIFACT_COLS
+    assert BSVE_CALIBRATION_ID_COL in BSVE_REQUIRED_ARTIFACT_COLS
 
 
 def test_write_bsve_artifact_writes_parquet(tmp_path) -> None:
