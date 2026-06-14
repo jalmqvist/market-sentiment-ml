@@ -178,7 +178,7 @@ class CalibrationRegistry:
     def versions_for(self, ontology_id: str) -> list[str]:
         """Return all registered versions for a given *ontology_id*."""
         return sorted(
-            v for oid, v in self._plugins if oid == ontology_id
+            v for oid, v in self._plugins.keys() if oid == ontology_id
         )
 
     def __len__(self) -> int:

@@ -17,6 +17,15 @@ from typing import Any
 
 import pytest
 
+try:
+    import yaml as _yaml  # type: ignore[import]
+
+    _YAML_AVAILABLE = True
+except ImportError:
+    _YAML_AVAILABLE = False
+
+requires_yaml = pytest.mark.skipif(not _YAML_AVAILABLE, reason="pyyaml not installed")
+
 from bsve.calibration.calibration_contract import (
     CALIBRATION_SCHEMA_VERSION,
     REQUIRED_METADATA_KEYS,
@@ -443,11 +452,8 @@ class TestCalibrationRegistry:
 @pytest.fixture()
 def state_spec_file(tmp_path) -> Path:
     """Write a minimal state-spec YAML file for runner tests."""
-    try:
-        import yaml  # type: ignore[import]
-    except ImportError:
+    if not _YAML_AVAILABLE:
         pytest.skip("pyyaml not installed")
-
     spec = {
         "environment": {
             "id": "reactive_jpy",
@@ -460,7 +466,7 @@ def state_spec_file(tmp_path) -> Path:
         },
     }
     p = tmp_path / "reactive_jpy_v1.yaml"
-    p.write_text(yaml.dump(spec), encoding="utf-8")
+    p.write_text(_yaml.dump(spec), encoding="utf-8")
     return p
 
 
@@ -532,20 +538,15 @@ class TestCalibrationRunner:
         loaded = json.loads(out.read_text())
         assert loaded["calibration_id"] == "reactive_jpy_valid_json"
 
+    @requires_yaml
     def test_runner_null_plugin_writes_null_artifact(
         self, tmp_path, state_spec_file, runner_registry, dummy_adapter
     ):
-        # Add a CHF state-spec file
-        try:
-            import yaml  # type: ignore[import]
-        except ImportError:
-            pytest.skip("pyyaml not installed")
-
         chf_spec = {
             "environment": {"id": "reactive_chf", "version": "1.0.0"},
         }
         chf_spec_path = tmp_path / "reactive_chf_v1.yaml"
-        chf_spec_path.write_text(yaml.dump(chf_spec), encoding="utf-8")
+        chf_spec_path.write_text(_yaml.dump(chf_spec), encoding="utf-8")
 
         runner = CalibrationRunner(
             registry=runner_registry, output_dir=tmp_path / "artifacts"
@@ -670,15 +671,11 @@ class TestCalibrationRunner:
 
 
 class TestLoadStateSpec:
+    @requires_yaml
     def test_loads_valid_yaml(self, tmp_path):
-        try:
-            import yaml  # type: ignore[import]
-        except ImportError:
-            pytest.skip("pyyaml not installed")
-
         spec = {"environment": {"id": "reactive_jpy"}}
         p = tmp_path / "spec.yaml"
-        p.write_text(yaml.dump(spec), encoding="utf-8")
+        p.write_text(_yaml.dump(spec), encoding="utf-8")
         loaded = load_state_spec(p)
         assert loaded["environment"]["id"] == "reactive_jpy"
 
