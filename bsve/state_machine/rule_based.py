@@ -472,9 +472,9 @@ def _compute_episode_stats(df: pd.DataFrame) -> dict[str, Any]:
         is_extreme = group["state_id"] != "JPY_NON_EXTREME"
         # Assign a run-ID to each contiguous block of rows with the same
         # extreme flag.  Each distinct run gets a unique integer.
-        run_id = (is_extreme != is_extreme.shift()).cumsum()
+        extreme_run_group = (is_extreme != is_extreme.shift()).cumsum()
         pair_durations = []
-        for _rid, run_group in group.groupby(run_id, sort=True):
+        for _, run_group in group.groupby(extreme_run_group, sort=True):
             # Only count runs that are extreme-consensus episodes.
             if run_group["state_id"].iloc[0] != "JPY_NON_EXTREME":
                 pair_durations.append(len(run_group))
