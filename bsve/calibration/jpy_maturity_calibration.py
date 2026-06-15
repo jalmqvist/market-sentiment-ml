@@ -416,11 +416,12 @@ def run_jpy_calibration(
     )
 
     # Step 6 — Diagnostics
-    reversal_episodes = [lc for lc in all_lifecycles
-                         if lc.exit_type != "censored"]
-    young_episodes = [lc for lc in reversal_episodes
+    # Reversal rate: P(reversal | duration in maturity region), including
+    # censored episodes in the denominator so the statistic is meaningful.
+    censored_episodes = [lc for lc in all_lifecycles if lc.exit_type == "censored"]
+    young_episodes = [lc for lc in all_lifecycles
                       if lc.duration_bars < young_boundary]
-    mature_episodes = [lc for lc in reversal_episodes
+    mature_episodes = [lc for lc in all_lifecycles
                        if lc.duration_bars >= mature_boundary]
 
     reversal_rate_young = (
@@ -431,16 +432,94 @@ def run_jpy_calibration(
         sum(1 for lc in mature_episodes if lc.exit_type == "reversal")
         / len(mature_episodes) if mature_episodes else float("nan")
     )
-    censoring_rate = (
-        sum(1 for lc in all_lifecycles if lc.exit_type == "censored")
-        / len(all_lifecycles)
+    censoring_rate = len(censored_episodes) / len(all_lifecycles)
+
+    completed_episodes = [lc for lc in all_lifecycles if lc.exit_type != "censored"]
+    completed_durations = [lc.duration_bars for lc in completed_episodes]
+    median_duration = float(np.median(completed_durations)) if completed_durations else float("nan")
+
+    # Step 7 — Build result using the shared artifact contract
+    from bsve.calibration.calibration_contract import (
+        build_calibration_artifact,
+        write_calibration_artifact,
     )
 
-    durations = [lc.duration_bars for lc in all_lifecycles
-                 if lc.exit_type != "censored"]
-    median_duration = float(np.median(durations)) if durations else float("nan")
+    calibration_id = f"reactive_jpy_{calibration_version}"
+    thresholds = {
+        "extreme_threshold_net_pct": round(extreme_threshold, 2),
+        "young_boundary_bars": young_boundary,
+        "mature_boundary_bars": mature_boundary,
+    }
+    diagnostics = {
+        "n_episodes_total": len(all_lifecycles),
+        "n_episodes_per_pair": n_episodes_per_pair,
+        "reversal_rate_young": (
+            round(reversal_rate_young, 4) if not np.isnan(reversal_rate_young) else None
+        ),
+        "reversal_rate_mature": (
+            round(reversal_rate_mature, 4) if not np.isnan(reversal_rate_mature) else None
+        ),
+        "hazard_crossover_bar": round(crossover_bar, 2),
+        "median_episode_duration": round(median_duration, 2),
+        "censoring_rate": round(censoring_rate, 4),
+    }
+    threshold_provenance = {
+        "extreme_threshold_net_pct": {
+            "method": "percentile",
+            "parameter": 70.0,
+        },
+        "young_boundary_bars": {
+            "method": "hazard_crossover_fraction",
+            "fraction": 0.4,
+        },
+        "mature_boundary_bars": {
+            "method": "hazard_crossover_fraction",
+            "fraction": 1.6,
+        },
+    }
 
-    # Step 7 — Build result
+    artifact = build_calibration_artifact(
+        calibration_id=calibration_id,
+        ontology_id="reactive_jpy",
+        ontology_version=calibration_version,
+        calibration_window_start=start,
+        calibration_window_end=end,
+        dataset_version=dataset_version,
+        calibration_method="hazard_analysis",
+        outcome="success",
+        thresholds=thresholds,
+        diagnostics=diagnostics,
+        calibration_mode="research",
+        threshold_provenance=threshold_provenance,
+    )
+
+    artifact_path = (
+        output_dir
+        / f"reactive_jpy_calibration_{calibration_version}.json"
+    )
+    write_calibration_artifact(artifact, artifact_path)
+
+    print(f"[BSVE] JPY calibration complete → {artifact_path}")
+    print(f"  extreme_threshold : {extreme_threshold:.1f}%")
+    print(f"  young_boundary    : {young_boundary} bars")
+    print(f"  mature_boundary   : {mature_boundary} bars")
+    print(f"  hazard_crossover  : {crossover_bar:.1f} bars")
+    print(f"  n_episodes        : {len(all_lifecycles)}")
+    print(f"  reversal_rate_young  : {reversal_rate_young:.1%}")
+    print(f"  reversal_rate_mature : {reversal_rate_mature:.1%}")
+    print(f"  censoring_rate    : {censoring_rate:.1%}")
+
+    # Emit a sign-off reminder — thresholds must be reviewed before
+    # committing to state spec
+    print(
+        "\n[BSVE] ⚠ Review diagnostics before committing thresholds to "
+        "reactive_jpy_v1.yaml.\n"
+        "  Expected: reversal_rate_young >> reversal_rate_mature\n"
+        "  If this does not hold, the maturity hypothesis is not supported "
+        "and thresholds should not be committed."
+    )
+
+    # Return a MaturityCalibrationResult for backward compatibility.
     result_dict = {
         "environment_id": "reactive_jpy",
         "calibration_version": calibration_version,
@@ -453,48 +532,18 @@ def run_jpy_calibration(
         "mature_boundary_bars": mature_boundary,
         "n_episodes_total": len(all_lifecycles),
         "n_episodes_per_pair": n_episodes_per_pair,
-        "reversal_rate_young": round(reversal_rate_young, 4),
-        "reversal_rate_mature": round(reversal_rate_mature, 4),
+        "reversal_rate_young": (
+            round(reversal_rate_young, 4) if not np.isnan(reversal_rate_young) else float("nan")
+        ),
+        "reversal_rate_mature": (
+            round(reversal_rate_mature, 4) if not np.isnan(reversal_rate_mature) else float("nan")
+        ),
         "hazard_crossover_bar": round(crossover_bar, 2),
         "median_episode_duration": round(median_duration, 2),
         "censoring_rate": round(censoring_rate, 4),
+        "calibration_hash": artifact["artifact_hash"],
     }
-
-    # Compute deterministic hash over inputs + outputs for artifact integrity
-    hash_payload = json.dumps(result_dict, sort_keys=True).encode()
-    result_dict["calibration_hash"] = hashlib.sha256(hash_payload).hexdigest()
-
-    result = MaturityCalibrationResult(**result_dict)
-
-    # Write artifact
-    artifact_path = (
-        output_dir
-        / f"reactive_jpy_calibration_{calibration_version}.json"
-    )
-    with open(artifact_path, "w") as f:
-        json.dump(asdict(result), f, indent=2)
-
-    print(f"[BSVE] JPY calibration complete → {artifact_path}")
-    print(f"  extreme_threshold : {result.extreme_threshold_net_pct:.1f}%")
-    print(f"  young_boundary    : {result.young_boundary_bars} bars")
-    print(f"  mature_boundary   : {result.mature_boundary_bars} bars")
-    print(f"  hazard_crossover  : {result.hazard_crossover_bar:.1f} bars")
-    print(f"  n_episodes        : {result.n_episodes_total}")
-    print(f"  reversal_rate_young  : {result.reversal_rate_young:.1%}")
-    print(f"  reversal_rate_mature : {result.reversal_rate_mature:.1%}")
-    print(f"  censoring_rate    : {result.censoring_rate:.1%}")
-
-    # Emit a sign-off reminder — thresholds must be reviewed before
-    # committing to state spec
-    print(
-        "\n[BSVE] ⚠ Review diagnostics before committing thresholds to "
-        "reactive_jpy_v1.yaml.\n"
-        "  Expected: reversal_rate_young >> reversal_rate_mature\n"
-        "  If this does not hold, the maturity hypothesis is not supported "
-        "and thresholds should not be committed."
-    )
-
-    return result
+    return MaturityCalibrationResult(**result_dict)
 
 
 # ---------------------------------------------------------------------------
@@ -809,16 +858,24 @@ class JPYMaturityCalibrationPlugin:
         completed = [lc for lc in all_lifecycles if lc.exit_type != "censored"]
         censored = [lc for lc in all_lifecycles if lc.exit_type == "censored"]
 
-        young_eps = [lc for lc in completed if lc.duration_bars < young_boundary]
-        mature_eps = [lc for lc in completed if lc.duration_bars >= mature_boundary]
+        # Reversal rate is measured as P(reversal | duration in maturity region),
+        # including censored episodes in the denominator.  Censored episodes
+        # contribute evidence that the episode did NOT reverse during the window,
+        # so they are correctly counted in the denominator.
+        #
+        # This ensures reversal_rate_young > reversal_rate_mature is a meaningful
+        # sign-off condition: short episodes are mostly reversals; long-lived
+        # (censored) episodes depress the mature rate.
+        young_all = [lc for lc in all_lifecycles if lc.duration_bars < young_boundary]
+        mature_all = [lc for lc in all_lifecycles if lc.duration_bars >= mature_boundary]
 
         reversal_rate_young = (
-            sum(1 for lc in young_eps if lc.exit_type == "reversal") / len(young_eps)
-            if young_eps else float("nan")
+            sum(1 for lc in young_all if lc.exit_type == "reversal") / len(young_all)
+            if young_all else float("nan")
         )
         reversal_rate_mature = (
-            sum(1 for lc in mature_eps if lc.exit_type == "reversal") / len(mature_eps)
-            if mature_eps else float("nan")
+            sum(1 for lc in mature_all if lc.exit_type == "reversal") / len(mature_all)
+            if mature_all else float("nan")
         )
         censoring_rate = len(censored) / n_episodes if n_episodes else 0.0
 
@@ -842,6 +899,35 @@ class JPYMaturityCalibrationPlugin:
         except Exception:  # pragma: no cover
             coverage_days = None
 
+        # Hazard curve diagnostics — for human sign-off review only.
+        # Do NOT use these values in state assignment.
+        smoothed_hazard = (
+            hazard_df["hazard_rate"]
+            .rolling(hazard_window, center=True)
+            .mean()
+        )
+        hazard_derivative = smoothed_hazard.diff().abs()
+        hazard_curve_records = [
+            {
+                "maturity_bar": int(row["maturity_bar"]),
+                "n_at_risk": int(row["n_at_risk"]),
+                "n_reversals": int(row["n_reversals"]),
+                "hazard_rate": round(float(row["hazard_rate"]), 6),
+                "cumulative_survival": round(float(row["cumulative_survival"]), 6),
+                "smoothed_hazard_rate": (
+                    None
+                    if pd.isna(smoothed_hazard.iloc[i])
+                    else round(float(smoothed_hazard.iloc[i]), 6)
+                ),
+                "hazard_derivative": (
+                    None
+                    if pd.isna(hazard_derivative.iloc[i])
+                    else round(float(hazard_derivative.iloc[i]), 6)
+                ),
+            }
+            for i, (_, row) in enumerate(hazard_df.iterrows())
+        ]
+
         diagnostics = {
             "sample_count": n_samples,
             "episode_count": n_episodes,
@@ -858,6 +944,8 @@ class JPYMaturityCalibrationPlugin:
             "extreme_threshold_used": round(extreme_threshold, 4),
             "maturity_distribution_percentiles": maturity_pct,
             "calibration_window_coverage_days": coverage_days,
+            # Hazard curve for visual inspection — not used in state assignment.
+            "hazard_curve": hazard_curve_records,
         }
 
         # ------------------------------------------------------------------
