@@ -1090,13 +1090,10 @@ This checklist reflects the current implementation status rather than the origin
 * [x] Threshold provenance tracking
 * [x] Calibration diagnostics
 * [x] Integration tests
-
-#### Remaining
-
-* [ ] Generate first production calibration artifact
-* [ ] Review calibration diagnostics
-* [ ] Sign off maturity thresholds
-* [ ] Commit calibration artifact
+* [x] Generate first production calibration artifact
+* [x] Review calibration diagnostics
+* [x] Sign off maturity thresholds
+* [x] Commit calibration artifact
 
 ### Phase 3 — State Assignment Engine
 
@@ -1193,4 +1190,12 @@ Do not implement Phase 2 (state machine) before Phase 1 (calibration)
 artifacts are committed and validated. The gate in
 `assert_calibrations_valid()` enforces this at runtime but the
 implementation order should respect it during development as well.
+
+---
+
+### Future cleanup:
+
+revisit reversal-rate diagnostics,
+which currently provide little additional information
+beyond the hazard/survival analysis.
 

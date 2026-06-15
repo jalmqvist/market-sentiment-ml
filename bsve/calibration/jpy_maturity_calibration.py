@@ -574,9 +574,8 @@ def plot_hazard_curve(
         return
 
     fig, axes = plt.subplots(2, 1, figsize=(12, 8))
+    ax, ax2 = axes  # unpack the 2 subplots into individual Axes
 
-    # Top panel — hazard rate
-    ax = axes
     ax.plot(
         hazard_df["maturity_bar"],
         hazard_df["hazard_rate"],
@@ -608,7 +607,6 @@ def plot_hazard_curve(
     ax.grid(True, alpha=0.3)
 
     # Bottom panel — survival curve
-    ax2 = axes
     ax2.plot(
         hazard_df["maturity_bar"],
         hazard_df["cumulative_survival"],

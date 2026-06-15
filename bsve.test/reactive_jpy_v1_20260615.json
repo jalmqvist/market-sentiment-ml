@@ -1,0 +1,335 @@
+{
+  "artifact_hash": "ce12220f2c6efe97ecca4b2bc17343240649e66f6f4fe328cba4d86617ebf19f",
+  "calibration_id": "reactive_jpy_v1_20260615",
+  "calibration_method": "hazard_analysis",
+  "calibration_mode": "research",
+  "calibration_timestamp": "2026-06-15T09:52:02.308059+00:00",
+  "calibration_window_end": "2026-12-31",
+  "calibration_window_start": "2019-01-01",
+  "dataset_version": "1.5.0",
+  "diagnostics": {
+    "calibration_window_coverage_days": 2921,
+    "censoring_rate": 0.0,
+    "episode_count": 441,
+    "episode_count_per_pair": {
+      "eur-jpy": 186,
+      "gbp-jpy": 137,
+      "usd-jpy": 118
+    },
+    "extreme_threshold_used": 70.0,
+    "hazard_crossover_bar": 13.0,
+    "hazard_curve": [
+      {
+        "cumulative_survival": 1.0,
+        "hazard_derivative": null,
+        "hazard_rate": 0.0,
+        "maturity_bar": 1,
+        "n_at_risk": 441,
+        "n_reversals": 0,
+        "smoothed_hazard_rate": null
+      },
+      {
+        "cumulative_survival": 0.721088,
+        "hazard_derivative": null,
+        "hazard_rate": 0.278912,
+        "maturity_bar": 2,
+        "n_at_risk": 441,
+        "n_reversals": 123,
+        "smoothed_hazard_rate": null
+      },
+      {
+        "cumulative_survival": 0.591837,
+        "hazard_derivative": null,
+        "hazard_rate": 0.179245,
+        "maturity_bar": 3,
+        "n_at_risk": 318,
+        "n_reversals": 57,
+        "smoothed_hazard_rate": null
+      },
+      {
+        "cumulative_survival": 0.482993,
+        "hazard_derivative": null,
+        "hazard_rate": 0.183908,
+        "maturity_bar": 4,
+        "n_at_risk": 261,
+        "n_reversals": 48,
+        "smoothed_hazard_rate": null
+      },
+      {
+        "cumulative_survival": 0.378685,
+        "hazard_derivative": null,
+        "hazard_rate": 0.215962,
+        "maturity_bar": 5,
+        "n_at_risk": 213,
+        "n_reversals": 46,
+        "smoothed_hazard_rate": null
+      },
+      {
+        "cumulative_survival": 0.297052,
+        "hazard_derivative": null,
+        "hazard_rate": 0.215569,
+        "maturity_bar": 6,
+        "n_at_risk": 167,
+        "n_reversals": 36,
+        "smoothed_hazard_rate": null
+      },
+      {
+        "cumulative_survival": 0.256236,
+        "hazard_derivative": null,
+        "hazard_rate": 0.137405,
+        "maturity_bar": 7,
+        "n_at_risk": 131,
+        "n_reversals": 18,
+        "smoothed_hazard_rate": 0.157567
+      },
+      {
+        "cumulative_survival": 0.22449,
+        "hazard_derivative": 0.009259,
+        "hazard_rate": 0.123894,
+        "maturity_bar": 8,
+        "n_at_risk": 113,
+        "n_reversals": 14,
+        "smoothed_hazard_rate": 0.166827
+      },
+      {
+        "cumulative_survival": 0.181406,
+        "hazard_derivative": 0.016298,
+        "hazard_rate": 0.191919,
+        "maturity_bar": 9,
+        "n_at_risk": 99,
+        "n_reversals": 19,
+        "smoothed_hazard_rate": 0.150528
+      },
+      {
+        "cumulative_survival": 0.14966,
+        "hazard_derivative": 0.005467,
+        "hazard_rate": 0.175,
+        "maturity_bar": 10,
+        "n_at_risk": 80,
+        "n_reversals": 14,
+        "smoothed_hazard_rate": 0.145061
+      },
+      {
+        "cumulative_survival": 0.129252,
+        "hazard_derivative": 0.011052,
+        "hazard_rate": 0.136364,
+        "maturity_bar": 11,
+        "n_at_risk": 66,
+        "n_reversals": 9,
+        "smoothed_hazard_rate": 0.134009
+      },
+      {
+        "cumulative_survival": 0.122449,
+        "hazard_derivative": 0.013492,
+        "hazard_rate": 0.052632,
+        "maturity_bar": 12,
+        "n_at_risk": 57,
+        "n_reversals": 3,
+        "smoothed_hazard_rate": 0.120517
+      },
+      {
+        "cumulative_survival": 0.108844,
+        "hazard_derivative": 0.001297,
+        "hazard_rate": 0.111111,
+        "maturity_bar": 13,
+        "n_at_risk": 54,
+        "n_reversals": 6,
+        "smoothed_hazard_rate": 0.119219
+      },
+      {
+        "cumulative_survival": 0.099773,
+        "hazard_derivative": 0.008474,
+        "hazard_rate": 0.083333,
+        "maturity_bar": 14,
+        "n_at_risk": 48,
+        "n_reversals": 4,
+        "smoothed_hazard_rate": 0.110745
+      },
+      {
+        "cumulative_survival": 0.088435,
+        "hazard_derivative": 0.010324,
+        "hazard_rate": 0.113636,
+        "maturity_bar": 15,
+        "n_at_risk": 44,
+        "n_reversals": 5,
+        "smoothed_hazard_rate": 0.10042
+      },
+      {
+        "cumulative_survival": 0.0839,
+        "hazard_derivative": 0.003648,
+        "hazard_rate": 0.051282,
+        "maturity_bar": 16,
+        "n_at_risk": 39,
+        "n_reversals": 2,
+        "smoothed_hazard_rate": 0.096773
+      },
+      {
+        "cumulative_survival": 0.079365,
+        "hazard_derivative": 0.007337,
+        "hazard_rate": 0.054054,
+        "maturity_bar": 17,
+        "n_at_risk": 37,
+        "n_reversals": 2,
+        "smoothed_hazard_rate": 0.089436
+      },
+      {
+        "cumulative_survival": 0.063492,
+        "hazard_derivative": 0.011364,
+        "hazard_rate": 0.2,
+        "maturity_bar": 18,
+        "n_at_risk": 35,
+        "n_reversals": 7,
+        "smoothed_hazard_rate": 0.078072
+      },
+      {
+        "cumulative_survival": 0.061224,
+        "hazard_derivative": 0.000418,
+        "hazard_rate": 0.035714,
+        "maturity_bar": 19,
+        "n_at_risk": 28,
+        "n_reversals": 1,
+        "smoothed_hazard_rate": 0.077655
+      },
+      {
+        "cumulative_survival": 0.061224,
+        "hazard_derivative": 0.009259,
+        "hazard_rate": 0.0,
+        "maturity_bar": 20,
+        "n_at_risk": 27,
+        "n_reversals": 0,
+        "smoothed_hazard_rate": 0.068395
+      },
+      {
+        "cumulative_survival": 0.052154,
+        "hazard_derivative": 0.001389,
+        "hazard_rate": 0.148148,
+        "maturity_bar": 21,
+        "n_at_risk": 27,
+        "n_reversals": 4,
+        "smoothed_hazard_rate": 0.069784
+      },
+      {
+        "cumulative_survival": 0.047619,
+        "hazard_derivative": 0.00021,
+        "hazard_rate": 0.086957,
+        "maturity_bar": 22,
+        "n_at_risk": 23,
+        "n_reversals": 2,
+        "smoothed_hazard_rate": 0.069574
+      },
+      {
+        "cumulative_survival": 0.047619,
+        "hazard_derivative": 0.006143,
+        "hazard_rate": 0.0,
+        "maturity_bar": 23,
+        "n_at_risk": 21,
+        "n_reversals": 0,
+        "smoothed_hazard_rate": 0.075717
+      },
+      {
+        "cumulative_survival": 0.045351,
+        "hazard_derivative": 0.0074,
+        "hazard_rate": 0.047619,
+        "maturity_bar": 24,
+        "n_at_risk": 21,
+        "n_reversals": 1,
+        "smoothed_hazard_rate": 0.083117
+      },
+      {
+        "cumulative_survival": 0.045351,
+        "hazard_derivative": 0.011111,
+        "hazard_rate": 0.0,
+        "maturity_bar": 25,
+        "n_at_risk": 20,
+        "n_reversals": 0,
+        "smoothed_hazard_rate": 0.094228
+      },
+      {
+        "cumulative_survival": 0.040816,
+        "hazard_derivative": null,
+        "hazard_rate": 0.1,
+        "maturity_bar": 26,
+        "n_at_risk": 20,
+        "n_reversals": 2,
+        "smoothed_hazard_rate": null
+      },
+      {
+        "cumulative_survival": 0.036281,
+        "hazard_derivative": null,
+        "hazard_rate": 0.111111,
+        "maturity_bar": 27,
+        "n_at_risk": 18,
+        "n_reversals": 2,
+        "smoothed_hazard_rate": null
+      },
+      {
+        "cumulative_survival": 0.031746,
+        "hazard_derivative": null,
+        "hazard_rate": 0.125,
+        "maturity_bar": 28,
+        "n_at_risk": 16,
+        "n_reversals": 2,
+        "smoothed_hazard_rate": null
+      },
+      {
+        "cumulative_survival": 0.027211,
+        "hazard_derivative": null,
+        "hazard_rate": 0.142857,
+        "maturity_bar": 29,
+        "n_at_risk": 14,
+        "n_reversals": 2,
+        "smoothed_hazard_rate": null
+      },
+      {
+        "cumulative_survival": 0.018141,
+        "hazard_derivative": null,
+        "hazard_rate": 0.333333,
+        "maturity_bar": 30,
+        "n_at_risk": 12,
+        "n_reversals": 4,
+        "smoothed_hazard_rate": null
+      }
+    ],
+    "maturity_distribution_percentiles": {
+      "p10": 2.0,
+      "p25": 2.0,
+      "p50": 4.0,
+      "p75": 8.0,
+      "p90": 14.0
+    },
+    "median_episode_duration_bars": 4.0,
+    "reversal_rate_mature": 1.0,
+    "reversal_rate_young": 1.0,
+    "sample_count": 9827,
+    "survival_counts": {
+      "16": 39,
+      "24": 21,
+      "32": 7,
+      "48": 3,
+      "8": 113
+    }
+  },
+  "ontology_id": "reactive_jpy",
+  "ontology_version": "1.0.0",
+  "outcome": "success",
+  "schema_version": "1.0.0",
+  "threshold_provenance": {
+    "extreme_threshold_net_pct": {
+      "method": "percentile",
+      "parameter": 70.0
+    },
+    "mature_boundary_bars": {
+      "fraction": 1.6,
+      "method": "hazard_crossover_fraction"
+    },
+    "young_boundary_bars": {
+      "fraction": 0.4,
+      "method": "hazard_crossover_fraction"
+    }
+  },
+  "thresholds": {
+    "extreme_threshold_net_pct": 70.0,
+    "mature_boundary_bars": 24,
+    "young_boundary_bars": 8
+  }
+}
