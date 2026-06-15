@@ -550,6 +550,25 @@ def write_dataset_manifest(
     print(f"Saved dataset manifest to: {manifest_path.resolve()}")
 
 
+def deduplicate_pair_entry_rows(df: pd.DataFrame) -> pd.DataFrame:
+    duplicate_rows = df.duplicated(subset=["pair", "entry_time"]).sum()
+    if duplicate_rows:
+        print(f"Duplicate pair-entry_time rows detected: {duplicate_rows}")
+        # Multiple sentiment snapshots can occasionally align to the same
+        # hourly price bar; retain the latest snapshot_time for export.
+        df = (
+            df.sort_values(["pair", "entry_time", "snapshot_time"])
+            .drop_duplicates(subset=["pair", "entry_time"], keep="last")
+            .copy()
+        )
+
+    remaining = df.duplicated(subset=["pair", "entry_time"]).sum()
+    if remaining:
+        raise ValueError(f"Duplicate pair-entry_time rows remain: {remaining}")
+
+    return df
+
+
 def get_git_commit_hash() -> str | None:
     try:
         from subprocess import run, PIPE
@@ -682,6 +701,7 @@ def build_master_dataset(
 
     # Keep only rows with a valid entry bar
     master_valid = master.dropna(subset=["entry_time", "entry_close"]).copy()
+    master_valid = deduplicate_pair_entry_rows(master_valid)
     print(f"\nRows with valid entry bar: {len(master_valid):,}")
 
     # ============================================

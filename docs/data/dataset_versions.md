@@ -1,5 +1,21 @@
 # Dataset Version History
 
+## 1.5.1 — Entry-bar deduplication correction
+
+Date:
+2026-06-15
+
+Changes:
+- deduplicate rare `(pair, entry_time)` collisions created when multiple sentiment snapshots align to the same hourly entry bar
+- retain the latest `snapshot_time` when such collisions occur
+- add fail-fast validation to guarantee `(pair, entry_time)` uniqueness before export
+
+Scientific impact:
+- preserves the dataset contract expected by BSVE and other downstream consumers
+- corrects rare alignment artifacts without changing feature definitions, merge semantics, or schemas
+
+---
+
 ## 1.5.0 — Contract-layer generation
 
 Date:
