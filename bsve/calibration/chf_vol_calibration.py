@@ -174,8 +174,14 @@ def find_candidate_boundaries_jenks(
     breaks = jenkspy.jenks_breaks(clean.tolist(), n_classes=n_classes)
     # breaks has n_classes + 1 values: [min, break1, break2, ..., max]
     # For 3 classes: [min, low_high_boundary, medium_high_boundary, max]
-    low_boundary = float(breaks)
-    high_boundary = float(breaks)
+    if len(breaks) != n_classes + 1:
+        raise ValueError(
+            f"jenkspy.jenks_breaks returned {len(breaks)} break values for "
+            f"n_classes={n_classes}; expected {n_classes + 1}. "
+            "This indicates an incompatible jenkspy version or degenerate input."
+        )
+    low_boundary = float(breaks[1])
+    high_boundary = float(breaks[2])
     return low_boundary, high_boundary
 
 

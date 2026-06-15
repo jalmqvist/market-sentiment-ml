@@ -68,12 +68,46 @@ def display_artifact(artifact: dict) -> None:
 
     diagnostics = artifact.get("diagnostics", {})
     episode_count = diagnostics.get("episode_count")
+    median_duration = diagnostics.get("median_episode_duration_bars")
+    censoring_rate = diagnostics.get("censoring_rate")
+    reversal_rate_young = diagnostics.get("reversal_rate_young")
+    reversal_rate_mature = diagnostics.get("reversal_rate_mature")
     crossover = diagnostics.get("hazard_crossover_bar")
 
-    if episode_count is not None or crossover is not None:
+    has_diagnostics = any(
+        v is not None
+        for v in [
+            episode_count,
+            median_duration,
+            censoring_rate,
+            reversal_rate_young,
+            reversal_rate_mature,
+            crossover,
+        ]
+    )
+    if has_diagnostics:
         print()
         if episode_count is not None:
             print(f"Episode count:    {episode_count}")
+        if median_duration is not None:
+            print(f"Median duration:  {median_duration} bars")
+        if censoring_rate is not None:
+            pct = f"{censoring_rate:.1%}" if isinstance(censoring_rate, float) else censoring_rate
+            print(f"Censoring rate:   {pct}")
+        if reversal_rate_young is not None:
+            pct_y = (
+                f"{reversal_rate_young:.1%}"
+                if isinstance(reversal_rate_young, float)
+                else reversal_rate_young
+            )
+            print(f"Reversal rate (young):  {pct_y}")
+        if reversal_rate_mature is not None:
+            pct_m = (
+                f"{reversal_rate_mature:.1%}"
+                if isinstance(reversal_rate_mature, float)
+                else reversal_rate_mature
+            )
+            print(f"Reversal rate (mature): {pct_m}")
         if crossover is not None:
             print(f"Hazard crossover: {crossover}")
 
