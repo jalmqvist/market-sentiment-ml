@@ -533,10 +533,10 @@ def run_jpy_calibration(
         "n_episodes_total": len(all_lifecycles),
         "n_episodes_per_pair": n_episodes_per_pair,
         "reversal_rate_young": (
-            round(reversal_rate_young, 4) if not np.isnan(reversal_rate_young) else 0.0
+            round(reversal_rate_young, 4) if not np.isnan(reversal_rate_young) else float("nan")
         ),
         "reversal_rate_mature": (
-            round(reversal_rate_mature, 4) if not np.isnan(reversal_rate_mature) else 0.0
+            round(reversal_rate_mature, 4) if not np.isnan(reversal_rate_mature) else float("nan")
         ),
         "hazard_crossover_bar": round(crossover_bar, 2),
         "median_episode_duration": round(median_duration, 2),
