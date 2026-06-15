@@ -996,11 +996,24 @@ def _parse_args():
     parser = argparse.ArgumentParser(
         description="JPY consensus maturity boundary calibration"
     )
+    parser.add_argument(
+        "--dataset-path", required=True,
+        help="Path to master research dataset artifact (CSV or parquet)",
+    )
     parser.add_argument("--dataset-version", required=True)
-    parser.add_argument("--output-dir", default="bsve/calibrations")
+    parser.add_argument("--output-dir", default="bsve/calibration_artifacts")
+    parser.add_argument(
+        "--state-spec",
+        default="bsve/state_specs/reactive_jpy_v1.yaml",
+        help="Path to reactive_jpy state-spec YAML",
+    )
+    parser.add_argument(
+        "--calibration-id", default=None,
+        help="Calibration ID (defaults to reactive_jpy_v1_<YYYYMMDD>)",
+    )
     parser.add_argument(
         "--pairs", nargs="+",
-        default=["USDJPY", "EURJPY", "GBPJPY"]
+        default=["USDJPY", "EURJPY", "GBPJPY"],
     )
     parser.add_argument("--start", default="2019-01-01")
     parser.add_argument("--end", default="2026-12-31")
@@ -1010,45 +1023,53 @@ def _parse_args():
 
 
 if __name__ == "__main__":
+    import datetime
+    import json
+
+    from bsve.adapters.dataset_adapter import MasterResearchDatasetAdapter
+    from bsve.calibration.bootstrap import register_all_plugins
+    from bsve.calibration.calibration_runner import CalibrationRunner
+
     args = _parse_args()
 
-    # Data loading — adapt to your existing dataset loader
-    from research.data.loader import load_h1_sentiment_data
-    data = {
-        pair: load_h1_sentiment_data(
-            pair=pair,
-            dataset_version=args.dataset_version,
-            start=args.start,
-            end=args.end,
-        )
-        for pair in args.pairs
-    }
+    adapter = MasterResearchDatasetAdapter.from_artifact(args.dataset_path)
 
-    result = run_jpy_calibration(
-        data=data,
-        dataset_version=args.dataset_version,
-        output_dir=Path(args.output_dir),
-        start=args.start,
-        end=args.end,
+    register_all_plugins()
+    runner = CalibrationRunner(output_dir=args.output_dir)
+
+    calibration_id = args.calibration_id or (
+        f"reactive_jpy_v1_{datetime.date.today().strftime('%Y%m%d')}"
     )
 
+    artifact_path = runner.run(
+        ontology_id="reactive_jpy",
+        ontology_version="1.0.0",
+        state_spec_path=args.state_spec,
+        dataset_adapter=adapter,
+        calibration_params={
+            "calibration_id": calibration_id,
+            "dataset_version": args.dataset_version,
+            "calibration_window_start": args.start,
+            "calibration_window_end": args.end,
+            "pairs": args.pairs,
+        },
+    )
+    print(f"[BSVE] Calibration artifact written → {artifact_path}")
+
     if args.plot:
-        # Recompute hazard for plotting — kept separate from
-        # calibration logic to avoid side effects
-        from bsve.calibration.jpy_maturity_calibration import (
-            extract_consensus_lifecycles,
-            compute_hazard_by_maturity,
-        )
-        all_lc = []
-        for pair, df in data.items():
-            all_lc.extend(extract_consensus_lifecycles(
-                df, pair, result.extreme_threshold_net_pct
-            ))
-        hazard_df = compute_hazard_by_maturity(all_lc)
-        plot_hazard_curve(
-            hazard_df,
-            result.young_boundary_bars,
-            result.mature_boundary_bars,
-            result.hazard_crossover_bar,
-            output_path=Path(args.output_dir) / "jpy_hazard_curve.png",
-        )
+        with open(artifact_path, encoding="utf-8") as fh:
+            artifact = json.load(fh)
+        thresholds = artifact.get("thresholds", {})
+        diagnostics = artifact.get("diagnostics", {})
+        hazard_records = diagnostics.get("hazard_curve", [])
+        if not hazard_records:
+            print("[BSVE] No hazard curve data in artifact; skipping plot.")
+        else:
+            hazard_df = pd.DataFrame(hazard_records)
+            plot_hazard_curve(
+                hazard_df,
+                thresholds["young_boundary_bars"],
+                thresholds["mature_boundary_bars"],
+                diagnostics["hazard_crossover_bar"],
+                output_path=Path(args.output_dir) / "jpy_hazard_curve.png",
+            )
