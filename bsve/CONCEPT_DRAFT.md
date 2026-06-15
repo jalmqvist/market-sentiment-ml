@@ -2,7 +2,7 @@
 ## Behavioral State Validation Engine — Design Document
 ### Status: Draft (pre-implementation)
 ### Target repo: market-sentiment-ml (MSML)
-### Last updated: 2026-06-14
+### Last updated: 2026-06-15 (revised **Implementation Strategy** and Implementation Checklist to reflect the reality of PR1-PR3, updated Ambiguous state assignments)
 
 ---
 
@@ -899,7 +899,7 @@ when designing the MPML integration layer. Specifically:
 | Sentiment timestamp leakage (scrape delay) | floor_to_h1_bar_open normalization at ingestion. Versioned pipeline step. |
 | SNB structural break in EURCHF (2015-01-15) | Automatic era flag in CHF calibration. Sign-off review required if pre-2015 data included. |
 | Sparse DL coverage (sentiment only from 2019) | Explicit DL-active vs full-range window split. Criterion tests use DL-active window only. |
-| Ambiguous state assignments | State machine falls back to non_extreme control state and emits warning. Never silently assigns. |
+| Ambiguous state assignments | → Emit explicit UNKNOWN state and warning.<br/>→ Never silently coerce observations into another state. |
 | Degenerate partition (one state dominates) | Step 2 dry run checks state distribution before criterion tests run. |
 | Cross-family leakage in transfer test | Transfer test uses held-out family — no training on target family pairs. |
 | Calibration artifact tampering | SHA-256 hash covers all fields. Any manual edit invalidates the hash and blocks the run. |
@@ -934,131 +934,218 @@ when designing the MPML integration layer. Specifically:
 
 ## Implementation Strategy
 
-BSVE is expected to be implemented incrementally through multiple pull requests.
+BSVE is being implemented incrementally using a contract-first approach.
 
-The objective of early pull requests is to establish framework infrastructure rather than fully validate behavioral hypotheses.
+The objective of the early pull requests is to establish a reusable behavioral-state research framework before implementing ontology-specific validation workflows.
 
-### PR1 — Foundation
+### PR1 — Foundation Infrastructure ✓
 
-- configuration files
-- schema definitions
-- dataset adapter layer
-- behavioral feature registry
-- artifact contracts
+Completed.
 
-### PR2 — Calibration Framework
+Implemented:
 
-- calibration artifact schema
-- calibration runners
-- validation gate
-- hash verification
+- BSVE configuration system
+- Environment specifications
+- Dataset adapter layer
+- Behavioral feature registry
+- Artifact contracts and validation infrastructure
 
-### PR3 — State Machine
+Key principle:
 
-- environment specification loading
-- rule-based state assignment
-- artifact generation
-- run manifests
+Framework infrastructure remains ontology-agnostic.
 
-### PR4 — Validation Framework
+### PR2 — Calibration Infrastructure ✓
 
-- criterion testing
-- transfer analysis
-- reporting utilities
+Completed.
 
-### PR5 — MPML Integration
+Implemented:
 
-- H1 → D1 aggregation
-- artifact consumption
-- manifest integration
+- Calibration artifact schema
+- Calibration contract
+- Calibration registry
+- Calibration runner
+- Null-calibration support
+- Calibration artifact validation
+- Calibration artifact persistence
+
+Key principle:
+
+Calibration outcomes are represented as first-class artifacts rather than implicit success/failure states.
+
+### PR3 — Reactive-JPY Calibration ✓
+
+Completed.
+
+Implemented:
+
+- Reactive-JPY maturity calibration plugin
+- Hazard-analysis calibration workflow
+- Threshold provenance tracking
+- Calibration diagnostics
+- Plugin bootstrap registration
+- Calibration artifact inspection utilities
+- Integration tests
+
+Current output:
+
+Reactive-JPY maturity thresholds can now be derived and stored as versioned calibration artifacts.
+
+### PR4 — State Assignment Engine
+
+Planned.
+
+Scope:
+
+- Rule-based state machine
+- Calibration artifact loading
+- Threshold injection
+- H1 state assignment
+- Transition tracking
+- BSVE state surface generation
+- Artifact manifests
+
+### PR5 — Validation Framework
+
+Planned.
+
+Scope:
+
+- Criterion testing
+- Ontology stability testing
+- Cross-family transfer evaluation
+- Validation reporting
+
+### PR6 — Reactive-CHF Calibration
+
+Planned.
+
+Scope:
+
+- Volatility-conditioned persistence calibration
+- Threshold derivation
+- Behavioral significance testing
+- Calibration artifact generation
+
+Reactive-CHF calibration is intentionally postponed until the state assignment framework has been validated using the better-understood Reactive-JPY environment.
+
+### PR7 — MPML Integration
+
+Planned.
+
+Scope:
+
+- H1→D1 aggregation
+- Behavioral surface consumption
+- Manifest integration
+- Walk-forward experimentation
 
 ### Development Rule
 
-Do not implement MPML integration before BSVE artifact generation exists.
+State assignment must not be implemented until calibration artifacts can be generated and validated.
 
-Do not implement ontology-specific assumptions inside framework components.
+MPML integration must not be implemented until state surface artifacts exist.
 
-Framework infrastructure should remain reusable even if future ontology definitions replace the current JPY and CHF hypotheses entirely.
+Framework code must remain ontology-independent.
 
 ## Implementation Checklist
 
-Use this checklist to track progress. Each item maps to a concrete
-file or artifact. This section is intended to become the basis for
-the Copilot implementation prompt.
+This checklist reflects the current implementation status rather than the original concept draft.
 
-### Phase 0 — Schema and Configuration
-- [ ] `bsve/bsve_config_v1.yaml` — top-level BSVE configuration
-- [ ] `bsve/state_specs/reactive_jpy_v1.yaml` — JPY environment spec
-- [ ] `bsve/state_specs/reactive_chf_v1.yaml` — CHF environment spec
-- [ ] `schemas/bsve_artifact_schema.py` — artifact schema + validator
-      (mirrors `schemas/dl_artifact_schema.py` pattern)
+### Phase 0 — Framework Infrastructure
 
-### Phase 1 — Calibration
-- [ ] `bsve/calibration/jpy_maturity_calibration.py`
-      - `compute_extreme_threshold()`
-      - `extract_consensus_lifecycles()`
-      - `compute_hazard_by_maturity()`
-      - `find_hazard_crossover()`
-      - `derive_maturity_boundaries()`
-      - `run_jpy_calibration()`
-      - `plot_hazard_curve()` (diagnostic only)
-      - CLI entry point
-- [ ] `bsve/calibration/chf_vol_calibration.py`
-      - `compute_atr_pct_distribution()`
-      - `find_candidate_boundaries_percentile()`
-      - `find_candidate_boundaries_jenks()`
-      - `measure_crowd_persistence()`
-      - `test_boundary_behavioral_significance()`
-      - `derive_pair_threshold()`
-      - `check_snb_era()`
-      - `run_chf_calibration()`
-      - `plot_vol_regime_persistence()` (diagnostic only)
-      - `plot_atr_distribution()` (diagnostic only)
-      - CLI entry point
-- [ ] `bsve/calibration/validate_calibrations.py`
-      - `verify_artifact_hash()`
-      - `check_placeholders_resolved()`
-      - `validate_calibration_artifact()`
-      - `validate_all_calibrations()`
-      - `assert_calibrations_valid()` (runtime gate)
-      - `print_validation_summary()`
-      - CLI entry point
-- [ ] Run JPY calibration, review plots, commit artifact
-- [ ] Run CHF calibration, review plots, commit artifact
-- [ ] Run validation gate, confirm all sign-off conditions pass
+#### Completed
 
-### Phase 2 — State Machine
-- [ ] `bsve/state_machine/rule_based.py`
-      - Load environment spec from YAML
-      - Inject thresholds from committed calibration artifact
-      - Assign state per H1 bar (entry/continuation/exit)
-      - Track maturity_bars counter
-      - Handle ambiguous assignments (fallback to non_extreme)
-      - Emit transition_event per bar
-      - Write BSVE artifact (parquet) with fail-fast validation
-      - Emit run manifest
-- [ ] Step 2 dry run: verify state coverage and distribution
+* [x] `bsve/bsve_config_v1.yaml`
+* [x] `bsve/state_specs/reactive_jpy_v1.yaml`
+* [x] `bsve/state_specs/reactive_chf_v1.yaml`
+* [x] Dataset adapter layer
+* [x] Behavioral feature registry
+* [x] Artifact validation infrastructure
+* [x] Calibration artifact schema
+* [x] Calibration contract
 
-### Phase 3 — Criterion Validation
-- [ ] `bsve/validation/criterion_tests.py`
-      - `test_criterion_1_behavioral_differentiation()`
-      - `test_criterion_2_family_specificity()`
-      - `test_criterion_3_incremental_explanatory_power()`
-      - `test_criterion_4_internal_coherence()` (CHF only)
-      - `run_validation_suite()`
-      - Validation report output (markdown + JSON)
-- [ ] Step 3: run criterion tests, produce validation report
-- [ ] Step 4: structural baseline comparison (full range 2012-2026)
-- [ ] Step 5: transfer falsification (JPY spec → CHF pairs, CHF spec → JPY pairs)
+### Phase 1 — Calibration Infrastructure
 
-### Phase 4 — MPML Integration
-- [ ] D1 aggregation utility
-      (`bsve/integration/mpml_aggregation.py`)
-- [ ] MPML feature integration layer update
-      (consumes BSVE artifacts alongside DL artifacts)
-- [ ] MPML run manifest updated to record BSVE artifact path,
-      spec version, calibration version, aggregation method version
-- [ ] MPML walk-forward experiment matrix with BSVE state features
+#### Completed
+
+* [x] Calibration registry
+* [x] Calibration runner
+* [x] Plugin architecture
+* [x] Null-calibration support
+* [x] Artifact validation
+* [x] Artifact persistence
+* [x] Calibration artifact inspection utility
+* [x] Bootstrap registration mechanism
+
+### Phase 2 — Reactive-JPY Calibration
+
+#### Completed
+
+* [x] `compute_extreme_threshold()`
+* [x] `extract_consensus_lifecycles()`
+* [x] `compute_hazard_by_maturity()`
+* [x] `find_hazard_crossover()`
+* [x] `derive_maturity_boundaries()`
+* [x] `JPYMaturityCalibrationPlugin`
+* [x] Threshold provenance tracking
+* [x] Calibration diagnostics
+* [x] Integration tests
+
+#### Remaining
+
+* [ ] Generate first production calibration artifact
+* [ ] Review calibration diagnostics
+* [ ] Sign off maturity thresholds
+* [ ] Commit calibration artifact
+
+### Phase 3 — State Assignment Engine
+
+#### Planned
+
+* [ ] `bsve/state_machine/rule_based.py`
+* [ ] Load environment specification
+* [ ] Load calibration artifact
+* [ ] Inject calibrated thresholds
+* [ ] Fail fast on null calibration artifacts
+* [ ] Assign behavioral state per H1 bar
+* [ ] Track maturity counters
+* [ ] Track transition events
+* [ ] Emit assignment reason metadata
+* [ ] Generate BSVE state surface artifact
+* [ ] Generate run manifest
+* [ ] Verify state coverage and state distributions
+
+### Phase 4 — Validation Framework
+
+#### Planned
+
+* [ ] Behavioral differentiation testing
+* [ ] Family specialization testing
+* [ ] Incremental explanatory power testing
+* [ ] Ontology stability testing
+* [ ] Internal coherence testing (CHF)
+* [ ] Validation report generation
+* [ ] Transfer topology analysis
+
+### Phase 5 — Reactive-CHF Calibration
+
+#### Planned
+
+* [ ] CHF volatility calibration plugin
+* [ ] Behavioral significance validation
+* [ ] Threshold derivation
+* [ ] Calibration artifact generation
+* [ ] Calibration sign-off
+
+### Phase 6 — MPML Integration
+
+#### Planned
+
+* [ ] H1→D1 aggregation utility
+* [ ] Behavioral surface integration
+* [ ] Manifest integration
+* [ ] Walk-forward experimentation
+
 
 ---
 
