@@ -165,6 +165,23 @@ Rationale:
 - Option B is a natural extension once Option A produces validated
   artifacts and is already listed in the MSML research roadmap
 
+### State Machine Design Principle
+
+The state machine is not responsible for discovering behavioral structure.
+
+Behavioral structure is discovered during calibration and encoded in
+committed calibration artifacts.
+
+The state machine is responsible only for:
+
+- loading calibrated thresholds,
+- applying state definitions deterministically,
+- recording transitions,
+- producing reproducible state surface artifacts.
+
+No threshold estimation, optimization, or calibration logic may exist
+inside the state assignment layer.
+
 ### Timeframe: H1
 
 BSVE operates entirely at H1 resolution.
@@ -303,7 +320,11 @@ The registry is ontology-independent and should support future environments with
 
 ---
 
-## Repository Layout
+## Repository Layout (Target After PR5)
+
+The following layout reflects the intended BSVE repository structure
+after state assignment and validation components have been implemented.
+Current implementation status may differ.
 
 ```
 bsve/
@@ -467,13 +488,27 @@ Null-calibration artifacts participate in the same provenance and versioning sys
 - `young_boundary_bars`
 - `mature_boundary_bars`
 
-**Sign-off conditions (all must pass):**
+### JPY Calibration Sign-Off Conditions
 
-- `reversal_rate_young > reversal_rate_mature`
-- `young_boundary_bars < mature_boundary_bars`
-- `n_episodes_total >= 50`
-- `censoring_rate < 0.30`
-- `reversal_rate_young > 0.15`
+**Tier 1 — Testable from hazard analysis (current):**
+- hazard_crossover_bar is identifiable (not null)
+- young_boundary_bars < mature_boundary_bars
+- n_episodes_total >= 50
+- censoring_rate < 0.30
+- Hazard rate in bars 1-6 materially exceeds hazard rate in bars 13+
+  (visual confirmation from hazard curve plot)
+- Survival curve drops below 0.50 before young_boundary_bars
+  (confirms front-loaded reversal risk)
+
+**Tier 2 — Requires exit type labeling (deferred to PR4/state machine):**
+- reversal_rate_young > reversal_rate_mature
+- reversal_rate_young > 0.15
+
+Note: The Tier 2 conditions are the primary scientific validation of
+the maturity hypothesis. They cannot be tested until the state machine
+labels threshold exits separately from sentiment resets. The current
+artifact correctly records all exits as reversals because threshold
+exit labeling is not yet implemented.
 
 **Diagnostic outputs (for visual review):**
 
@@ -776,6 +811,10 @@ every write.
 **Artifact naming convention:**
 bsve/artifacts/<run_id>/bsve_states_<pair><env_id><spec_version>.parquet
 
+> Note:
+> Calibration artifacts use `<ontology_id>_<version>_<date>.json` 
+> while state surface artifacts use the parquet naming convention.
+
 ---
 
 ## MPML Aggregation Contract (H1 → D1)
@@ -899,7 +938,7 @@ when designing the MPML integration layer. Specifically:
 | Sentiment timestamp leakage (scrape delay) | floor_to_h1_bar_open normalization at ingestion. Versioned pipeline step. |
 | SNB structural break in EURCHF (2015-01-15) | Automatic era flag in CHF calibration. Sign-off review required if pre-2015 data included. |
 | Sparse DL coverage (sentiment only from 2019) | Explicit DL-active vs full-range window split. Criterion tests use DL-active window only. |
-| Ambiguous state assignments | → Emit explicit UNKNOWN state and warning.<br/>→ Never silently coerce observations into another state. |
+| Ambiguous state assignments | → Emit explicit UNKNOWN state and warning.<br/>→ Never silently coerce observations into another state.<br />**State assignment between episodes:**<br/>Bars where sentiment is not extreme are assigned JPY_NON_EXTREME regardless of proximity to a previous episode. The state machine must not carry forward state identity after a sentiment reset. Each episode is independent. There is no "cooling off" state. |
 | Degenerate partition (one state dominates) | Step 2 dry run checks state distribution before criterion tests run. |
 | Cross-family leakage in transfer test | Transfer test uses held-out family — no training on target family pairs. |
 | Calibration artifact tampering | SHA-256 hash covers all fields. Any manual edit invalidates the hash and blocks the run. |
@@ -988,7 +1027,7 @@ Implemented:
 
 Current output:
 
-Reactive-JPY maturity thresholds can now be derived and stored as versioned calibration artifacts.
+Reactive-JPY maturity thresholds have been calibrated, reviewed, signed off, and committed as the first production BSVE calibration artifact.
 
 ### PR4 — State Assignment Engine
 
@@ -1095,7 +1134,7 @@ This checklist reflects the current implementation status rather than the origin
 * [x] Sign off maturity thresholds
 * [x] Commit calibration artifact
 
-### Phase 3 — State Assignment Engine
+### Phase 3 — State Assignment Engine (PR4)
 
 #### Planned
 
@@ -1111,6 +1150,23 @@ This checklist reflects the current implementation status rather than the origin
 * [ ] Generate BSVE state surface artifact
 * [ ] Generate run manifest
 * [ ] Verify state coverage and state distributions
+
+**Additional requirements arising from JPY calibration:**
+
+- Implement threshold exit labeling (price-based exit criterion
+  separate from sentiment reset). This is required to enable
+  Tier 2 sign-off conditions.
+- Implement episode sparsity reporting: flag pairs/windows where
+  JPY_CONSENSUS_MATURE has fewer than 50 observations.
+- Consider whether JPY_CONSENSUS_MATURING warrants a separate state
+  given the sparse survival beyond bar 8. The state machine should
+  track this distribution and report it.
+- The state machine dry run (Step 2) should report:
+    - Total episodes per state per pair
+    - Survival counts at young_boundary and mature_boundary
+    - Episode duration distribution
+  to confirm the calibration artifact statistics are reproducible
+  from the state machine output.
 
 ### Phase 4 — Validation Framework
 
@@ -1193,7 +1249,61 @@ implementation order should respect it during development as well.
 
 ---
 
-### Future cleanup:
+### JPY Calibration Observations (2026-06-15, dataset v1.5.0)
+
+First production calibration artifact produced from 441 episodes
+across USDJPY (118), EURJPY (186), GBPJPY (137).
+
+Key observations:
+
+- Reversal hazard is strongly front-loaded. Approximately 60% of
+  episodes terminate by bar 6. This is consistent with the research
+  hypothesis that young consensus states carry high reversal risk.
+- The hazard crossover is identified at bar 13. Derived thresholds:
+  young_boundary = 8 bars, mature_boundary = 24 bars.
+- Survival to mature_boundary (bar 24) is approximately 4.8% of
+  episodes (21 surviving at bar 24 from 441 total). The resulting
+  JPY_CONSENSUS_MATURE state is expected to be relatively rare.
+- Median episode duration is 4 bars. The 75th percentile is 8 bars.
+  The maturing zone (bars 8-24) and mature zone (bars 24+) together
+  represent a minority of all episodes but may carry disproportionate
+  behavioral information.
+- censoring_rate = 0.0 and reversal_rate = 1.0 for both young and
+  mature cohorts. This reflects limitations of the current lifecycle
+  labeling procedure rather than a meaningful behavioral result.
+  Hazard and survival analyses were used as the primary sign-off
+  diagnostics.
+- The late-maturity hazard spike at bar 30 (hazard = 0.333) with
+  only 12 episodes at risk should be treated as sampling noise.
+  It did not influence threshold selection.
+
+Calibration outcome:
+
+The resulting ontology:
+
+Young = 0-8 bars
+Maturing = 8-24 bars
+Mature = 24+ bars
+
+was judged behaviorally interpretable, empirically supported,
+and consistent with prior JPY consensus-maturity research.
+
+Open questions:
+
+- Does the mature state remain sufficiently populated after full
+  timeline labeling to support independent criterion validation?
+
+- Is the primary behavioral distinction:
+  Young vs Non-Young
+  or:
+  Young vs Maturing vs Mature
+
+  This question will be revisited after PR4 state assignment and
+  surface generation.
+
+---
+
+Future cleanup:
 
 revisit reversal-rate diagnostics,
 which currently provide little additional information
