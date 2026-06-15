@@ -698,8 +698,9 @@ def run_state_assignment(
     calibration_id = artifact["calibration_id"]
     ontology_version = artifact.get("ontology_version", "1.0.0")
 
-    # Derive spec_id from environment + version.
-    spec_id = f"{environment}_v{ontology_version.replace('.', '_').split('_')[0]}"
+    # Derive spec_id as <environment>_v<major_version> (e.g. "reactive_jpy_v1").
+    major_version = ontology_version.split(".")[0]
+    spec_id = f"{environment}_v{major_version}"
 
     # Resolve pairs from spec if not explicitly provided.
     if pairs is None:
