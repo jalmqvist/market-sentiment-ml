@@ -450,6 +450,10 @@ def run_jpy_calibration(
         "young_boundary_bars": young_boundary,
         "mature_boundary_bars": mature_boundary,
     }
+    survival_counts = {
+        str(threshold): int(sum(1 for lc in all_lifecycles if lc.duration_bars >= threshold))
+        for threshold in (8, 16, 24, 32, 48)
+    }
     diagnostics = {
         "n_episodes_total": len(all_lifecycles),
         "n_episodes_per_pair": n_episodes_per_pair,
@@ -462,6 +466,7 @@ def run_jpy_calibration(
         "hazard_crossover_bar": round(crossover_bar, 2),
         "median_episode_duration": round(median_duration, 2),
         "censoring_rate": round(censoring_rate, 4),
+        "survival_counts": survival_counts,
     }
     threshold_provenance = {
         "extreme_threshold_net_pct": {
@@ -928,6 +933,13 @@ class JPYMaturityCalibrationPlugin:
             for i, (_, row) in enumerate(hazard_df.iterrows())
         ]
 
+        survival_counts = {
+            str(threshold): int(
+                sum(1 for lc in all_lifecycles if lc.duration_bars >= threshold)
+            )
+            for threshold in (8, 16, 24, 32, 48)
+        }
+
         diagnostics = {
             "sample_count": n_samples,
             "episode_count": n_episodes,
@@ -944,6 +956,8 @@ class JPYMaturityCalibrationPlugin:
             "extreme_threshold_used": round(extreme_threshold, 4),
             "maturity_distribution_percentiles": maturity_pct,
             "calibration_window_coverage_days": coverage_days,
+            # Survival counts — informational only, not used in threshold derivation.
+            "survival_counts": survival_counts,
             # Hazard curve for visual inspection — not used in state assignment.
             "hazard_curve": hazard_curve_records,
         }

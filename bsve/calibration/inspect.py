@@ -111,6 +111,18 @@ def display_artifact(artifact: dict) -> None:
         if crossover is not None:
             print(f"Hazard crossover: {crossover}")
 
+    survival_counts = diagnostics.get("survival_counts")
+    if survival_counts:
+        print()
+        print("Survival Counts")
+        print("---------------")
+        labels = [("8", ">= 8 bars "), ("16", ">=16 bars "), ("24", ">=24 bars "),
+                  ("32", ">=32 bars "), ("48", ">=48 bars ")]
+        for key, label in labels:
+            value = survival_counts.get(key)
+            if value is not None:
+                print(f"{label}: {value}")
+
     provenance = artifact.get("threshold_provenance")
     if provenance:
         print()
