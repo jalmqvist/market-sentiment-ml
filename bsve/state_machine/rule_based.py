@@ -162,8 +162,10 @@ def classify_transition(
     Transition definitions
     ----------------------
     entry
-        First bar of a state episode (prev_state_id is None or differs from
-        curr_state_id, and this is not an exit event).
+        This bar is the first bar of a new extreme-consensus episode.
+        Recorded on:
+        * The first bar in the dataset for a pair (prev_state_id is None).
+        * The first extreme bar following a non-extreme bar (new episode start).
 
     continuation
         State is unchanged from the previous bar.
@@ -172,8 +174,17 @@ def classify_transition(
         Sentiment leaves the extreme condition (was extreme, now is not).
 
     exit_threshold
-        State changes because a maturity boundary was crossed (both prev and
-        curr bars are extreme, but the state_id changed).
+        **This bar entered via a maturity-boundary crossing.**
+        Both the previous and current bars are extreme, but the state_id
+        changed because a maturity threshold was crossed.  The event is
+        recorded on the *receiving* row — the first row of the new maturity
+        class — not on the last row of the prior class.
+
+        Examples:
+        * Young → Maturing: ``exit_threshold`` is recorded on the first
+          Maturing row.
+        * Maturing → Mature: ``exit_threshold`` is recorded on the first
+          Mature row.
 
     exit_unknown
         State changed by an unknown mechanism (fallback).
@@ -201,11 +212,12 @@ def classify_transition(
         return "exit_reversal"
 
     if prev_is_extreme and curr_is_extreme:
-        # Both bars are extreme but the state changed — threshold crossing.
+        # Both bars are extreme but the state changed — maturity-boundary
+        # crossing.  Record exit_threshold on this (receiving) row.
         return "exit_threshold"
 
     if not prev_is_extreme and curr_is_extreme:
-        # New extreme episode starting after a non-extreme bar.
+        # First extreme bar after a non-extreme bar — new episode starting.
         return "entry"
 
     return "exit_unknown"
@@ -444,23 +456,28 @@ def validate_state_artifact(df: pd.DataFrame) -> None:
 
 
 def _compute_episode_stats(df: pd.DataFrame) -> dict[str, Any]:
-    """Compute episode-level statistics from a state assignment artifact."""
-    # Episodes: consecutive runs of the same state_id within a pair.
-    # We track episodes by looking at transition_event == "entry".
-    entry_mask = df["transition_event"] == "entry"
-    episode_starts = df[entry_mask].copy()
+    """Compute episode-level statistics from a state assignment artifact.
 
-    # Episode durations: for each episode start, count bars until next entry
-    # (or end of pair's data).
+    An **episode** is a run of consecutive extreme bars within a pair.
+    Maturity-class changes (Young → Maturing → Mature) within the same
+    continuous extreme run do **not** split the episode — they all belong to
+    the same episode.  Only a non-extreme bar breaks an episode.
+
+    Non-extreme rows are excluded from episode accounting entirely.
+    """
     durations_by_pair: dict[str, list[int]] = {}
     for pair, group in df.groupby("pair", sort=False):
         group = group.reset_index(drop=True)
-        entry_indices = group.index[group["transition_event"] == "entry"].tolist()
-        entry_indices.append(len(group))  # sentinel
+        # Identify extreme bars (any state other than JPY_NON_EXTREME).
+        is_extreme = group["state_id"] != "JPY_NON_EXTREME"
+        # Assign a run-ID to each contiguous block of rows with the same
+        # extreme flag.  Each distinct run gets a unique integer.
+        run_id = (is_extreme != is_extreme.shift()).cumsum()
         pair_durations = []
-        for i in range(len(entry_indices) - 1):
-            duration = entry_indices[i + 1] - entry_indices[i]
-            pair_durations.append(duration)
+        for _rid, run_group in group.groupby(run_id, sort=True):
+            # Only count runs that are extreme-consensus episodes.
+            if run_group["state_id"].iloc[0] != "JPY_NON_EXTREME":
+                pair_durations.append(len(run_group))
         durations_by_pair[str(pair)] = pair_durations
 
     all_durations = [d for durs in durations_by_pair.values() for d in durs]
@@ -731,15 +748,21 @@ def run_state_assignment(
 
     print(f"[BSVE] Assigning states to {len(ds):,} rows…")
 
-    artifact_df = assign_states_reactive_jpy(
-        ds,
-        calibration_artifact=artifact,
-        spec_id=spec_id,
-        pair_col=adapter.config.pair_col,
-        timestamp_col=adapter.config.timestamp_col,
-        environment_id=environment,
-        state_version=ontology_version,
-    )
+    if environment == "reactive_jpy":
+        artifact_df = assign_states_reactive_jpy(
+            ds,
+            calibration_artifact=artifact,
+            spec_id=spec_id,
+            pair_col=adapter.config.pair_col,
+            timestamp_col=adapter.config.timestamp_col,
+            environment_id=environment,
+            state_version=ontology_version,
+        )
+    else:
+        raise NotImplementedError(
+            f"Environment '{environment}' is not implemented. "
+            "Supported environments: reactive_jpy."
+        )
 
     print("[BSVE] Validating artifact (pre-write)…")
     validate_state_artifact(artifact_df)

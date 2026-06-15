@@ -146,6 +146,12 @@ class TestClassifyTransition:
         )
 
     def test_threshold_crossing_is_exit_threshold(self):
+        """exit_threshold is recorded on the *receiving* row (the first row of
+        the new maturity class), not on the last row of the prior class.
+
+        Young → Maturing: exit_threshold on the first Maturing row.
+        Maturing → Mature: exit_threshold on the first Mature row.
+        """
         assert (
             classify_transition(
                 "JPY_CONSENSUS_YOUNG", "JPY_CONSENSUS_MATURING", True, True
@@ -160,6 +166,7 @@ class TestClassifyTransition:
         )
 
     def test_non_extreme_to_extreme_is_entry(self):
+        # First extreme bar after a non-extreme bar opens a new episode.
         assert (
             classify_transition(
                 "JPY_NON_EXTREME", "JPY_CONSENSUS_YOUNG", False, True
@@ -326,15 +333,32 @@ class TestAssignStatesReactiveJPY:
         assert result.iloc[1]["transition_event"] == "exit_reversal"
 
     def test_transition_exit_threshold_young_to_maturing(self, calibration_artifact):
-        """Bar 8 should produce an exit_threshold transition."""
+        """exit_threshold is recorded on the first Maturing row (bar index 7,
+        maturity_bars=8), not on the last Young row."""
         df = _make_jpy_df(n=9, net_sentiments=[80.0] * 9)
         result = assign_states_reactive_jpy(
             df,
             calibration_artifact=calibration_artifact,
             spec_id="reactive_jpy_v1",
         )
-        # Bar at index 7 (maturity=8) crosses young→maturing threshold.
+        # Bar at index 7 (maturity=8) is the first Maturing row — exit_threshold
+        # is recorded here because this row entered via threshold crossing.
+        assert result.iloc[7]["state_id"] == "JPY_CONSENSUS_MATURING"
         assert result.iloc[7]["transition_event"] == "exit_threshold"
+
+    def test_transition_exit_threshold_maturing_to_mature(self, calibration_artifact):
+        """exit_threshold is recorded on the first Mature row (bar index 23,
+        maturity_bars=24), not on the last Maturing row."""
+        df = _make_jpy_df(n=25, net_sentiments=[80.0] * 25)
+        result = assign_states_reactive_jpy(
+            df,
+            calibration_artifact=calibration_artifact,
+            spec_id="reactive_jpy_v1",
+        )
+        # Bar at index 23 (maturity=24) is the first Mature row — exit_threshold
+        # is recorded here because this row entered via threshold crossing.
+        assert result.iloc[23]["state_id"] == "JPY_CONSENSUS_MATURE"
+        assert result.iloc[23]["transition_event"] == "exit_threshold"
 
 
 # ---------------------------------------------------------------------------
@@ -465,6 +489,29 @@ class TestGenerateDiagnostics:
         # All pairs should be flagged as sparse (we have far fewer than 50 mature obs).
         for pair, flagged in diag["mature_sparsity_flags"].items():
             assert isinstance(flagged, bool)
+
+    def test_continuous_extreme_episode_is_one_episode(self, calibration_artifact):
+        """30 consecutive extreme bars — spanning Young, Maturing and Mature —
+        must be counted as a single episode with duration 30, not as 3 separate
+        episodes.  This validates that episode extraction uses extreme-bar
+        boundaries, not state-change boundaries.
+        """
+        df = _make_jpy_df(n=30, net_sentiments=[80.0] * 30)
+        result = assign_states_reactive_jpy(
+            df,
+            calibration_artifact=calibration_artifact,
+            spec_id="reactive_jpy_v1",
+        )
+        diag = generate_diagnostics(result)
+
+        # Single unbroken extreme episode.
+        assert diag["episodes_per_pair"]["usd-jpy"] == 1
+
+        # The one episode spans all 30 bars.
+        assert diag["episode_duration_distribution"]["max"] == 30
+
+        # Episode survives to ≥24 bars — survival count for "24" must be 1.
+        assert diag["survival_counts"]["24"] == 1
 
 
 # ---------------------------------------------------------------------------
