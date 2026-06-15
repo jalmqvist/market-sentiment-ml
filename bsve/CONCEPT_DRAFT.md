@@ -322,9 +322,7 @@ The registry is ontology-independent and should support future environments with
 
 ## Repository Layout (Target After PR5)
 
-The following layout reflects the intended BSVE repository structure
-after state assignment and validation components have been implemented.
-Current implementation status may differ.
+Repository Layout (Target after PR5)
 
 ```
 bsve/
@@ -343,7 +341,7 @@ bsve/
 │   ├── reactive_jpy_v1.yaml
 │   └── reactive_chf_v1.yaml
 ├── state_machine/
-│   └── rule_based.py                  # State machine engine (to be implemented)
+│   └── rule_based.py                  # State machine engine, implemented (PR4)
 ├── validation/
 │   └── criterion_tests.py             # Three-part validation criterion tests
 ├── artifacts/                         # Output state surface artifacts
@@ -718,7 +716,7 @@ Step 1: Threshold Calibration
 Step 2: State Machine Dry Run
   - Run state machine over DL-active window
   - Verify minimum observations per state (>= 50)
-  - Verify no ambiguous state assignments (< 5% of bars)
+  - No ambiguous assignments permitted.
   - Verify state distribution is not degenerate (no state > 95% of bars)
   - *** SIGN-OFF REQUIRED before Step 3 ***
 
@@ -894,7 +892,6 @@ artifacts as validated external feature surfaces.
 
 BSVE (H1 state surfaces) ↓ D1 aggregation (modal_state_max_maturity_v1) ↓ MPML feature integration layer ↓ Strategy routing / gating selector ↓ Walk-forward evaluation
 
-
 **Important separation:**
 BSVE validates whether behavioral states exist and are family-specific.
 MPML studies whether adaptive systems can exploit those states.
@@ -949,8 +946,8 @@ when designing the MPML integration layer. Specifically:
 ## Open Questions (per environment)
 
 ### Reactive-JPY
-- Empirical calibration of `young_boundary_bars` and `mature_boundary_bars`
-  (placeholders until hazard analysis runs)
+- Validation of the calibrated young/maturing/mature partition
+  under Criterion 1 behavioral differentiation testing.
 - Whether `JPY_CONSENSUS_MATURING` is a genuine intermediate state or
   an artifact of threshold granularity
 - Trend persistence influence on consensus maturation probability
@@ -1029,19 +1026,21 @@ Current output:
 
 Reactive-JPY maturity thresholds have been calibrated, reviewed, signed off, and committed as the first production BSVE calibration artifact.
 
-### PR4 — State Assignment Engine
+### PR4 — State Assignment Engine ✓
 
-Planned.
+Completed.
 
-Scope:
+Implemented:
 
-- Rule-based state machine
-- Calibration artifact loading
-- Threshold injection
-- H1 state assignment
-- Transition tracking
-- BSVE state surface generation
-- Artifact manifests
+- rule_based.py
+- calibration loading
+- threshold injection
+- state assignment
+- diagnostics
+- manifest generation
+- parquet generation
+- [ ] Threshold exit labeling
+- [ ] Tier 2 maturity validation
 
 ### PR5 — Validation Framework
 
@@ -1136,37 +1135,34 @@ This checklist reflects the current implementation status rather than the origin
 
 ### Phase 3 — State Assignment Engine (PR4)
 
-#### Planned
+#### Completed
 
-* [ ] `bsve/state_machine/rule_based.py`
-* [ ] Load environment specification
-* [ ] Load calibration artifact
-* [ ] Inject calibrated thresholds
-* [ ] Fail fast on null calibration artifacts
-* [ ] Assign behavioral state per H1 bar
-* [ ] Track maturity counters
-* [ ] Track transition events
+* [x] bsve/state_machine/rule_based.py
+* [x] Load environment specification
+* [x] Load calibration artifact
+* [x] Inject calibrated thresholds
+* [x] Fail fast on null calibration artifacts
+* [x] Assign behavioral state per H1 bar
+* [x] Track maturity counters
+* [x] Track transition events
+* [x] Generate BSVE state surface artifact
+* [x] Generate run manifest
+* [x] Verify state coverage and state distributions
+
+- [x] Implement episode sparsity reporting
+
+- [x] Track maturing-state distribution
+
+- [x] Report episode counts
+* [x] Report survival counts
+* [x] Report duration distributions
+
+### Remaining work after PR4
+
+* [ ] Implement threshold-exit labeling
+* [ ] Enable Tier 2 maturity validation
+* [ ] Determine whether JPY_CONSENSUS_MATURING is independently validatable
 * [ ] Emit assignment reason metadata
-* [ ] Generate BSVE state surface artifact
-* [ ] Generate run manifest
-* [ ] Verify state coverage and state distributions
-
-**Additional requirements arising from JPY calibration:**
-
-- Implement threshold exit labeling (price-based exit criterion
-  separate from sentiment reset). This is required to enable
-  Tier 2 sign-off conditions.
-- Implement episode sparsity reporting: flag pairs/windows where
-  JPY_CONSENSUS_MATURE has fewer than 50 observations.
-- Consider whether JPY_CONSENSUS_MATURING warrants a separate state
-  given the sparse survival beyond bar 8. The state machine should
-  track this distribution and report it.
-- The state machine dry run (Step 2) should report:
-    - Total episodes per state per pair
-    - Survival counts at young_boundary and mature_boundary
-    - Episode duration distribution
-  to confirm the calibration artifact statistics are reproducible
-  from the state machine output.
 
 ### Phase 4 — Validation Framework
 
@@ -1249,7 +1245,7 @@ implementation order should respect it during development as well.
 
 ---
 
-### JPY Calibration Observations (2026-06-15, dataset v1.5.0)
+### JPY Calibration Observations (2026-06-15: Originally calibrated on v1.5.0, Reproduced unchanged on v1.5.1 after duplicate-row correction)
 
 First production calibration artifact produced from 441 episodes
 across USDJPY (118), EURJPY (186), GBPJPY (137).
@@ -1300,6 +1296,36 @@ Open questions:
 
   This question will be revisited after PR4 state assignment and
   surface generation.
+
+---
+
+Reactive JPY calibration artifact v1 (2026-06-15, dataset v1.5.1)
+------------------------------------
+
+Dataset: 1.5.1
+Episodes: 441
+Hazard crossover: 13 bars
+
+Derived thresholds:
+- Young: 8 bars
+- Mature: 24 bars
+
+Supporting diagnostics:
+- Median duration: 4 bars
+
+- Survival ≥24 bars: 21 episodes
+
+- Mature observations after assignment: 209
+
+  The mature state remained sufficiently populated after full state assignment
+  (209 observations across 667 episodes), supporting continued evaluation
+  as an independent behavioral state.
+
+Calibration artifact:
+bsve/calibration_artifacts/reactive_jpy_calibration_v1.json
+
+Supporting figure:
+bsve/docs/figures/jpy_hazard_curve_v1.png
 
 ---
 

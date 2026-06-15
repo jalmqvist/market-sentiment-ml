@@ -1,12 +1,12 @@
 {
-  "artifact_hash": "ce12220f2c6efe97ecca4b2bc17343240649e66f6f4fe328cba4d86617ebf19f",
+  "artifact_hash": "56a59cabf9b9e9b9d53ae651a09410b5584dffdd417b5d3ae95104fc0c7c8ac3",
   "calibration_id": "reactive_jpy_v1_20260615",
   "calibration_method": "hazard_analysis",
   "calibration_mode": "research",
-  "calibration_timestamp": "2026-06-15T09:52:02.308059+00:00",
+  "calibration_timestamp": "2026-06-15T18:48:47.765226+00:00",
   "calibration_window_end": "2026-12-31",
   "calibration_window_start": "2019-01-01",
-  "dataset_version": "1.5.0",
+  "dataset_version": "1.5.1",
   "diagnostics": {
     "calibration_window_coverage_days": 2921,
     "censoring_rate": 0.0,
@@ -300,7 +300,7 @@
     "median_episode_duration_bars": 4.0,
     "reversal_rate_mature": 1.0,
     "reversal_rate_young": 1.0,
-    "sample_count": 9827,
+    "sample_count": 9821,
     "survival_counts": {
       "16": 39,
       "24": 21,

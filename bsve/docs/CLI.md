@@ -10,14 +10,24 @@ validation utilities for pre-deployment sign-off.
 
 ---
 
+Current status:
+✓ Calibration framework
+✓ Artifact validation
+✓ Rule-based state assignment
+□ Criterion testing
+□ Environment validation
+□ Multi-ontology support
+
+---
+
 ## Calibration
 
 Run the JPY maturity boundary calibration against a master research dataset.
 
 ```bash
 python -m bsve.calibration.jpy_maturity_calibration \
-    --dataset-path data/output/1.5.0/master_research_dataset_core.csv \
-    --dataset-version 1.5.0 \
+    --dataset-path data/output/1.5.1/master_research_dataset_core.csv \
+    --dataset-version 1.5.1 \
     --output-dir bsve.test/
 ```
 
@@ -98,6 +108,58 @@ assignment begins.  Run this after each new calibration run.
 
 ---
 
+## State Assignment
+
+Assign behavioral states using a committed calibration artifact and
+environment specification.
+
+```bash
+python -m bsve.state_machine.rule_based \
+    --dataset-path data/output/1.5.1/master_research_dataset_core.csv \
+    --environment reactive_jpy \
+    --output-dir bsve.test/
+```
+
+**Required inputs**
+
+| Input                | Description                                                                         |
+| -------------------- | ----------------------------------------------------------------------------------- |
+| Dataset              | Master research dataset (e.g. `data/output/1.5.1/master_research_dataset_core.csv`) |
+| Environment spec     | State ontology YAML (e.g. `reactive_jpy_v1.yaml`)                                   |
+| Calibration artifact | Signed calibration artifact stored under `bsve/calibration_artifacts/`              |
+
+**Outputs**
+
+The command produces:
+
+```
+bsve.test/
+├── bsve_states_reactive_jpy_1.0.0.parquet
+├── diagnostics.json
+└── run_manifest.json
+```
+
+**Artifact descriptions**
+
+| Artifact                                 | Purpose                                                                               |
+| ---------------------------------------- | ------------------------------------------------------------------------------------- |
+| `bsve_states_reactive_jpy_1.0.0.parquet` | Row-level state assignments suitable for criterion testing and downstream analysis    |
+| `diagnostics.json`                       | State counts, episode statistics, survival counts, maturity sparsity diagnostics      |
+| `run_manifest.json`                      | Provenance record linking dataset version, ontology, calibration artifact, and run ID |
+
+**Validation behavior**
+
+Before writing artifacts the state machine performs:
+
+* calibration artifact validation
+* ontology validation
+* state artifact validation
+* uniqueness checks on `(pair, environment_id, entry_time)`
+
+State assignment fails fast if any contract violation is detected.
+
+---
+
 ## Artifact Locations
 
 Committed, immutable calibration artifacts are stored under:
@@ -115,8 +177,6 @@ review and validation.
 
 ## Current Workflow
 
-The pre-deployment sign-off sequence is:
-
 ```
 1. Calibration
        python -m bsve.calibration.jpy_maturity_calibration ...
@@ -128,10 +188,17 @@ The pre-deployment sign-off sequence is:
        python -m bsve.calibration.validate_calibrations
    ↓
 4. Manual Review
-       Confirm reversal_rate_young >> reversal_rate_mature.
-       Review survival counts for threshold plausibility.
+       Review hazard diagnostics and threshold plausibility.
    ↓
-5. State Assignment (future)
+5. Commit Calibration Artifact
+       Move approved artifact to
+       bsve/calibration_artifacts/
+   ↓
+6. State Assignment
+       python -m bsve.state_machine.rule_based ...
+   ↓
+7. Criterion Testing (future)
+       Evaluate behavioral state validity.
 ```
 
 ---
@@ -143,6 +210,5 @@ implemented.
 
 | Command | Purpose |
 |---------|---------|
-| `python -m bsve.state.assign` | Assign behavioral states to sentiment timelines using committed thresholds |
 | `python -m bsve.timeline.generate` | Generate behavioral state timelines from state assignments |
 | `python -m bsve.ontology.validate` | Validate ontology YAML definitions against the BSVE schema |
