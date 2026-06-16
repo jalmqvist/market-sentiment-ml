@@ -67,7 +67,7 @@ def test_reconstruct_state_episodes() -> None:
                 "JPY_CONSENSUS_YOUNG",
                 "JPY_CONSENSUS_MATURE",
             ],
-            "maturity_bars": [0, 0, 1, 2, 24],
+            "maturity_bars": [1, 2, 1, 2, 24],
             "transition_event": ["entry", "continuation", "entry", "entry", "entry"],
         }
     )
