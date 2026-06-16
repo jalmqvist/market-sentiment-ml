@@ -12,6 +12,7 @@ from typing import Any
 import pandas as pd
 from scipy.stats import ks_2samp
 
+from bsve.validation.behavioral_outcomes import analyze_behavioral_outcomes
 from bsve.validation.report import write_validation_report
 
 CRITERION_NAME = "criterion1_behavioral_differentiation"
@@ -38,6 +39,8 @@ class ValidationResult:
     passed: bool
     sample_counts: dict[str, int]
     statistical_tests: list[dict[str, Any]]
+    behavioral_evidence_available: bool
+    behavioral_tests: dict[str, dict[str, Any]]
     warnings: list[str]
     notes: list[str]
 
@@ -223,15 +226,22 @@ def compute_transition_frequencies(df: pd.DataFrame) -> list[dict[str, Any]]:
     return rows
 
 
-def evaluate_criterion1(
-    df: pd.DataFrame, *, behavioral_evidence_available: bool = False
-) -> tuple[ValidationResult, dict[str, Any]]:
+def evaluate_criterion1(df: pd.DataFrame) -> tuple[ValidationResult, dict[str, Any]]:
     frequency_report = compute_state_frequency_report(df)
     episodes = reconstruct_state_episodes(df)
     duration_statistics = compute_duration_statistics(episodes)
     ks_tests, ks_warnings = run_duration_ks_tests(episodes)
     survival_table = compute_survival_table(episodes)
     transitions = compute_transition_frequencies(df)
+    behavioral_analysis = analyze_behavioral_outcomes(df)
+    behavioral_evidence_available = bool(
+        behavioral_analysis["behavioral_evidence_available"]
+    )
+    significant_behavioral_tests = [
+        name
+        for name, test in behavioral_analysis["behavioral_tests"].items()
+        if test["significant"] and test["effect_size"] is not None
+    ]
 
     sample_counts = {
         row["state_id"]: int(row["observations"])
@@ -246,6 +256,7 @@ def evaluate_criterion1(
         "Criterion 1 validates behavioral differentiation, not trading performance.",
         f"Minimum observations per state threshold: {MIN_OBSERVATIONS_PER_STATE}.",
         "Duration KS tests are calibration-consistency diagnostics and are not treated as behavioral differentiation evidence.",
+        "Independent behavioral evidence is evaluated from post-entry state trajectories only.",
     ]
 
     if low_sample_states:
@@ -254,11 +265,16 @@ def evaluate_criterion1(
             + ", ".join(sorted(low_sample_states))
         )
         status = "FAIL"
-    elif behavioral_evidence_available:
+    elif not behavioral_evidence_available:
+        warnings.append(
+            "Independent behavioral evidence is unavailable or sample sizes are insufficient for outcome testing."
+        )
+        status = "INCONCLUSIVE"
+    elif significant_behavioral_tests:
         status = "PASS"
     else:
         warnings.append(
-            "Current Reactive-JPY Criterion 1 runs use duration-derived diagnostics only; independent behavioral evidence is required for a PASS status."
+            "Independent behavioral outcome tests ran, but no significant state differentiation was established."
         )
         status = "INCONCLUSIVE"
 
@@ -268,6 +284,8 @@ def evaluate_criterion1(
         passed=(status == "PASS"),
         sample_counts=sample_counts,
         statistical_tests=ks_tests,
+        behavioral_evidence_available=behavioral_evidence_available,
+        behavioral_tests=behavioral_analysis["behavioral_tests"],
         warnings=warnings,
         notes=notes,
     )
@@ -282,6 +300,7 @@ def evaluate_criterion1(
             "ks_alpha": 0.05,
             "supported_environment": "reactive_jpy",
             "behavioral_evidence_available": behavioral_evidence_available,
+            "significant_behavioral_tests": significant_behavioral_tests,
         },
         "state_frequencies": frequency_report,
         "duration_statistics": duration_statistics,
@@ -289,6 +308,17 @@ def evaluate_criterion1(
         "ks_test_results": ks_tests,
         "survival_analysis": survival_table,
         "transition_frequencies": transitions,
+        "behavioral_outcomes": {
+            "transition_matrix": behavioral_analysis["transition_matrix"],
+            "reversal_probabilities": behavioral_analysis["reversal_probabilities"],
+            "persistence_probabilities": behavioral_analysis[
+                "persistence_probabilities"
+            ],
+            "progression_analysis": behavioral_analysis["progression_analysis"],
+            "behavioral_evidence_available": behavioral_evidence_available,
+            "significant_behavioral_tests": significant_behavioral_tests,
+        },
+        "behavioral_tests": behavioral_analysis["behavioral_tests"],
         "validation_outcome": asdict(result),
     }
     return result, report
@@ -312,6 +342,16 @@ def _print_summary(result: ValidationResult, report_path: Path) -> None:
         print(
             f"  {test['comparison']:<44} ks={test['ks_statistic']:.4f} "
             f"p={p_value:.6g} ({status})"
+        )
+    print("Behavioral tests:")
+    for name, test in result.behavioral_tests.items():
+        if test["p_value"] is None:
+            print(f"  {name:<58} skipped")
+            continue
+        status = "significant" if test["significant"] else "not-significant"
+        print(
+            f"  {name:<44} chi2={test['test_statistic']:.4f} "
+            f"p={test['p_value']:.6g} effect={test['effect_size']:.4f} ({status})"
         )
     if result.warnings:
         print("Warnings:")

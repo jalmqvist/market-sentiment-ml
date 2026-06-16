@@ -55,6 +55,17 @@ def _rich_surface() -> pd.DataFrame:
     return _surface_from_episodes(specs)
 
 
+def _behaviorally_distinct_surface() -> pd.DataFrame:
+    specs: list[tuple[str, int]] = []
+    specs.extend([("JPY_CONSENSUS_YOUNG", 2), ("JPY_NON_EXTREME", 12)] * 30)
+    specs.extend(
+        [("JPY_CONSENSUS_MATURING", 12), ("JPY_CONSENSUS_MATURE", 12), ("JPY_NON_EXTREME", 12)]
+        * 25
+    )
+    specs.extend([("JPY_CONSENSUS_MATURE", 20), ("JPY_NON_EXTREME", 12)] * 25)
+    return _surface_from_episodes(specs)
+
+
 def test_reconstruct_state_episodes() -> None:
     df = pd.DataFrame(
         {
@@ -161,6 +172,8 @@ def test_report_generation_inconclusive_status(tmp_path) -> None:
     assert report["validation_outcome"]["status"] == "INCONCLUSIVE"
     assert report["metadata"]["criterion"] == "criterion1_behavioral_differentiation"
     assert report["metadata"]["behavioral_evidence_available"] is False
+    assert "behavioral_outcomes" in report
+    assert "behavioral_tests" in report
     assert report["duration_ks_diagnostics"][0]["classification"] == (
         "calibration_consistency_diagnostic"
     )
@@ -170,14 +183,27 @@ def test_report_generation_inconclusive_status(tmp_path) -> None:
     assert reloaded["validation_outcome"]["status"] == "INCONCLUSIVE"
 
 
-def test_status_pass_when_behavioral_evidence_available() -> None:
-    df = _rich_surface()
-    result, report = evaluate_criterion1(df, behavioral_evidence_available=True)
+def test_status_pass_when_behavioral_tests_are_significant() -> None:
+    df = _behaviorally_distinct_surface()
+    result, report = evaluate_criterion1(df)
     assert result.status == "PASS"
     assert result.passed is True
     assert report["metadata"]["behavioral_evidence_available"] is True
+    assert any(test["significant"] for test in report["behavioral_tests"].values())
     assert all(
         row["classification"] == "calibration_consistency_diagnostic"
         and row["used_for_behavioral_differentiation"] is False
         for row in report["duration_ks_diagnostics"]
+    )
+
+
+def test_status_inconclusive_when_behavioral_tests_lack_samples() -> None:
+    df = _rich_surface()
+    result, report = evaluate_criterion1(df)
+    assert result.status == "INCONCLUSIVE"
+    assert result.passed is False
+    assert report["metadata"]["behavioral_evidence_available"] is False
+    assert any(
+        "Independent behavioral evidence is unavailable" in warning
+        for warning in result.warnings
     )
