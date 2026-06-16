@@ -9,17 +9,24 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
-from scipy.stats import ks_2samp
+from scipy.stats import fisher_exact, ks_2samp
 
 from bsve.validation.behavioral_outcomes import analyze_behavioral_outcomes
 from bsve.validation.report import write_validation_report
 
 CRITERION_NAME = "criterion1_behavioral_differentiation"
 MIN_OBSERVATIONS_PER_STATE = 50
+MIN_OUTCOME_EPISODES_PER_STATE = 5
 MIN_BEHAVIORAL_EFFECT_SIZE = 0.10
 STATE_ORDER = [
     "JPY_NON_EXTREME",
+    "JPY_CONSENSUS_YOUNG",
+    "JPY_CONSENSUS_MATURING",
+    "JPY_CONSENSUS_MATURE",
+]
+CONSENSUS_STATES = [
     "JPY_CONSENSUS_YOUNG",
     "JPY_CONSENSUS_MATURING",
     "JPY_CONSENSUS_MATURE",
@@ -29,6 +36,7 @@ KS_COMPARISONS = [
     ("JPY_CONSENSUS_YOUNG", "JPY_CONSENSUS_MATURE"),
     ("JPY_CONSENSUS_MATURING", "JPY_CONSENSUS_MATURE"),
 ]
+OUTCOME_COMPARISONS = KS_COMPARISONS
 TRANSITION_EVENTS = ["entry", "continuation", "exit_reversal", "exit_unknown"]
 SURVIVAL_THRESHOLDS = [8, 24, 48]
 
@@ -49,6 +57,11 @@ def _ordered_states(observed: pd.Series) -> list[str]:
     return [*STATE_ORDER, *extras]
 
 
+def _cohens_h(p1: float, p2: float) -> float:
+    """Compute Cohen's h effect size for two proportions."""
+    return float(abs(2.0 * np.arcsin(np.sqrt(p1)) - 2.0 * np.arcsin(np.sqrt(p2))))
+
+
 def load_state_surface(path: str | Path) -> pd.DataFrame:
     artifact_path = Path(path)
     if not artifact_path.exists():
@@ -65,6 +78,18 @@ def load_state_surface(path: str | Path) -> pd.DataFrame:
     if out["entry_time"].isna().any():
         raise ValueError("artifact contains invalid entry_time values")
     return out
+
+
+def load_independent_outcomes(path: str | Path) -> list[dict[str, Any]]:
+    payload_path = Path(path)
+    if not payload_path.exists():
+        raise FileNotFoundError(f"independent outcome file not found: {payload_path}")
+
+    payload = json.loads(payload_path.read_text(encoding="utf-8"))
+    outcomes = payload.get("independent_outcomes")
+    if not isinstance(outcomes, list):
+        raise ValueError("independent outcome payload missing 'independent_outcomes' list")
+    return outcomes
 
 
 def reconstruct_state_episodes(df: pd.DataFrame) -> pd.DataFrame:
@@ -225,9 +250,152 @@ def compute_transition_frequencies(df: pd.DataFrame) -> list[dict[str, Any]]:
     return rows
 
 
+def summarize_independent_behavioral_evidence(
+    independent_outcomes: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    if not independent_outcomes:
+        empty_distribution = [
+            {
+                "state_id": state,
+                "episode_count": 0,
+                "success_count": 0,
+                "failure_count": 0,
+                "success_rate": None,
+            }
+            for state in CONSENSUS_STATES
+        ]
+        return {
+            "labels_available": False,
+            "behavioral_evidence_available": False,
+            "minimum_outcome_samples_met": False,
+            "has_significant_differentiation": False,
+            "effect_size": None,
+            "effect_size_threshold_met": False,
+            "independent_outcome_distribution": empty_distribution,
+            "outcome_tests": [],
+            "warnings": [
+                "Independent outcome labels not found. Run bsve.validation.outcome_labeling first."
+            ],
+        }
+
+    frame = pd.DataFrame(independent_outcomes)
+    if frame.empty:
+        return {
+            "labels_available": True,
+            "behavioral_evidence_available": False,
+            "minimum_outcome_samples_met": False,
+            "has_significant_differentiation": False,
+            "effect_size": None,
+            "effect_size_threshold_met": False,
+            "independent_outcome_distribution": [],
+            "outcome_tests": [],
+            "warnings": ["Independent outcome payload contains no episode rows."],
+        }
+
+    if "outcome_available" in frame.columns:
+        frame = frame[frame["outcome_available"]]
+    if "outcome_label" in frame.columns:
+        frame = frame[frame["outcome_label"].isin(["SUCCESS", "FAILURE"])]
+
+    distribution: list[dict[str, Any]] = []
+    rates: dict[str, tuple[int, int]] = {}
+    for state in CONSENSUS_STATES:
+        state_rows = frame[frame["state_id"] == state]
+        n = int(len(state_rows))
+        success = int((state_rows["outcome_label"] == "SUCCESS").sum()) if n else 0
+        failure = int((state_rows["outcome_label"] == "FAILURE").sum()) if n else 0
+        rates[state] = (n, success)
+        distribution.append(
+            {
+                "state_id": state,
+                "episode_count": n,
+                "success_count": success,
+                "failure_count": failure,
+                "success_rate": (float(success / n) if n else None),
+            }
+        )
+
+    min_samples_met = all(
+        row["episode_count"] >= MIN_OUTCOME_EPISODES_PER_STATE for row in distribution
+    )
+
+    outcome_tests: list[dict[str, Any]] = []
+    significant_effect_sizes: list[float] = []
+    for state_a, state_b in OUTCOME_COMPARISONS:
+        n_a, s_a = rates[state_a]
+        n_b, s_b = rates[state_b]
+
+        if n_a < MIN_OUTCOME_EPISODES_PER_STATE or n_b < MIN_OUTCOME_EPISODES_PER_STATE:
+            outcome_tests.append(
+                {
+                    "comparison": f"{state_a} vs {state_b}",
+                    "state_a": state_a,
+                    "state_b": state_b,
+                    "test": "fisher_exact",
+                    "p_value": None,
+                    "significant": False,
+                    "effect_size": None,
+                    "effect_size_metric": "cohens_h",
+                    "skipped": True,
+                    "skip_reason": (
+                        f"insufficient independent outcomes: {n_a} ({state_a}), "
+                        f"{n_b} ({state_b}); minimum is {MIN_OUTCOME_EPISODES_PER_STATE}"
+                    ),
+                    "classification": "independent_behavioral_evidence",
+                    "used_for_behavioral_evidence": True,
+                }
+            )
+            continue
+
+        p_a = s_a / n_a
+        p_b = s_b / n_b
+        _, p_value = fisher_exact([[s_a, n_a - s_a], [s_b, n_b - s_b]])
+        effect_size = _cohens_h(p_a, p_b)
+        is_significant = bool(p_value < 0.05)
+        if is_significant:
+            significant_effect_sizes.append(effect_size)
+
+        outcome_tests.append(
+            {
+                "comparison": f"{state_a} vs {state_b}",
+                "state_a": state_a,
+                "state_b": state_b,
+                "test": "fisher_exact",
+                "p_value": float(p_value),
+                "significant": is_significant,
+                "effect_size": float(effect_size),
+                "effect_size_metric": "cohens_h",
+                "skipped": False,
+                "skip_reason": None,
+                "classification": "independent_behavioral_evidence",
+                "used_for_behavioral_evidence": True,
+            }
+        )
+
+    # Use the strongest observed significant contrast as criterion-level effect size.
+    effect_size = max(significant_effect_sizes) if significant_effect_sizes else None
+    has_significant_differentiation = any(test["significant"] for test in outcome_tests)
+    effect_size_threshold_met = (
+        effect_size is not None and effect_size >= MIN_BEHAVIORAL_EFFECT_SIZE
+    )
+
+    return {
+        "labels_available": True,
+        "behavioral_evidence_available": bool(min_samples_met),
+        "minimum_outcome_samples_met": bool(min_samples_met),
+        "has_significant_differentiation": has_significant_differentiation,
+        "effect_size": effect_size,
+        "effect_size_threshold_met": effect_size_threshold_met,
+        "independent_outcome_distribution": distribution,
+        "outcome_tests": outcome_tests,
+        "warnings": [],
+    }
+
+
 def evaluate_criterion1(
     df: pd.DataFrame,
     *,
+    independent_outcomes: list[dict[str, Any]] | None = None,
     descriptive_behavioral_diagnostics_available: bool = False,
     behavioral_evidence_status: str = "duration_derived_outcomes_not_independent",
     behavioral_effect_size: float | None = None,
@@ -240,6 +408,7 @@ def evaluate_criterion1(
     ks_tests, ks_warnings = run_duration_ks_tests(episodes)
     survival_table = compute_survival_table(episodes)
     transitions = compute_transition_frequencies(df)
+    independent_evidence = summarize_independent_behavioral_evidence(independent_outcomes)
 
     sample_counts = {
         row["state_id"]: int(row["observations"])
@@ -249,23 +418,17 @@ def evaluate_criterion1(
         state for state, count in sample_counts.items() if count < MIN_OBSERVATIONS_PER_STATE
     ]
 
-    warnings = list(ks_warnings)
+    warnings = list(ks_warnings) + list(independent_evidence["warnings"])
     notes = [
         "Criterion 1 validates behavioral differentiation, not trading performance.",
         f"Minimum observations per state threshold: {MIN_OBSERVATIONS_PER_STATE}.",
-        "Duration KS tests are calibration-consistency diagnostics and are not treated as behavioral differentiation evidence.",
         (
-            "Progression analysis (YOUNG → MATURING, YOUNG → MATURE, MATURING → MATURE) is "
-            "currently descriptive only. It is reported for ontology interpretation and future "
-            "research, but is not used in Criterion 1 PASS/FAIL determination."
+            "Independent evidence uses fixed-horizon post-episode forward outcomes and does "
+            "not depend on maturity duration labels."
         ),
         (
-            "Outcome distributions currently derive from episode-duration thresholds and are "
-            "therefore not independent of maturity classification."
-        ),
-        (
-            "These diagnostics are useful for ontology inspection but do not constitute "
-            "Criterion 1 behavioral evidence."
+            "Duration KS tests and duration-derived reversal diagnostics are reported as "
+            "descriptive diagnostics only."
         ),
     ]
 
@@ -275,18 +438,28 @@ def evaluate_criterion1(
             + ", ".join(sorted(low_sample_states))
         )
         status = "FAIL"
-    else:
+    elif not independent_evidence["labels_available"]:
         warnings.append(
-            "Outcome labels are currently duration-derived and therefore cannot be treated as "
-            "independent behavioral evidence. Criterion 1 remains INCONCLUSIVE pending "
-            "implementation of independent outcome labeling."
+            "Independent outcome labels are required for Criterion 1 PASS and are currently missing."
         )
-        if behavioral_effect_size is not None:
-            warnings.append(
-                f"Behavioral effect size {behavioral_effect_size:.4f} is reported as a "
-                "descriptive diagnostic only and does not contribute to Criterion 1 PASS."
-            )
         status = "INCONCLUSIVE"
+    elif not independent_evidence["minimum_outcome_samples_met"]:
+        warnings.append(
+            "Independent outcome labels exist but have insufficient per-state episode counts."
+        )
+        status = "FAIL"
+    elif not independent_evidence["has_significant_differentiation"]:
+        warnings.append(
+            "Independent outcome labels exist but no statistically significant behavioral differentiation was observed."
+        )
+        status = "INCONCLUSIVE"
+    elif not independent_evidence["effect_size_threshold_met"]:
+        warnings.append(
+            "Independent outcome differentiation is significant but effect size is below the configured threshold."
+        )
+        status = "INCONCLUSIVE"
+    else:
+        status = "PASS"
 
     result = ValidationResult(
         criterion_name=CRITERION_NAME,
@@ -305,25 +478,24 @@ def evaluate_criterion1(
             "module": "bsve.validation.criterion1",
             "generated_at": generated_at.isoformat() if pd.notna(generated_at) else None,
             "min_observations_per_state": MIN_OBSERVATIONS_PER_STATE,
+            "min_outcome_episodes_per_state": MIN_OUTCOME_EPISODES_PER_STATE,
             "minimum_behavioral_effect_size": MIN_BEHAVIORAL_EFFECT_SIZE,
             "ks_alpha": 0.05,
             "supported_environment": "reactive_jpy",
-            "behavioral_evidence_available": False,
-            "behavioral_evidence_status": behavioral_evidence_status,
+            "behavioral_evidence_available": independent_evidence["behavioral_evidence_available"],
+            "independent_behavioral_evidence": independent_evidence["labels_available"],
+            "behavioral_evidence_status": (
+                "independent_outcomes_available"
+                if independent_evidence["labels_available"]
+                else "independent_outcomes_missing"
+            ),
             "behavioral_diagnostics_classification": "descriptive_diagnostic",
             "descriptive_behavioral_diagnostics_available": (
                 descriptive_behavioral_diagnostics_available
             ),
-            "behavioral_effect_size": behavioral_effect_size,
-            "progression_analysis_role": (
-                "descriptive_only — progression analysis (YOUNG → MATURING, YOUNG → MATURE, "
-                "MATURING → MATURE) is reported for ontology interpretation and future research, "
-                "but is not used in Criterion 1 PASS/FAIL determination."
-            ),
-            "criterion1_behavioral_evidence_note": (
-                "Duration-derived outcome diagnostics are descriptive only and cannot support "
-                "a Criterion 1 PASS decision until independent outcome labeling exists."
-            ),
+            "behavioral_effect_size": independent_evidence["effect_size"],
+            "legacy_descriptive_behavioral_effect_size": behavioral_effect_size,
+            "legacy_behavioral_evidence_status": behavioral_evidence_status,
         },
         "state_frequencies": frequency_report,
         "duration_statistics": duration_statistics,
@@ -331,16 +503,36 @@ def evaluate_criterion1(
         "ks_test_results": ks_tests,
         "survival_analysis": survival_table,
         "transition_frequencies": transitions,
+        "independent_outcome_distribution": independent_evidence[
+            "independent_outcome_distribution"
+        ],
+        "outcome_tests": independent_evidence["outcome_tests"],
+        "independent_behavioral_evidence": {
+            "labels_available": independent_evidence["labels_available"],
+            "behavioral_evidence_available": independent_evidence[
+                "behavioral_evidence_available"
+            ],
+            "minimum_outcome_samples_met": independent_evidence[
+                "minimum_outcome_samples_met"
+            ],
+            "has_significant_differentiation": independent_evidence[
+                "has_significant_differentiation"
+            ],
+            "effect_size": independent_evidence["effect_size"],
+            "effect_size_threshold_met": independent_evidence[
+                "effect_size_threshold_met"
+            ],
+        },
+        "descriptive_diagnostics": {
+            "behavioral_outcomes": behavioral_outcomes,
+            "behavioral_tests": behavioral_tests,
+        },
         "validation_outcome": asdict(result),
     }
-    if behavioral_outcomes is not None:
-        report["behavioral_outcomes"] = behavioral_outcomes
-    if behavioral_tests is not None:
-        report["behavioral_tests"] = behavioral_tests
     return result, report
 
 
-def _print_summary(result: ValidationResult, report_path: Path) -> None:
+def _print_summary(result: ValidationResult, report: dict[str, Any], report_path: Path) -> None:
     print("[BSVE] Criterion 1 Validation (Reactive-JPY)")
     print("-" * 60)
     print(f"Status: {result.status}")
@@ -348,16 +540,16 @@ def _print_summary(result: ValidationResult, report_path: Path) -> None:
     for state in STATE_ORDER:
         if state in result.sample_counts:
             print(f"  {state:<24} {result.sample_counts[state]:>8d}")
-    print("KS tests:")
-    for test in result.statistical_tests:
+    print("Independent outcome tests:")
+    for test in report.get("outcome_tests", []):
         p_value = test["p_value"]
         if p_value is None:
             print(f"  {test['comparison']:<58} skipped")
             continue
         status = "significant" if test["significant"] else "not-significant"
         print(
-            f"  {test['comparison']:<44} ks={test['ks_statistic']:.4f} "
-            f"p={p_value:.6g} ({status})"
+            f"  {test['comparison']:<44} p={p_value:.6g} "
+            f"effect={test['effect_size']:.4f} ({status})"
         )
     if result.warnings:
         print("Warnings:")
@@ -381,6 +573,14 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         required=True,
         help="Directory where bsve_validation_report.json is written.",
     )
+    parser.add_argument(
+        "--independent-outcomes",
+        default=None,
+        help=(
+            "Optional path to independent_outcomes.json. Defaults to "
+            "<output-dir>/independent_outcomes.json when present."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -390,8 +590,21 @@ def main(argv: list[str] | None = None) -> int:
     try:
         df = load_state_surface(args.artifact)
         behavioral = analyze_behavioral_outcomes(df)
+
+        independent_path = (
+            Path(args.independent_outcomes)
+            if args.independent_outcomes
+            else Path(args.output_dir) / "independent_outcomes.json"
+        )
+        independent_outcomes = (
+            load_independent_outcomes(independent_path)
+            if independent_path.exists()
+            else None
+        )
+
         result, report = evaluate_criterion1(
             df,
+            independent_outcomes=independent_outcomes,
             descriptive_behavioral_diagnostics_available=behavioral[
                 "descriptive_behavioral_diagnostics_available"
             ],
@@ -405,7 +618,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 
-    _print_summary(result, report_path)
+    _print_summary(result, report, report_path)
     return 0
 
 
