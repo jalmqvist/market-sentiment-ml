@@ -1086,18 +1086,26 @@ Future work:
 - Cross-family transfer evaluation
 - Criterion 2–5 validation
 
-### PR6 — Reactive-CHF Calibration
+### PR6 — Behavioral Outcome Validation ✓
 
-Planned.
+Completed.
 
-Scope:
+Implemented:
 
-- Volatility-conditioned persistence calibration
-- Threshold derivation
-- Behavioral significance testing
-- Calibration artifact generation
+- Behavioral outcome analysis framework
+- Behavioral outcome report generation
+- Fisher exact testing infrastructure
+- Cohen's h effect size reporting
+- Criterion 1 behavioral-evidence integration
+- Behavioral outcome diagnostics
 
-Reactive-CHF calibration is intentionally postponed until the state assignment framework has been validated using the better-understood Reactive-JPY environment.
+Key finding:
+
+Reactive-JPY Criterion 1 remains INCONCLUSIVE.
+
+The validation framework successfully detects the absence of independently labeled behavioral outcomes in the current state surface artifact.
+
+This outcome supports the existing conclusion that threshold-exit labeling is required before Criterion 1 can be fully evaluated.
 
 ### PR7 — MPML Integration
 
@@ -1193,7 +1201,10 @@ This checklist reflects the current implementation status rather than the origin
 ### Remaining work after PR4
 
 * [ ] Implement threshold-exit labeling
-* [ ] Enable Tier 2 maturity validation
+* [ ] Enable Tier 2 maturity validationFuture enhancements
+
+Future enhancements
+
 * [ ] Determine whether JPY_CONSENSUS_MATURING is independently validatable
 * [ ] Emit assignment reason metadata
 
@@ -1378,14 +1389,13 @@ bsve/docs/figures/jpy_hazard_curve_v1.png
 
 ### Current Implementation Status
 
-Reactive-JPY v1 pipeline complete.
+Reactive-JPY v1 pipeline complete through Criterion 1 evaluation.
 
-Criterion 1 currently evaluates calibration consistency
-and minimum sample sufficiency.
+Criterion 1 currently returns INCONCLUSIVE.
 
-Behavioral differentiation remains INCONCLUSIVE pending
-implementation of threshold-exit labeling and downstream
-behavioral outcome tests.
+Behavioral outcome testing infrastructure exists and executes successfully, but the current state surface artifact does not yet contain independently labeled threshold exits. As a result, no independent behavioral evidence is currently available for maturity-state differentiation.
+
+Threshold-exit labeling is therefore the primary remaining prerequisite for full Criterion 1 evaluation.
 
 ---
 
