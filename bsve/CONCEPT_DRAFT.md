@@ -603,12 +603,41 @@ A behavioral state partition is considered validated only if all applicable crit
 
 ### Criterion 1: Behavioral Differentiation
 
-States produce statistically significant differences in downstream behavioral outcomes (reversal rate, exit type distribution) within the DL-active window (2019-2026).
+States produce statistically significant differences in downstream behavioral outcomes within the DL-active window (2019-2026).
 
-- Test: chi-square on exit type distribution across states (JPY); KS test on persistence duration across vol states (CHF)
-- Window: DL-active range
-- Threshold: p < 0.05
+The objective is to determine whether the ontology partitions behavior into meaningfully different regimes rather than merely creating arbitrary labels.
+
+For Reactive-JPY, the initial validation focuses on maturity-dependent behavioral structure observable from state lifecycles and persistence characteristics.
+
+Examples include:
+
+- episode duration distributions
+- survival distributions
+- state transition frequencies
+- maturity-dependent persistence behavior
+
+Future ontology versions may additionally incorporate exit-type differentiation once threshold-exit labeling is implemented.
+
+**Reactive-JPY tests (v1):**
+
+- KS test on episode duration distributions across maturity states
+- Log-rank test (or equivalent survival comparison) across maturity states
+- Comparison of state-transition frequencies
 - Minimum observations: 50 per state
+
+**Reactive-CHF tests (v1):**
+
+- KS test on persistence duration distributions across volatility-conditioned states
+- Comparison of persistence characteristics across volatility regimes
+- Minimum observations: 50 per state
+
+**Common requirements:**
+
+- Window: DL-active range (2019-2026)
+- Statistical significance threshold: p < 0.05
+- Effect sizes must be reported alongside p-values
+
+Criterion 1 is considered satisfied when the proposed ontology produces reproducible behavioral differentiation between states and the observed differences are both statistically significant and practically meaningful.
 
 ### Criterion 2: Family Specialization
 
