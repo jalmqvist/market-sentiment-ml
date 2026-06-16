@@ -1201,11 +1201,20 @@ This checklist reflects the current implementation status rather than the origin
 ### Remaining work after PR4
 
 * [ ] Implement threshold-exit labeling
-* [ ] Enable Tier 2 maturity validationFuture enhancements
+
+* [ ] Implement independent outcome labeling
+* [ ] Re-run Tier 2 maturity validation using independent outcomes
 
 Future enhancements
 
 * [ ] Determine whether JPY_CONSENSUS_MATURING is independently validatable
+
+* [x] Evaluate behavioral distinctiveness of JPY_CONSENSUS_MATURING
+
+Finding:
+Maturing separates from Young but not yet from Mature.
+Future ontology revisions may collapse or redefine this state.
+
 * [ ] Emit assignment reason metadata
 
 ### Phase 4 — Validation Framework
@@ -1214,6 +1223,8 @@ Status:
 
 * [x] Criterion 1 validation framework implemented
 * [x] Validation report generation
+
+* [x] Descriptive behavioral differentiation diagnostics
 
 Current outcome:
 
@@ -1233,6 +1244,34 @@ Remaining work:
 * [ ] Ontology stability testing
 * [ ] Internal coherence testing (CHF)
 * [ ] Transfer topology analysis
+
+### Criterion 1 Status (Reactive-JPY)
+
+Current status: INCONCLUSIVE
+
+Reason:
+
+The ontology is calibrated and operational,
+but no independent behavioral outcome variable
+has yet been defined.
+
+Implemented:
+
+- State frequency analysis
+- Episode reconstruction
+- Duration distribution diagnostics
+- KS-based calibration consistency diagnostics
+- Descriptive outcome-distribution diagnostics
+- Fisher exact outcome comparisons
+
+Not yet implemented:
+
+- Independent behavioral outcome labeling
+- Threshold-exit outcome validation
+- Criterion 1 PASS path
+
+Current outcome labels are duration-derived and therefore do not
+constitute independent behavioral evidence.Reacti
 
 ### Phase 5 — Reactive-CHF Calibration
 
@@ -1389,13 +1428,12 @@ bsve/docs/figures/jpy_hazard_curve_v1.png
 
 ### Current Implementation Status
 
-Reactive-JPY v1 pipeline complete through Criterion 1 evaluation.
-
-Criterion 1 currently returns INCONCLUSIVE.
-
-Behavioral outcome testing infrastructure exists and executes successfully, but the current state surface artifact does not yet contain independently labeled threshold exits. As a result, no independent behavioral evidence is currently available for maturity-state differentiation.
-
-Threshold-exit labeling is therefore the primary remaining prerequisite for full Criterion 1 evaluation.
+Reactive-JPY Status:
+IMPLEMENTED ✓
+VALIDATED: INCONCLUSIVE
+PENDING:
+- independent outcome labeling
+- final Criterion 1 determination
 
 ---
 
