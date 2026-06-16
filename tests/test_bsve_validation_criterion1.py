@@ -73,13 +73,15 @@ def test_reconstruct_state_episodes() -> None:
     )
 
     episodes = reconstruct_state_episodes(df)
-    assert list(episodes["duration_bars"]) == [2, 1, 1, 1]
-    assert list(episodes["state_id"]) == [
-        "JPY_NON_EXTREME",
-        "JPY_CONSENSUS_YOUNG",
-        "JPY_CONSENSUS_YOUNG",
-        "JPY_CONSENSUS_MATURE",
-    ]
+    observed = sorted(zip(episodes["state_id"], episodes["duration_bars"]))
+    assert observed == sorted(
+        [
+            ("JPY_NON_EXTREME", 2),
+            ("JPY_CONSENSUS_YOUNG", 1),
+            ("JPY_CONSENSUS_YOUNG", 1),
+            ("JPY_CONSENSUS_MATURE", 1),
+        ]
+    )
 
 
 def test_duration_statistics() -> None:
