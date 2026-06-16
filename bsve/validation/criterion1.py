@@ -228,7 +228,8 @@ def compute_transition_frequencies(df: pd.DataFrame) -> list[dict[str, Any]]:
 def evaluate_criterion1(
     df: pd.DataFrame,
     *,
-    behavioral_evidence_available: bool = False,
+    descriptive_behavioral_diagnostics_available: bool = False,
+    behavioral_evidence_status: str = "duration_derived_outcomes_not_independent",
     behavioral_effect_size: float | None = None,
     behavioral_tests: list[dict[str, Any]] | None = None,
     behavioral_outcomes: list[dict[str, Any]] | None = None,
@@ -258,6 +259,14 @@ def evaluate_criterion1(
             "currently descriptive only. It is reported for ontology interpretation and future "
             "research, but is not used in Criterion 1 PASS/FAIL determination."
         ),
+        (
+            "Outcome distributions currently derive from episode-duration thresholds and are "
+            "therefore not independent of maturity classification."
+        ),
+        (
+            "These diagnostics are useful for ontology inspection but do not constitute "
+            "Criterion 1 behavioral evidence."
+        ),
     ]
 
     if low_sample_states:
@@ -266,29 +275,17 @@ def evaluate_criterion1(
             + ", ".join(sorted(low_sample_states))
         )
         status = "FAIL"
-    elif behavioral_evidence_available:
-        effect_size_sufficient = (
-            behavioral_effect_size is not None
-            and behavioral_effect_size >= MIN_BEHAVIORAL_EFFECT_SIZE
-        )
-        if effect_size_sufficient:
-            status = "PASS"
-        else:
-            if behavioral_effect_size is None:
-                warnings.append(
-                    "Behavioral evidence is marked available but no effect size was supplied; "
-                    f"a minimum effect size of {MIN_BEHAVIORAL_EFFECT_SIZE} is required for a PASS status."
-                )
-            else:
-                warnings.append(
-                    f"Behavioral effect size {behavioral_effect_size:.4f} is below the minimum "
-                    f"threshold of {MIN_BEHAVIORAL_EFFECT_SIZE}; result is INCONCLUSIVE."
-                )
-            status = "INCONCLUSIVE"
     else:
         warnings.append(
-            "Current Reactive-JPY Criterion 1 runs use duration-derived diagnostics only; independent behavioral evidence is required for a PASS status."
+            "Outcome labels are currently duration-derived and therefore cannot be treated as "
+            "independent behavioral evidence. Criterion 1 remains INCONCLUSIVE pending "
+            "implementation of independent outcome labeling."
         )
+        if behavioral_effect_size is not None:
+            warnings.append(
+                f"Behavioral effect size {behavioral_effect_size:.4f} is reported as a "
+                "descriptive diagnostic only and does not contribute to Criterion 1 PASS."
+            )
         status = "INCONCLUSIVE"
 
     result = ValidationResult(
@@ -311,12 +308,21 @@ def evaluate_criterion1(
             "minimum_behavioral_effect_size": MIN_BEHAVIORAL_EFFECT_SIZE,
             "ks_alpha": 0.05,
             "supported_environment": "reactive_jpy",
-            "behavioral_evidence_available": behavioral_evidence_available,
+            "behavioral_evidence_available": False,
+            "behavioral_evidence_status": behavioral_evidence_status,
+            "behavioral_diagnostics_classification": "descriptive_diagnostic",
+            "descriptive_behavioral_diagnostics_available": (
+                descriptive_behavioral_diagnostics_available
+            ),
             "behavioral_effect_size": behavioral_effect_size,
             "progression_analysis_role": (
                 "descriptive_only — progression analysis (YOUNG → MATURING, YOUNG → MATURE, "
                 "MATURING → MATURE) is reported for ontology interpretation and future research, "
                 "but is not used in Criterion 1 PASS/FAIL determination."
+            ),
+            "criterion1_behavioral_evidence_note": (
+                "Duration-derived outcome diagnostics are descriptive only and cannot support "
+                "a Criterion 1 PASS decision until independent outcome labeling exists."
             ),
         },
         "state_frequencies": frequency_report,
@@ -386,7 +392,10 @@ def main(argv: list[str] | None = None) -> int:
         behavioral = analyze_behavioral_outcomes(df)
         result, report = evaluate_criterion1(
             df,
-            behavioral_evidence_available=behavioral["behavioral_evidence_available"],
+            descriptive_behavioral_diagnostics_available=behavioral[
+                "descriptive_behavioral_diagnostics_available"
+            ],
+            behavioral_evidence_status=behavioral["behavioral_evidence_status"],
             behavioral_effect_size=behavioral["behavioral_effect_size"],
             behavioral_tests=behavioral["behavioral_tests"],
             behavioral_outcomes=behavioral["behavioral_outcomes"],

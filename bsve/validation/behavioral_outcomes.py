@@ -1,4 +1,4 @@
-"""BSVE behavioral outcome analysis for Criterion 1 evaluation."""
+"""BSVE descriptive behavioral diagnostics for Criterion 1 reporting."""
 
 from __future__ import annotations
 
@@ -22,10 +22,17 @@ _BEHAVIORAL_COMPARISONS = [
 
 _ALPHA = 0.05
 _MIN_EPISODE_COUNT = 5
+_DIAGNOSTIC_CLASSIFICATION = "descriptive_diagnostic"
+_BEHAVIORAL_EVIDENCE_STATUS = "duration_derived_outcomes_not_independent"
 
 
 def _compute_episode_outcomes(df: pd.DataFrame) -> pd.DataFrame:
-    """Derive per-episode terminal transition events from a state surface."""
+    """Derive per-episode terminal transition events from a state surface.
+
+    This episode taxonomy is currently maturity-state-derived and is reported
+    as a descriptive ontology diagnostic only. It must not be treated as an
+    independent behavioral outcome variable for Criterion 1 validation.
+    """
     ordered = df.sort_values(["pair", "entry_time"]).copy()
     shifted_pair = ordered["pair"].ne(ordered["pair"].shift())
     shifted_state = ordered["state_id"].ne(ordered["state_id"].shift())
@@ -48,11 +55,13 @@ def _cohens_h(p1: float, p2: float) -> float:
 
 
 def analyze_behavioral_outcomes(df: pd.DataFrame) -> dict[str, Any]:
-    """Analyze behavioral outcomes from a state surface.
+    """Analyze descriptive behavioral diagnostics from a state surface.
 
     Computes per-state exit reversal rates for consensus states and tests
     whether those states exhibit statistically distinct reversal behavior using
-    Fisher's exact test.  Cohen's h is used as the effect size metric.
+    Fisher's exact test. Cohen's h is used as a descriptive effect size metric.
+    Because the current episode taxonomy is duration-derived, these outputs do
+    not constitute independent behavioral evidence for Criterion 1.
 
     Parameters
     ----------
@@ -63,7 +72,8 @@ def analyze_behavioral_outcomes(df: pd.DataFrame) -> dict[str, Any]:
     Returns
     -------
     dict with keys:
-        ``behavioral_evidence_available`` (bool),
+        ``descriptive_behavioral_diagnostics_available`` (bool),
+        ``behavioral_evidence_status`` (str),
         ``behavioral_effect_size`` (float | None),
         ``behavioral_tests`` (list[dict]),
         ``behavioral_outcomes`` (list[dict]).
@@ -83,6 +93,8 @@ def analyze_behavioral_outcomes(df: pd.DataFrame) -> dict[str, Any]:
                 "episode_count": n,
                 "reversal_count": n_reversal,
                 "reversal_rate": round(reversal_rate, 6),
+                "classification": _DIAGNOSTIC_CLASSIFICATION,
+                "used_for_behavioral_evidence": False,
             }
         )
 
@@ -110,6 +122,8 @@ def analyze_behavioral_outcomes(df: pd.DataFrame) -> dict[str, Any]:
                         f"insufficient episodes: {len(eps_a)} ({state_a}), "
                         f"{len(eps_b)} ({state_b}); minimum is {_MIN_EPISODE_COUNT}"
                     ),
+                    "classification": _DIAGNOSTIC_CLASSIFICATION,
+                    "used_for_behavioral_evidence": False,
                 }
             )
             continue
@@ -140,16 +154,23 @@ def analyze_behavioral_outcomes(df: pd.DataFrame) -> dict[str, Any]:
                 "effect_size_metric": "cohens_h",
                 "skipped": False,
                 "skip_reason": None,
+                "classification": _DIAGNOSTIC_CLASSIFICATION,
+                "used_for_behavioral_evidence": False,
             }
         )
 
-    behavioral_evidence_available = len(significant_effect_sizes) > 0
+    descriptive_behavioral_diagnostics_available = any(
+        outcome["episode_count"] > 0 for outcome in behavioral_outcomes
+    )
     behavioral_effect_size = (
         max(significant_effect_sizes) if significant_effect_sizes else None
     )
 
     return {
-        "behavioral_evidence_available": behavioral_evidence_available,
+        "descriptive_behavioral_diagnostics_available": (
+           descriptive_behavioral_diagnostics_available
+        ),
+        "behavioral_evidence_status": _BEHAVIORAL_EVIDENCE_STATUS,
         "behavioral_effect_size": behavioral_effect_size,
         "behavioral_tests": behavioral_tests,
         "behavioral_outcomes": behavioral_outcomes,
