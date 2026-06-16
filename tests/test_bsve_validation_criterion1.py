@@ -6,6 +6,7 @@ import pandas as pd
 
 from bsve.validation.criterion1 import (
     MIN_OBSERVATIONS_PER_STATE,
+    MIN_BEHAVIORAL_EFFECT_SIZE,
     evaluate_criterion1,
     main,
     reconstruct_state_episodes,
@@ -172,12 +173,57 @@ def test_report_generation_inconclusive_status(tmp_path) -> None:
 
 def test_status_pass_when_behavioral_evidence_available() -> None:
     df = _rich_surface()
-    result, report = evaluate_criterion1(df, behavioral_evidence_available=True)
+    result, report = evaluate_criterion1(
+        df,
+        behavioral_evidence_available=True,
+        behavioral_effect_size=MIN_BEHAVIORAL_EFFECT_SIZE,
+    )
     assert result.status == "PASS"
     assert result.passed is True
     assert report["metadata"]["behavioral_evidence_available"] is True
+    assert report["metadata"]["behavioral_effect_size"] == MIN_BEHAVIORAL_EFFECT_SIZE
+    assert report["metadata"]["minimum_behavioral_effect_size"] == MIN_BEHAVIORAL_EFFECT_SIZE
     assert all(
         row["classification"] == "calibration_consistency_diagnostic"
         and row["used_for_behavioral_differentiation"] is False
         for row in report["duration_ks_diagnostics"]
     )
+
+
+def test_status_inconclusive_when_effect_size_below_threshold() -> None:
+    """Significant p-value but effect size below threshold must yield INCONCLUSIVE."""
+    df = _rich_surface()
+    below_threshold = MIN_BEHAVIORAL_EFFECT_SIZE - 0.01
+    result, report = evaluate_criterion1(
+        df,
+        behavioral_evidence_available=True,
+        behavioral_effect_size=below_threshold,
+    )
+    assert result.status == "INCONCLUSIVE"
+    assert result.passed is False
+    assert report["metadata"]["behavioral_effect_size"] == below_threshold
+    assert any("below the minimum" in w for w in result.warnings)
+
+
+def test_status_inconclusive_when_effect_size_missing() -> None:
+    """Behavioral evidence available but no effect size supplied must yield INCONCLUSIVE."""
+    df = _rich_surface()
+    result, report = evaluate_criterion1(df, behavioral_evidence_available=True)
+    assert result.status == "INCONCLUSIVE"
+    assert result.passed is False
+    assert report["metadata"]["behavioral_effect_size"] is None
+    assert any("no effect size was supplied" in w for w in result.warnings)
+
+
+def test_status_pass_requires_sufficient_effect_size() -> None:
+    """Effect size above threshold with behavioral evidence available yields PASS."""
+    df = _rich_surface()
+    above_threshold = MIN_BEHAVIORAL_EFFECT_SIZE + 0.05
+    result, report = evaluate_criterion1(
+        df,
+        behavioral_evidence_available=True,
+        behavioral_effect_size=above_threshold,
+    )
+    assert result.status == "PASS"
+    assert result.passed is True
+    assert report["metadata"]["behavioral_effect_size"] == above_threshold

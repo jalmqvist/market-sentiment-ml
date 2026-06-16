@@ -197,14 +197,31 @@ bsve.test/
 
 Criterion 1 emits one of:
 
-- `PASS`: behavioral differentiation evidence is present and quality gates pass
+- `PASS`: behavioral differentiation evidence is present, the effect size meets the minimum threshold (`MIN_BEHAVIORAL_EFFECT_SIZE = 0.10`), and quality gates pass
 - `FAIL`: quality gates fail (for example insufficient observations)
-- `INCONCLUSIVE`: only duration-derived diagnostics are available, so behavioral differentiation is not established
+- `INCONCLUSIVE`: behavioral differentiation is not established — either only duration-derived diagnostics are available, behavioral evidence is present but the effect size is below `0.10`, or no effect size was supplied
+
+A statistically significant p-value alone is not sufficient for `PASS`.  The effect
+size must also meet or exceed `MIN_BEHAVIORAL_EFFECT_SIZE = 0.10` to ensure that
+the observed behavioral differentiation is practically meaningful, not merely a
+product of a large sample.
 
 For Reactive-JPY Criterion 1, duration KS diagnostics are reported as
 calibration-consistency checks and are **not** treated as evidence of behavioral
 differentiation. Therefore, runs with sufficient samples but only duration-derived
 evidence are marked `INCONCLUSIVE`.
+
+**Progression analysis**
+
+Criterion 1 reports KS-test comparisons for the three consensus-state transitions:
+
+- `YOUNG → MATURING`
+- `YOUNG → MATURE`
+- `MATURING → MATURE`
+
+These results are **descriptive only**.  They are included in the validation report
+for ontology interpretation and future research, but are **not** used in Criterion 1
+`PASS`/`FAIL` determination.
 
 Current support is limited to Reactive-JPY Criterion 1 validation.
 
@@ -233,6 +250,8 @@ Calibration
 State Assignment
   ↓
 Criterion Validation
+  ├─ Duration Diagnostics
+  └─ Behavioral Outcome Validation
   ↓
 Research Review
 ```

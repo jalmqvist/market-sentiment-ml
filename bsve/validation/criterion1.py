@@ -16,6 +16,7 @@ from bsve.validation.report import write_validation_report
 
 CRITERION_NAME = "criterion1_behavioral_differentiation"
 MIN_OBSERVATIONS_PER_STATE = 50
+MIN_BEHAVIORAL_EFFECT_SIZE = 0.10
 STATE_ORDER = [
     "JPY_NON_EXTREME",
     "JPY_CONSENSUS_YOUNG",
@@ -224,7 +225,10 @@ def compute_transition_frequencies(df: pd.DataFrame) -> list[dict[str, Any]]:
 
 
 def evaluate_criterion1(
-    df: pd.DataFrame, *, behavioral_evidence_available: bool = False
+    df: pd.DataFrame,
+    *,
+    behavioral_evidence_available: bool = False,
+    behavioral_effect_size: float | None = None,
 ) -> tuple[ValidationResult, dict[str, Any]]:
     frequency_report = compute_state_frequency_report(df)
     episodes = reconstruct_state_episodes(df)
@@ -246,6 +250,11 @@ def evaluate_criterion1(
         "Criterion 1 validates behavioral differentiation, not trading performance.",
         f"Minimum observations per state threshold: {MIN_OBSERVATIONS_PER_STATE}.",
         "Duration KS tests are calibration-consistency diagnostics and are not treated as behavioral differentiation evidence.",
+        (
+            "Progression analysis (YOUNG → MATURING, YOUNG → MATURE, MATURING → MATURE) is "
+            "currently descriptive only. It is reported for ontology interpretation and future "
+            "research, but is not used in Criterion 1 PASS/FAIL determination."
+        ),
     ]
 
     if low_sample_states:
@@ -255,7 +264,24 @@ def evaluate_criterion1(
         )
         status = "FAIL"
     elif behavioral_evidence_available:
-        status = "PASS"
+        effect_size_sufficient = (
+            behavioral_effect_size is not None
+            and behavioral_effect_size >= MIN_BEHAVIORAL_EFFECT_SIZE
+        )
+        if effect_size_sufficient:
+            status = "PASS"
+        else:
+            if behavioral_effect_size is None:
+                warnings.append(
+                    "Behavioral evidence is marked available but no effect size was supplied; "
+                    f"a minimum effect size of {MIN_BEHAVIORAL_EFFECT_SIZE} is required for a PASS status."
+                )
+            else:
+                warnings.append(
+                    f"Behavioral effect size {behavioral_effect_size:.4f} is below the minimum "
+                    f"threshold of {MIN_BEHAVIORAL_EFFECT_SIZE}; result is INCONCLUSIVE."
+                )
+            status = "INCONCLUSIVE"
     else:
         warnings.append(
             "Current Reactive-JPY Criterion 1 runs use duration-derived diagnostics only; independent behavioral evidence is required for a PASS status."
@@ -279,9 +305,16 @@ def evaluate_criterion1(
             "module": "bsve.validation.criterion1",
             "generated_at": generated_at.isoformat() if pd.notna(generated_at) else None,
             "min_observations_per_state": MIN_OBSERVATIONS_PER_STATE,
+            "minimum_behavioral_effect_size": MIN_BEHAVIORAL_EFFECT_SIZE,
             "ks_alpha": 0.05,
             "supported_environment": "reactive_jpy",
             "behavioral_evidence_available": behavioral_evidence_available,
+            "behavioral_effect_size": behavioral_effect_size,
+            "progression_analysis_role": (
+                "descriptive_only — progression analysis (YOUNG → MATURING, YOUNG → MATURE, "
+                "MATURING → MATURE) is reported for ontology interpretation and future research, "
+                "but is not used in Criterion 1 PASS/FAIL determination."
+            ),
         },
         "state_frequencies": frequency_report,
         "duration_statistics": duration_statistics,
