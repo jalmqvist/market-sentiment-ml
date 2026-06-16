@@ -63,6 +63,7 @@ def load_state_surface(path: str | Path) -> pd.DataFrame:
 
 
 def _prepare_surface(df: pd.DataFrame) -> pd.DataFrame:
+    """Sort the artifact and add entry/next-state helper columns."""
     ordered = df.sort_values(["pair", "entry_time"]).reset_index(drop=True).copy()
     prev_state = ordered.groupby("pair")["state_id"].shift()
     ordered["_is_state_entry"] = prev_state.isna() | ordered["state_id"].ne(prev_state)
@@ -71,6 +72,7 @@ def _prepare_surface(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _wilson_interval(successes: int, total: int, z: float = 1.96) -> dict[str, float | None]:
+    """Compute a Wilson-score confidence interval for a binomial proportion."""
     if total <= 0:
         return {"lower": None, "upper": None}
 
@@ -110,6 +112,7 @@ def compute_transition_matrix(df: pd.DataFrame) -> dict[str, dict[str, dict[str,
 
 
 def _iter_entry_contexts(df: pd.DataFrame) -> list[dict[str, Any]]:
+    """Extract state-entry rows together with their future state trajectories."""
     ordered = _prepare_surface(df)
     entries: list[dict[str, Any]] = []
     for _, group in ordered.groupby("pair", sort=False):
@@ -230,6 +233,7 @@ def compute_progression_analysis(df: pd.DataFrame) -> dict[str, dict[str, Any]]:
 
 
 def _cramers_v(statistic: float, total: int, rows: int, cols: int) -> float | None:
+    """Compute Cramér's V effect size for a chi-squared contingency test."""
     if total <= 0:
         return None
     scale = min(rows - 1, cols - 1)
@@ -243,6 +247,7 @@ def _run_behavioral_test(
     *,
     metric_name: str,
 ) -> dict[str, Any]:
+    """Run a chi-squared behavioral comparison across maturity states."""
     contingency = []
     insufficient_states = []
     total = 0
