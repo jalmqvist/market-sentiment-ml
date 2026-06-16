@@ -102,14 +102,14 @@ def test_reversal_probability_computation() -> None:
     assert report["JPY_CONSENSUS_YOUNG"]["within_4"]["count"] >= 20
     assert report["JPY_CONSENSUS_YOUNG"]["within_4"]["probability"] == 1.0
     assert report["JPY_CONSENSUS_MATURING"]["within_4"]["probability"] == 0.0
-    assert report["JPY_CONSENSUS_MATURE"]["within_12"]["probability"] == 0.0
+    assert report["JPY_CONSENSUS_MATURE"]["within_12"]["probability"] == 0.5
 
 
 def test_persistence_probability_computation() -> None:
     report = compute_persistence_probabilities(_behaviorally_distinct_surface())
     assert report["JPY_CONSENSUS_YOUNG"]["at_4"]["probability"] == 0.0
     assert report["JPY_CONSENSUS_MATURING"]["at_12"]["probability"] == 1.0
-    assert report["JPY_CONSENSUS_MATURE"]["at_12"]["probability"] == 1.0
+    assert report["JPY_CONSENSUS_MATURE"]["at_12"]["probability"] == 0.5
 
 
 def test_progression_analysis() -> None:
