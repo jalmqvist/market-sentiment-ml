@@ -190,15 +190,21 @@ bsve.test/
 - metadata
 - state frequencies
 - duration statistics
-- KS-test results
+- duration KS diagnostics (calibration-consistency only)
 - validation outcome
 
-**Pass/Fail interpretation**
+**Status interpretation**
 
-Criterion 1 passes when:
+Criterion 1 emits one of:
 
-- every evaluated state has at least 50 observations
-- at least one maturity-state KS comparison has `p < 0.05`
+- `PASS`: behavioral differentiation evidence is present and quality gates pass
+- `FAIL`: quality gates fail (for example insufficient observations)
+- `INCONCLUSIVE`: only duration-derived diagnostics are available, so behavioral differentiation is not established
+
+For Reactive-JPY Criterion 1, duration KS diagnostics are reported as
+calibration-consistency checks and are **not** treated as evidence of behavioral
+differentiation. Therefore, runs with sufficient samples but only duration-derived
+evidence are marked `INCONCLUSIVE`.
 
 Current support is limited to Reactive-JPY Criterion 1 validation.
 

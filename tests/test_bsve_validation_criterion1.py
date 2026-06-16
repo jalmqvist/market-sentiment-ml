@@ -117,6 +117,11 @@ def test_ks_test_execution() -> None:
     assert len(tests) == 3
     assert warnings == []
     assert any(test["significant"] for test in tests)
+    assert all(
+        test["classification"] == "calibration_consistency_diagnostic"
+        and test["used_for_behavioral_differentiation"] is False
+        for test in tests
+    )
 
 
 def test_minimum_observation_validation_fails() -> None:
@@ -131,10 +136,11 @@ def test_minimum_observation_validation_fails() -> None:
 
     result, _ = evaluate_criterion1(df)
     assert result.passed is False
+    assert result.status == "FAIL"
     assert any("Insufficient observations" in warning for warning in result.warnings)
 
 
-def test_report_generation_and_pass_fail_logic(tmp_path) -> None:
+def test_report_generation_and_status_logic(tmp_path) -> None:
     df = _rich_surface()
     artifact = tmp_path / "bsve_states_reactive_jpy_1.0.0.parquet"
     df.to_parquet(artifact, index=False)
@@ -151,9 +157,14 @@ def test_report_generation_and_pass_fail_logic(tmp_path) -> None:
     assert report_path.exists()
 
     report = json.loads(report_path.read_text(encoding="utf-8"))
-    assert report["validation_outcome"]["passed"] is True
+    assert report["validation_outcome"]["passed"] is False
+    assert report["validation_outcome"]["status"] == "INCONCLUSIVE"
     assert report["metadata"]["criterion"] == "criterion1_behavioral_differentiation"
+    assert report["metadata"]["behavioral_evidence_available"] is False
+    assert report["duration_ks_diagnostics"][0]["classification"] == (
+        "calibration_consistency_diagnostic"
+    )
 
     direct_path = write_validation_report(report, tmp_path / "nested")
     reloaded = json.loads(direct_path.read_text(encoding="utf-8"))
-    assert reloaded["validation_outcome"]["passed"] is True
+    assert reloaded["validation_outcome"]["status"] == "INCONCLUSIVE"

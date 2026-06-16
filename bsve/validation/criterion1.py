@@ -34,6 +34,7 @@ SURVIVAL_THRESHOLDS = [8, 24, 48]
 @dataclass
 class ValidationResult:
     criterion_name: str
+    status: str
     passed: bool
     sample_counts: dict[str, int]
     statistical_tests: list[dict[str, Any]]
@@ -159,6 +160,8 @@ def run_duration_ks_tests(episodes: pd.DataFrame) -> tuple[list[dict[str, Any]],
                     "ks_statistic": None,
                     "p_value": None,
                     "significant": False,
+                    "classification": "calibration_consistency_diagnostic",
+                    "used_for_behavioral_differentiation": False,
                 }
             )
             continue
@@ -172,6 +175,8 @@ def run_duration_ks_tests(episodes: pd.DataFrame) -> tuple[list[dict[str, Any]],
                 "ks_statistic": float(result.statistic),
                 "p_value": float(result.pvalue),
                 "significant": bool(result.pvalue < 0.05),
+                "classification": "calibration_consistency_diagnostic",
+                "used_for_behavioral_differentiation": False,
             }
         )
 
@@ -234,11 +239,11 @@ def evaluate_criterion1(df: pd.DataFrame) -> tuple[ValidationResult, dict[str, A
         state for state, count in sample_counts.items() if count < MIN_OBSERVATIONS_PER_STATE
     ]
 
-    has_significant_ks = any(t["significant"] for t in ks_tests)
     warnings = list(ks_warnings)
     notes = [
         "Criterion 1 validates behavioral differentiation, not trading performance.",
         f"Minimum observations per state threshold: {MIN_OBSERVATIONS_PER_STATE}.",
+        "Duration KS tests are calibration-consistency diagnostics and are not treated as behavioral differentiation evidence.",
     ]
 
     if low_sample_states:
@@ -246,12 +251,16 @@ def evaluate_criterion1(df: pd.DataFrame) -> tuple[ValidationResult, dict[str, A
             "Insufficient observations for states: "
             + ", ".join(sorted(low_sample_states))
         )
-    if not has_significant_ks:
-        warnings.append("No maturity-state KS comparison reached p < 0.05")
+    else:
+        warnings.append(
+            "Behavioral differentiation evidence remains unavailable; duration-derived diagnostics alone are insufficient for Criterion 1 PASS."
+        )
+    status = "FAIL" if low_sample_states else "INCONCLUSIVE"
 
     result = ValidationResult(
         criterion_name=CRITERION_NAME,
-        passed=(not low_sample_states and has_significant_ks),
+        status=status,
+        passed=(status == "PASS"),
         sample_counts=sample_counts,
         statistical_tests=ks_tests,
         warnings=warnings,
@@ -267,10 +276,11 @@ def evaluate_criterion1(df: pd.DataFrame) -> tuple[ValidationResult, dict[str, A
             "min_observations_per_state": MIN_OBSERVATIONS_PER_STATE,
             "ks_alpha": 0.05,
             "supported_environment": "reactive_jpy",
+            "behavioral_evidence_available": False,
         },
         "state_frequencies": frequency_report,
         "duration_statistics": duration_statistics,
-        "ks_test_results": ks_tests,
+        "duration_ks_diagnostics": ks_tests,
         "survival_analysis": survival_table,
         "transition_frequencies": transitions,
         "validation_outcome": asdict(result),
@@ -281,7 +291,7 @@ def evaluate_criterion1(df: pd.DataFrame) -> tuple[ValidationResult, dict[str, A
 def _print_summary(result: ValidationResult, report_path: Path) -> None:
     print("[BSVE] Criterion 1 Validation (Reactive-JPY)")
     print("-" * 60)
-    print(f"Result: {'PASS' if result.passed else 'FAIL'}")
+    print(f"Status: {result.status}")
     print("Sample counts:")
     for state in STATE_ORDER:
         if state in result.sample_counts:
