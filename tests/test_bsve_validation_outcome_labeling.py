@@ -29,7 +29,7 @@ def _state_surface() -> pd.DataFrame:
 def _market_dataset() -> pd.DataFrame:
     ts = pd.Timestamp("2024-01-01")
     closes = [100.0, 101.0, 101.0, 101.0, 101.0, 101.5, 103.5]
-    atr = [0.01] * len(closes)
+    atr = [1.0] * len(closes)
     return pd.DataFrame(
         {
             "pair": ["usd-jpy"] * len(closes),
@@ -55,6 +55,8 @@ def test_assign_independent_outcome_labels_success_and_failure() -> None:
     assert len(outcomes) == 2
     young = outcomes[outcomes["state_id"] == "JPY_CONSENSUS_YOUNG"].iloc[0]
     mature = outcomes[outcomes["state_id"] == "JPY_CONSENSUS_MATURE"].iloc[0]
+    assert young["success_threshold"] == 0.01
+    assert mature["success_threshold"] == 0.01
     assert young["outcome_label"] == "FAILURE"
     assert mature["outcome_label"] == "SUCCESS"
 

@@ -95,7 +95,9 @@ def _compute_forward_frame(
     ordered["forward_return"] = (
         ordered["future_close"] / ordered[DEFAULT_PRICE_COL] - 1.0
     )
-    ordered["success_threshold"] = ordered[DEFAULT_THRESHOLD_COL].abs()
+    # atr_pct is stored in percent units (ATR / Close * 100). Convert to a
+    # fractional threshold so it is unit-consistent with forward_return.
+    ordered["success_threshold"] = ordered[DEFAULT_THRESHOLD_COL].abs() / 100.0
     return ordered[["pair", "entry_time", "forward_return", "success_threshold"]]
 
 

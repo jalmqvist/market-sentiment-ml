@@ -178,6 +178,15 @@ Independent outcomes are required for Criterion 1 PASS eligibility. Labels are
 computed from realized forward returns over a fixed 24-bar H1 window after
 episode termination and do not depend on maturity duration boundaries.
 
+**Unit convention**
+
+- `forward_return` is stored as a fraction: `future_close / close - 1`
+- `atr_pct` is stored in percent units: `ATR / close * 100`
+- `success_threshold` is converted to fraction units before comparison:
+  `success_threshold = abs(atr_pct) / 100`
+- Classification rule: `SUCCESS` if `abs(forward_return) >= success_threshold`,
+  else `FAILURE`
+
 **Generated outputs**
 
 ```
