@@ -223,7 +223,9 @@ def compute_transition_frequencies(df: pd.DataFrame) -> list[dict[str, Any]]:
     return rows
 
 
-def evaluate_criterion1(df: pd.DataFrame) -> tuple[ValidationResult, dict[str, Any]]:
+def evaluate_criterion1(
+    df: pd.DataFrame, *, behavioral_evidence_available: bool = False
+) -> tuple[ValidationResult, dict[str, Any]]:
     frequency_report = compute_state_frequency_report(df)
     episodes = reconstruct_state_episodes(df)
     duration_statistics = compute_duration_statistics(episodes)
@@ -251,11 +253,14 @@ def evaluate_criterion1(df: pd.DataFrame) -> tuple[ValidationResult, dict[str, A
             "Insufficient observations for states: "
             + ", ".join(sorted(low_sample_states))
         )
+        status = "FAIL"
+    elif behavioral_evidence_available:
+        status = "PASS"
     else:
         warnings.append(
-            "Behavioral differentiation evidence remains unavailable; duration-derived diagnostics alone are insufficient for Criterion 1 PASS."
+            "Current Reactive-JPY Criterion 1 runs use duration-derived diagnostics only; this is insufficient for Criterion 1 PASS."
         )
-    status = "FAIL" if low_sample_states else "INCONCLUSIVE"
+        status = "INCONCLUSIVE"
 
     result = ValidationResult(
         criterion_name=CRITERION_NAME,
@@ -276,7 +281,7 @@ def evaluate_criterion1(df: pd.DataFrame) -> tuple[ValidationResult, dict[str, A
             "min_observations_per_state": MIN_OBSERVATIONS_PER_STATE,
             "ks_alpha": 0.05,
             "supported_environment": "reactive_jpy",
-            "behavioral_evidence_available": False,
+            "behavioral_evidence_available": behavioral_evidence_available,
         },
         "state_frequencies": frequency_report,
         "duration_statistics": duration_statistics,

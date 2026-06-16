@@ -168,3 +168,11 @@ def test_report_generation_and_status_logic(tmp_path) -> None:
     direct_path = write_validation_report(report, tmp_path / "nested")
     reloaded = json.loads(direct_path.read_text(encoding="utf-8"))
     assert reloaded["validation_outcome"]["status"] == "INCONCLUSIVE"
+
+
+def test_status_pass_when_behavioral_evidence_available() -> None:
+    df = _rich_surface()
+    result, report = evaluate_criterion1(df, behavioral_evidence_available=True)
+    assert result.status == "PASS"
+    assert result.passed is True
+    assert report["metadata"]["behavioral_evidence_available"] is True
