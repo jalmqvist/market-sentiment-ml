@@ -12,8 +12,10 @@ import pytest
 from bsve.state_machine.rule_based import (
     assert_calibrations_valid,
     assign_states_reactive_jpy,
+    classify_episode_outcome,
     classify_maturity,
     classify_transition,
+    apply_episode_outcomes,
     generate_diagnostics,
     generate_run_manifest,
     validate_state_artifact,
@@ -176,6 +178,249 @@ class TestClassifyTransition:
 
 
 # ---------------------------------------------------------------------------
+# classify_episode_outcome
+# ---------------------------------------------------------------------------
+
+
+class TestClassifyEpisodeOutcome:
+    """Unit tests for classify_episode_outcome boundary logic."""
+
+    def test_zero_maturity_is_unknown(self):
+        outcome = classify_episode_outcome(0, mature_boundary=24)
+        assert outcome.outcome_type == "exit_unknown"
+        assert outcome.max_maturity_bars == 0
+
+    def test_negative_maturity_is_unknown(self):
+        outcome = classify_episode_outcome(-1, mature_boundary=24)
+        assert outcome.outcome_type == "exit_unknown"
+
+    def test_early_reversal(self):
+        # Well below mature_boundary
+        outcome = classify_episode_outcome(5, mature_boundary=24)
+        assert outcome.outcome_type == "exit_reversal"
+        assert outcome.max_maturity_bars == 5
+
+    def test_reversal_at_boundary_minus_one(self):
+        # One bar below mature_boundary — still a reversal
+        outcome = classify_episode_outcome(23, mature_boundary=24)
+        assert outcome.outcome_type == "exit_reversal"
+
+    def test_threshold_at_mature_boundary(self):
+        # Exactly at mature_boundary → exit_threshold
+        outcome = classify_episode_outcome(24, mature_boundary=24)
+        assert outcome.outcome_type == "exit_threshold"
+        assert outcome.max_maturity_bars == 24
+
+    def test_threshold_within_normal_range(self):
+        # Inside [mature_boundary, 2*mature_boundary)
+        outcome = classify_episode_outcome(40, mature_boundary=24)
+        assert outcome.outcome_type == "exit_threshold"
+
+    def test_threshold_at_upper_boundary_minus_one(self):
+        # 2*24 - 1 = 47 → still exit_threshold
+        outcome = classify_episode_outcome(47, mature_boundary=24)
+        assert outcome.outcome_type == "exit_threshold"
+
+    def test_late_reversal_at_double_boundary(self):
+        # Exactly at 2 * mature_boundary → exit_late_reversal
+        outcome = classify_episode_outcome(48, mature_boundary=24)
+        assert outcome.outcome_type == "exit_late_reversal"
+        assert outcome.max_maturity_bars == 48
+
+    def test_late_reversal_well_past_boundary(self):
+        outcome = classify_episode_outcome(100, mature_boundary=24)
+        assert outcome.outcome_type == "exit_late_reversal"
+
+    def test_outcome_fields(self):
+        outcome = classify_episode_outcome(30, mature_boundary=24)
+        assert hasattr(outcome, "max_maturity_bars")
+        assert hasattr(outcome, "outcome_type")
+        assert outcome.max_maturity_bars == 30
+
+
+# ---------------------------------------------------------------------------
+# apply_episode_outcomes
+# ---------------------------------------------------------------------------
+
+
+def _make_artifact_df(
+    net_sentiments: list[float],
+    *,
+    pair: str = "usd-jpy",
+    calibration_artifact: dict | None = None,
+) -> pd.DataFrame:
+    """Build a minimal artifact DataFrame for apply_episode_outcomes tests."""
+    if calibration_artifact is None:
+        from bsve.calibration.calibration_contract import build_calibration_artifact
+        calibration_artifact = build_calibration_artifact(
+            calibration_id="test_v1",
+            ontology_id="reactive_jpy",
+            ontology_version="1.0.0",
+            calibration_window_start="2019-01-01",
+            calibration_window_end="2026-12-31",
+            dataset_version="1.5.0",
+            calibration_method="hazard_analysis",
+            outcome="success",
+            thresholds={
+                "extreme_threshold_net_pct": 70.0,
+                "young_boundary_bars": 8,
+                "mature_boundary_bars": 24,
+            },
+            diagnostics={},
+            calibration_mode="research",
+        )
+    n = len(net_sentiments)
+    df = pd.DataFrame(
+        {
+            "pair": pair,
+            "entry_time": pd.date_range("2024-01-01", periods=n, freq="h"),
+            "net_sentiment": net_sentiments,
+        }
+    )
+    return assign_states_reactive_jpy(
+        df,
+        calibration_artifact=calibration_artifact,
+        spec_id="reactive_jpy_v1",
+    )
+
+
+class TestApplyEpisodeOutcomes:
+    """Tests for apply_episode_outcomes — episode-level outcome labeling."""
+
+    def _art(self, net_sentiments: list[float]) -> pd.DataFrame:
+        art = build_calibration_artifact(
+            calibration_id="test_v1",
+            ontology_id="reactive_jpy",
+            ontology_version="1.0.0",
+            calibration_window_start="2019-01-01",
+            calibration_window_end="2026-12-31",
+            dataset_version="1.5.0",
+            calibration_method="hazard_analysis",
+            outcome="success",
+            thresholds={
+                "extreme_threshold_net_pct": 70.0,
+                "young_boundary_bars": 8,
+                "mature_boundary_bars": 24,
+            },
+            diagnostics={},
+            calibration_mode="research",
+        )
+        n = len(net_sentiments)
+        df = pd.DataFrame(
+            {
+                "pair": "usd-jpy",
+                "entry_time": pd.date_range("2024-01-01", periods=n, freq="h"),
+                "net_sentiment": net_sentiments,
+            }
+        )
+        return assign_states_reactive_jpy(
+            df, calibration_artifact=art, spec_id="reactive_jpy_v1"
+        )
+
+    def test_early_reversal_episode(self):
+        """Episode with 5 extreme bars < young_boundary → exit_reversal."""
+        result = self._art([80.0] * 5)
+        # Terminal bar (index 4) should be exit_reversal
+        assert result.iloc[4]["transition_event"] == "exit_reversal"
+
+    def test_threshold_exit_episode(self):
+        """Episode with max_maturity in [mature_boundary, 2*mature_boundary) → exit_threshold."""
+        # 30 bars: max_maturity=30, mature_boundary=24, 24<=30<48 → exit_threshold
+        result = self._art([80.0] * 30)
+        assert result.iloc[29]["transition_event"] == "exit_threshold"
+
+    def test_late_reversal_episode(self):
+        """Episode with max_maturity >= 2*mature_boundary → exit_late_reversal."""
+        # 50 bars: max_maturity=50, mature_boundary=24, 50>=48 → exit_late_reversal
+        result = self._art([80.0] * 50)
+        assert result.iloc[49]["transition_event"] == "exit_late_reversal"
+
+    def test_non_terminal_bars_unchanged(self):
+        """Bars that are not the episode terminal must NOT be modified by outcome labeling.
+
+        Note: bar 7 (first Maturing bar, maturity=8) has 'exit_threshold' from the
+        bar-level classify_transition (maturity crossing).  Only the TERMINAL bar
+        is overwritten by apply_episode_outcomes.
+        """
+        # 10-bar episode; bars 0-8 are non-terminal, bar 9 is terminal
+        result = self._art([80.0] * 10)
+        assert result.iloc[0]["transition_event"] == "entry"
+        # Bars 1-6 are YOUNG continuations
+        for i in range(1, 7):
+            assert result.iloc[i]["transition_event"] == "continuation", f"bar {i}"
+        # Bar 7 is the first Maturing bar — bar-level maturity crossing, not overwritten
+        assert result.iloc[7]["transition_event"] == "exit_threshold"
+        # Bar 8 is a Maturing continuation
+        assert result.iloc[8]["transition_event"] == "continuation"
+        # Terminal bar (index 9) receives the episode outcome label
+        # max_maturity=10 < mature_boundary=24 → exit_reversal
+        assert result.iloc[9]["transition_event"] == "exit_reversal"
+
+    def test_episode_separated_by_non_extreme(self):
+        """Two separate extreme episodes; each terminal bar gets its own label."""
+        # Episode 1: 5 extreme bars → exit_reversal
+        # Non-extreme gap: 2 bars
+        # Episode 2: 5 extreme bars → exit_reversal
+        sentiments = [80.0] * 5 + [50.0] * 2 + [80.0] * 5
+        result = self._art(sentiments)
+        # Terminal bar of episode 1 is index 4
+        assert result.iloc[4]["transition_event"] == "exit_reversal"
+        # Terminal bar of episode 2 is index 11
+        assert result.iloc[11]["transition_event"] == "exit_reversal"
+        # Non-extreme bars are not touched
+        assert result.iloc[5]["state_id"] == "JPY_NON_EXTREME"
+
+    def test_maturity_crossing_bar_within_episode_unchanged(self):
+        """The first Mature bar (maturity crossing) must NOT be overwritten by outcome labeling
+        when it is not the terminal bar of the episode."""
+        # 25 bars: bar at index 23 is the first Mature bar (maturity=24, exit_threshold crossing),
+        # bar at index 24 is the terminal bar (max_maturity=25, exit_threshold outcome).
+        result = self._art([80.0] * 25)
+        # Non-terminal crossing bar keeps its bar-level exit_threshold event
+        assert result.iloc[23]["transition_event"] == "exit_threshold"
+        # Terminal bar also gets exit_threshold (episode outcome, since 24<=25<48)
+        assert result.iloc[24]["transition_event"] == "exit_threshold"
+
+    def test_outcome_at_exact_mature_boundary(self):
+        """Episode whose max_maturity equals mature_boundary exactly → exit_threshold."""
+        # 24 bars: max_maturity=24, mature_boundary=24 → exit_threshold
+        result = self._art([80.0] * 24)
+        assert result.iloc[23]["transition_event"] == "exit_threshold"
+
+    def test_outcome_at_boundary_minus_one(self):
+        """Episode whose max_maturity is one below mature_boundary → exit_reversal."""
+        # 23 bars: max_maturity=23 < 24 → exit_reversal
+        result = self._art([80.0] * 23)
+        assert result.iloc[22]["transition_event"] == "exit_reversal"
+
+    def test_outcome_at_double_boundary(self):
+        """Episode whose max_maturity equals 2*mature_boundary → exit_late_reversal."""
+        # 48 bars: max_maturity=48 >= 48 → exit_late_reversal
+        result = self._art([80.0] * 48)
+        assert result.iloc[47]["transition_event"] == "exit_late_reversal"
+
+    def test_artifact_has_all_new_transition_types(self):
+        """An artifact that spans young, maturing, and late-mature episodes should contain
+        all three new outcome types in its transition_event column."""
+        # Build a surface with all three outcome types:
+        # Episode 1: 5 bars (exit_reversal)
+        # Gap
+        # Episode 2: 30 bars (exit_threshold: 24<=30<48)
+        # Gap
+        # Episode 3: 50 bars (exit_late_reversal: 50>=48)
+        sentiments = (
+            [80.0] * 5 + [50.0] * 2
+            + [80.0] * 30 + [50.0] * 2
+            + [80.0] * 50
+        )
+        result = self._art(sentiments)
+        events = set(result["transition_event"].unique())
+        assert "exit_reversal" in events
+        assert "exit_threshold" in events
+        assert "exit_late_reversal" in events
+
+
+# ---------------------------------------------------------------------------
 # assign_states_reactive_jpy
 # ---------------------------------------------------------------------------
 
@@ -314,7 +559,13 @@ class TestAssignStatesReactiveJPY:
         assert result.iloc[0]["transition_event"] == "entry"
 
     def test_transition_continuation(self, calibration_artifact):
-        df = _make_jpy_df(n=3, net_sentiments=[80.0, 80.0, 80.0])
+        """Non-terminal bars within an episode must remain 'continuation'.
+
+        The episode outcome classifier overwrites only the LAST bar's
+        transition_event.  All preceding extreme bars keep 'continuation'.
+        """
+        # Use 4 bars so bar 2 (index 2) is the penultimate, NOT the terminal.
+        df = _make_jpy_df(n=4, net_sentiments=[80.0, 80.0, 80.0, 80.0])
         result = assign_states_reactive_jpy(
             df,
             calibration_artifact=calibration_artifact,
@@ -322,6 +573,9 @@ class TestAssignStatesReactiveJPY:
         )
         assert result.iloc[1]["transition_event"] == "continuation"
         assert result.iloc[2]["transition_event"] == "continuation"
+        # Terminal bar (index 3) receives the episode outcome label.
+        # max_maturity=4 < mature_boundary=24 → exit_reversal.
+        assert result.iloc[3]["transition_event"] == "exit_reversal"
 
     def test_transition_exit_reversal(self, calibration_artifact):
         df = _make_jpy_df(n=2, net_sentiments=[80.0, 50.0])
@@ -513,6 +767,94 @@ class TestGenerateDiagnostics:
         # Episode survives to ≥24 bars — survival count for "24" must be 1.
         assert diag["survival_counts"]["24"] == 1
 
+    def test_outcome_distribution_present(self, calibration_artifact):
+        """generate_diagnostics must include outcome_distribution keys."""
+        df = _make_jpy_df(n=5, net_sentiments=[80.0] * 5)
+        result = assign_states_reactive_jpy(
+            df,
+            calibration_artifact=calibration_artifact,
+            spec_id="reactive_jpy_v1",
+        )
+        diag = generate_diagnostics(result)
+        assert "outcome_distribution" in diag
+        assert "outcome_distribution_per_pair" in diag
+        od = diag["outcome_distribution"]
+        for key in ["exit_reversal", "exit_threshold", "exit_late_reversal", "exit_unknown"]:
+            assert key in od, f"Missing key in outcome_distribution: {key}"
+
+    def test_outcome_distribution_counts_reversal(self, calibration_artifact):
+        """A 5-bar episode (max_maturity=5 < mature_boundary=24) must be exit_reversal."""
+        df = _make_jpy_df(n=5, net_sentiments=[80.0] * 5)
+        result = assign_states_reactive_jpy(
+            df,
+            calibration_artifact=calibration_artifact,
+            spec_id="reactive_jpy_v1",
+        )
+        diag = generate_diagnostics(result)
+        assert diag["outcome_distribution"]["exit_reversal"] == 1
+        assert diag["outcome_distribution"]["exit_threshold"] == 0
+        assert diag["outcome_distribution"]["exit_late_reversal"] == 0
+
+    def test_outcome_distribution_counts_threshold(self, calibration_artifact):
+        """A 30-bar episode (24<=30<48) must be exit_threshold."""
+        df = _make_jpy_df(n=30, net_sentiments=[80.0] * 30)
+        result = assign_states_reactive_jpy(
+            df,
+            calibration_artifact=calibration_artifact,
+            spec_id="reactive_jpy_v1",
+        )
+        diag = generate_diagnostics(result)
+        assert diag["outcome_distribution"]["exit_threshold"] == 1
+        assert diag["outcome_distribution"]["exit_reversal"] == 0
+        assert diag["outcome_distribution"]["exit_late_reversal"] == 0
+
+    def test_outcome_distribution_counts_late_reversal(self, calibration_artifact):
+        """A 50-bar episode (50>=48) must be exit_late_reversal."""
+        df = _make_jpy_df(n=50, net_sentiments=[80.0] * 50)
+        result = assign_states_reactive_jpy(
+            df,
+            calibration_artifact=calibration_artifact,
+            spec_id="reactive_jpy_v1",
+        )
+        diag = generate_diagnostics(result)
+        assert diag["outcome_distribution"]["exit_late_reversal"] == 1
+        assert diag["outcome_distribution"]["exit_reversal"] == 0
+        assert diag["outcome_distribution"]["exit_threshold"] == 0
+
+    def test_outcome_distribution_all_types_present(self, calibration_artifact):
+        """Multi-episode run spanning all three outcome types."""
+        # Episode 1: 5 bars → exit_reversal
+        # Episode 2: 30 bars → exit_threshold
+        # Episode 3: 50 bars → exit_late_reversal
+        sentiments = (
+            [80.0] * 5 + [50.0] * 2
+            + [80.0] * 30 + [50.0] * 2
+            + [80.0] * 50
+        )
+        df = _make_jpy_df(n=len(sentiments), net_sentiments=sentiments)
+        result = assign_states_reactive_jpy(
+            df,
+            calibration_artifact=calibration_artifact,
+            spec_id="reactive_jpy_v1",
+        )
+        diag = generate_diagnostics(result)
+        assert diag["outcome_distribution"]["exit_reversal"] == 1
+        assert diag["outcome_distribution"]["exit_threshold"] == 1
+        assert diag["outcome_distribution"]["exit_late_reversal"] == 1
+
+    def test_outcome_distribution_per_pair(self, calibration_artifact):
+        """outcome_distribution_per_pair must be keyed by pair name."""
+        df = _make_jpy_df(n=5, net_sentiments=[80.0] * 5)
+        result = assign_states_reactive_jpy(
+            df,
+            calibration_artifact=calibration_artifact,
+            spec_id="reactive_jpy_v1",
+        )
+        diag = generate_diagnostics(result)
+        assert "usd-jpy" in diag["outcome_distribution_per_pair"]
+        pair_od = diag["outcome_distribution_per_pair"]["usd-jpy"]
+        assert pair_od["exit_reversal"] == 1
+
 
 # ---------------------------------------------------------------------------
 # generate_run_manifest
@@ -588,3 +930,86 @@ class TestCommittedArtifactIntegration:
         assert result.iloc[6]["state_id"] == "JPY_CONSENSUS_YOUNG"   # bar 7
         assert result.iloc[7]["state_id"] == "JPY_CONSENSUS_MATURING"  # bar 8
         assert result.iloc[23]["state_id"] == "JPY_CONSENSUS_MATURE"   # bar 24
+
+
+# ---------------------------------------------------------------------------
+# Integration: state machine → diagnostics → criterion1
+# ---------------------------------------------------------------------------
+
+
+def _build_rich_artifact(calibration_artifact: dict) -> pd.DataFrame:
+    """Build a realistic state-surface artifact spanning all outcome types."""
+    # Three episode types:
+    #   exit_reversal:      5 bars each (10 episodes)
+    #   exit_threshold:     30 bars each (5 episodes)  — 24<=30<48
+    #   exit_late_reversal: 50 bars each (3 episodes)  — 50>=48
+    sentiments: list[float] = []
+    for _ in range(10):
+        sentiments += [80.0] * 5 + [50.0] * 2
+    for _ in range(5):
+        sentiments += [80.0] * 30 + [50.0] * 2
+    for _ in range(3):
+        sentiments += [80.0] * 50 + [50.0] * 2
+
+    df = _make_jpy_df(n=len(sentiments), net_sentiments=sentiments)
+    return assign_states_reactive_jpy(
+        df,
+        calibration_artifact=calibration_artifact,
+        spec_id="reactive_jpy_v1",
+    )
+
+
+class TestStateMachineIntegration:
+    """Integration tests: state machine run → diagnostics → criterion1 consumption."""
+
+    def test_state_machine_produces_all_outcome_types(self, calibration_artifact):
+        """State machine run over a mixed dataset must produce all three
+        episode outcome types in transition_event."""
+        result = _build_rich_artifact(calibration_artifact)
+        events = set(result["transition_event"].unique())
+        assert "exit_reversal" in events
+        assert "exit_threshold" in events
+        assert "exit_late_reversal" in events
+
+    def test_diagnostics_reflect_all_outcome_types(self, calibration_artifact):
+        """Diagnostics from a mixed-outcome run must count all three types."""
+        result = _build_rich_artifact(calibration_artifact)
+        diag = generate_diagnostics(result)
+        od = diag["outcome_distribution"]
+        assert od["exit_reversal"] == 10
+        assert od["exit_threshold"] == 5
+        assert od["exit_late_reversal"] == 3
+        assert od["exit_unknown"] == 0
+
+    def test_criterion1_consumes_outcome_labels(self, calibration_artifact):
+        """Criterion 1 should receive behavioral outcomes that reflect all
+        new outcome types reported per consensus state."""
+        from bsve.validation.behavioral_outcomes import analyze_behavioral_outcomes
+        result = _build_rich_artifact(calibration_artifact)
+        behavioral = analyze_behavioral_outcomes(result)
+        outcomes = {o["state_id"]: o for o in behavioral["behavioral_outcomes"]}
+
+        # All three consensus states must be represented
+        for state in ["JPY_CONSENSUS_YOUNG", "JPY_CONSENSUS_MATURING", "JPY_CONSENSUS_MATURE"]:
+            assert state in outcomes
+            row = outcomes[state]
+            # All outcome_distribution keys must be present
+            assert "outcome_distribution" in row
+            od = row["outcome_distribution"]
+            for key in ["exit_reversal", "exit_threshold", "exit_late_reversal", "exit_unknown"]:
+                assert key in od, f"Missing outcome key {key!r} for {state}"
+
+    def test_criterion1_behavioral_tests_produced(self, calibration_artifact):
+        """When consensus states have distinguishable outcomes, behavioral tests are run."""
+        from bsve.validation.behavioral_outcomes import analyze_behavioral_outcomes
+        result = _build_rich_artifact(calibration_artifact)
+        behavioral = analyze_behavioral_outcomes(result)
+        # Should have one test per pair of consensus states
+        assert len(behavioral["behavioral_tests"]) == 3
+
+    def test_artifact_transition_events_all_valid(self, calibration_artifact):
+        """All transition_event values in the artifact must be schema-valid."""
+        from schemas.bsve_artifact_schema import BSVE_TRANSITION_EVENT_VALUES
+        result = _build_rich_artifact(calibration_artifact)
+        bad = set(result["transition_event"].unique()) - BSVE_TRANSITION_EVENT_VALUES
+        assert not bad, f"Invalid transition_event values: {bad}"

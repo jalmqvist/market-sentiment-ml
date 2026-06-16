@@ -14,6 +14,7 @@ Current status:
 ✓ Calibration framework
 ✓ Artifact validation
 ✓ Rule-based state assignment
+✓ Threshold-exit labeling and episode outcome classification
 ✓ Criterion validation (Reactive-JPY Criterion 1)
 □ Environment validation
 □ Multi-ontology support
@@ -144,7 +145,7 @@ bsve.test/
 | Artifact                                 | Purpose                                                                               |
 | ---------------------------------------- | ------------------------------------------------------------------------------------- |
 | `bsve_states_reactive_jpy_1.0.0.parquet` | Row-level state assignments suitable for criterion testing and downstream analysis    |
-| `diagnostics.json`                       | State counts, episode statistics, survival counts, maturity sparsity diagnostics      |
+| `diagnostics.json`                       | State counts, episode statistics, survival counts, maturity sparsity diagnostics, and outcome distribution |
 | `run_manifest.json`                      | Provenance record linking dataset version, ontology, calibration artifact, and run ID |
 
 **Validation behavior**
@@ -157,6 +158,80 @@ Before writing artifacts the state machine performs:
 * uniqueness checks on `(pair, environment_id, entry_time)`
 
 State assignment fails fast if any contract violation is detected.
+
+---
+
+## State Assignment Outputs
+
+### `transition_event` meanings
+
+Each row in the state-surface parquet has a `transition_event` column.
+Values and their semantics:
+
+| Event | Description |
+|-------|-------------|
+| `entry` | First bar of a new extreme-consensus episode, or the first bar in the dataset for a pair. |
+| `continuation` | State and extreme condition are unchanged from the previous bar. |
+| `exit_threshold` | Recorded on the first bar of a new maturity class (Young → Maturing or Maturing → Mature). Also used as the episode outcome label when a consensus episode reaches the mature state and terminates within a normal mature lifecycle (`mature_boundary <= max_maturity < 2 * mature_boundary`). |
+| `exit_reversal` | Terminal bar of a consensus episode that ended before crossing the mature boundary (`max_maturity < mature_boundary`). Consensus failed before maturing. |
+| `exit_late_reversal` | Terminal bar of a consensus episode that survived well beyond the mature boundary (`max_maturity >= 2 * mature_boundary`) and then collapsed. Mature consensus eventually failed rather than dissipating normally. |
+| `exit_unknown` | Fallback; used only when the termination reason cannot be determined. Should remain rare. |
+
+### Episode outcome labeling
+
+After bar-level state assignment, the state machine applies a deterministic
+episode outcome classifier to every consensus episode (contiguous run of
+extreme-consensus bars within a pair).
+
+The classifier computes `max_maturity_bars` for the episode and assigns an
+outcome type based on calibrated boundaries:
+
+```
+max_maturity < mature_boundary             → exit_reversal
+mature_boundary ≤ max_maturity < 2×mature  → exit_threshold
+max_maturity ≥ 2×mature_boundary           → exit_late_reversal
+```
+
+The outcome label overwrites the `transition_event` on the **last bar** of
+the episode only.  All non-terminal bars keep their bar-level events.
+
+This labeling is performed **after** state assignment and is independent of
+maturity classification.  State assignment can be audited separately.
+
+### Diagnostics interpretation
+
+`diagnostics.json` includes an `outcome_distribution` section:
+
+```json
+{
+  "outcome_distribution": {
+    "exit_reversal":      412,
+    "exit_threshold":      87,
+    "exit_late_reversal":  21,
+    "exit_unknown":         3
+  },
+  "outcome_distribution_per_pair": {
+    "usd-jpy": { "exit_reversal": 120, ... },
+    "eur-jpy": { "exit_reversal": 140, ... },
+    ...
+  }
+}
+```
+
+- `exit_reversal`: count of consensus episodes that terminated before reaching the mature state.
+- `exit_threshold`: count of episodes that reached the mature state and completed a normal lifecycle.
+- `exit_late_reversal`: count of long-lived mature episodes that eventually collapsed.
+- `exit_unknown`: count of episodes that could not be classified (should be near zero).
+
+The console also prints an Outcome Distribution table after each run:
+
+```
+Outcome Distribution
+  exit_reversal            412
+  exit_threshold            87
+  exit_late_reversal        21
+  exit_unknown               3
+```
 
 ---
 
@@ -191,7 +266,7 @@ bsve.test/
 - state frequencies
 - duration statistics
 - duration KS diagnostics (calibration-consistency only)
-- behavioral outcomes (reversal rates per consensus state)
+- behavioral outcomes (per-state outcome distributions and reversal rates)
 - behavioral tests (Fisher's exact test results with Cohen's h effect sizes)
 - validation outcome
 
@@ -204,18 +279,33 @@ bsve.test/
 | `duration_statistics` | Median, mean, P25/P75, and max episode durations per state |
 | `duration_ks_diagnostics` | KS-test results for duration distributions (calibration-consistency diagnostics only) |
 | `survival_analysis` | Fraction of episodes surviving past 8, 24, and 48 bars per state |
-| `transition_frequencies` | Counts of entry, continuation, exit_reversal, and exit_unknown events per state |
-| `behavioral_outcomes` | Per consensus state: episode count, reversal count, reversal rate |
+| `transition_frequencies` | Counts of all transition events (`entry`, `continuation`, `exit_reversal`, `exit_threshold`, `exit_late_reversal`, `exit_unknown`) per state |
+| `behavioral_outcomes` | Per consensus state: episode count, outcome type counts and rates, full `outcome_distribution` dict |
 | `behavioral_tests` | Pairwise Fisher's exact test results with Cohen's h effect sizes |
 | `validation_outcome` | Final PASS / FAIL / INCONCLUSIVE verdict and supporting counts |
 
-**Status interpretation**
+### Criterion 1 behavioral evidence
 
-Criterion 1 invokes behavioral outcome analysis internally before determining
-its status.  The behavioral analysis computes per-state exit reversal rates for
-the three consensus states (`YOUNG`, `MATURING`, `MATURE`) and tests whether
-those rates are statistically distinct using Fisher's exact test.  Cohen's h is
-used as the effect size metric.
+Criterion 1 derives behavioral evidence from **independently labeled episode
+outcomes** produced by the episode outcome classifier.  The behavioral analysis:
+
+1. Groups bars into state-level episodes (consecutive bars with the same `state_id`).
+2. Reads the terminal bar's `transition_event` for each episode as the outcome label.
+3. Computes per-state outcome distributions:
+   - `exit_reversal` count and rate (episode failed before or during maturation)
+   - `exit_threshold` count (episode completed a normal mature lifecycle)
+   - `exit_late_reversal` count (mature consensus eventually collapsed)
+4. Runs pairwise Fisher's exact tests on reversal rates between:
+   - `YOUNG` vs `MATURING`
+   - `YOUNG` vs `MATURE`
+   - `MATURING` vs `MATURE`
+5. Uses Cohen's h as the effect size metric.
+
+Because exit events are now placed on the **terminal bar of each consensus
+episode** (not on the first non-extreme bar), the reversal rates computed for
+each maturity state reflect genuine within-state behavioral differences.
+
+**Status interpretation**
 
 Criterion 1 emits one of:
 
@@ -270,10 +360,13 @@ review and validation.
 Calibration
   ↓
 State Assignment
+  ├─ Bar-level state and transition classification
+  └─ Episode outcome labeling (exit_reversal / exit_threshold / exit_late_reversal)
   ↓
 Criterion Validation
   ├─ Duration Diagnostics
-  └─ Behavioral Outcome Validation
+  ├─ Outcome Distribution
+  └─ Behavioral Outcome Validation (Fisher's exact, Cohen's h)
   ↓
 Research Review
 ```

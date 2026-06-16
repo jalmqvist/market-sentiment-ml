@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import json
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -224,6 +225,114 @@ def classify_transition(
 
 
 # ---------------------------------------------------------------------------
+# Episode-level outcome classification
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class EpisodeOutcome:
+    """Deterministic outcome label for a single consensus episode.
+
+    Attributes
+    ----------
+    max_maturity_bars:
+        The peak maturity (bar count) reached during the episode.
+    outcome_type:
+        One of ``exit_reversal``, ``exit_threshold``,
+        ``exit_late_reversal``, or ``exit_unknown``.
+    """
+
+    max_maturity_bars: int
+    outcome_type: str
+
+
+def classify_episode_outcome(
+    max_maturity_bars: int,
+    *,
+    mature_boundary: int,
+) -> EpisodeOutcome:
+    """Classify the outcome of a single consensus episode.
+
+    Classification logic
+    --------------------
+    exit_reversal
+        Episode ended before reaching the mature boundary.
+        ``max_maturity_bars < mature_boundary``.
+
+    exit_threshold
+        Episode reached the mature state and terminated within a normal
+        mature lifecycle duration.
+        ``mature_boundary <= max_maturity_bars < 2 * mature_boundary``.
+
+    exit_late_reversal
+        Episode survived well beyond the mature boundary before collapsing.
+        ``max_maturity_bars >= 2 * mature_boundary``.
+
+    exit_unknown
+        Fallback — should remain rare (only for non-positive bar counts).
+
+    Args:
+        max_maturity_bars: Peak maturity bar count for the episode.
+        mature_boundary: Calibrated mature-boundary bar count.
+
+    Returns:
+        :class:`EpisodeOutcome` with ``outcome_type`` set.
+    """
+    if max_maturity_bars <= 0:
+        return EpisodeOutcome(max_maturity_bars=max_maturity_bars, outcome_type="exit_unknown")
+    if max_maturity_bars < mature_boundary:
+        outcome_type = "exit_reversal"
+    elif max_maturity_bars < 2 * mature_boundary:
+        outcome_type = "exit_threshold"
+    else:
+        outcome_type = "exit_late_reversal"
+    return EpisodeOutcome(max_maturity_bars=max_maturity_bars, outcome_type=outcome_type)
+
+
+def apply_episode_outcomes(
+    df: pd.DataFrame,
+    *,
+    mature_boundary: int,
+) -> pd.DataFrame:
+    """Annotate the terminal bar of each consensus episode with an outcome label.
+
+    For every contiguous run of extreme-consensus bars per pair, the last bar's
+    ``transition_event`` is overwritten with the deterministic episode outcome
+    (``exit_reversal``, ``exit_threshold``, or ``exit_late_reversal``).
+
+    Non-extreme bars and non-terminal episode bars are not modified.
+
+    This function is intentionally separate from state assignment so that
+    outcome labeling can be audited independently of the bar-level state logic.
+
+    Args:
+        df: State assignment artifact DataFrame (with ``pair``, ``entry_time``,
+            ``state_id``, ``maturity_bars``, and ``transition_event`` columns).
+        mature_boundary: Calibrated mature-boundary bar count.
+
+    Returns:
+        A copy of *df* with terminal-bar ``transition_event`` values updated.
+    """
+    out = df.copy()
+
+    for pair, grp in out.groupby("pair", sort=False):
+        grp = grp.sort_values("entry_time")
+        is_extreme = grp["state_id"] != "JPY_NON_EXTREME"
+        run_ids = (is_extreme != is_extreme.shift()).cumsum()
+
+        for _, run in grp.groupby(run_ids, sort=True):
+            if run["state_id"].iloc[0] == "JPY_NON_EXTREME":
+                continue
+
+            max_maturity = int(run["maturity_bars"].max())
+            outcome = classify_episode_outcome(max_maturity, mature_boundary=mature_boundary)
+            last_idx = run.index[-1]
+            out.at[last_idx, "transition_event"] = outcome.outcome_type
+
+    return out
+
+
+# ---------------------------------------------------------------------------
 # State assignment — reactive-JPY ontology
 # ---------------------------------------------------------------------------
 
@@ -384,6 +493,15 @@ def assign_states_reactive_jpy(
         }
     )
 
+    # Apply episode-level outcome labels to terminal bars of each consensus
+    # episode.  This overwrites the bar-level transition_event on the last bar
+    # of each extreme-consensus run with the deterministic episode outcome
+    # (exit_reversal / exit_threshold / exit_late_reversal).
+    artifact_df = apply_episode_outcomes(
+        artifact_df,
+        mature_boundary=int(mature_boundary),
+    )
+
     return artifact_df
 
 
@@ -538,6 +656,29 @@ def generate_diagnostics(df: pd.DataFrame) -> dict[str, Any]:
         pair: count < 50 for pair, count in mature_per_pair.items()
     }
 
+    # Outcome distribution — counts of each terminal exit event across all
+    # consensus episodes, per pair and globally.
+    _OUTCOME_TYPES = ["exit_reversal", "exit_threshold", "exit_late_reversal", "exit_unknown"]
+    outcome_distribution_global: dict[str, int] = {t: 0 for t in _OUTCOME_TYPES}
+    outcome_distribution_per_pair: dict[str, dict[str, int]] = {}
+
+    for pair, grp in df.groupby("pair", sort=False):
+        grp = grp.sort_values("entry_time")
+        is_extreme = grp["state_id"] != "JPY_NON_EXTREME"
+        run_ids = (is_extreme != is_extreme.shift()).cumsum()
+        pair_counts: dict[str, int] = {t: 0 for t in _OUTCOME_TYPES}
+        for _, run in grp.groupby(run_ids, sort=True):
+            if run["state_id"].iloc[0] == "JPY_NON_EXTREME":
+                continue
+            terminal_event = str(run["transition_event"].iloc[-1])
+            if terminal_event in pair_counts:
+                pair_counts[terminal_event] += 1
+            else:
+                pair_counts["exit_unknown"] += 1
+        outcome_distribution_per_pair[str(pair)] = pair_counts
+        for t in _OUTCOME_TYPES:
+            outcome_distribution_global[t] += pair_counts[t]
+
     return {
         "state_counts": state_counts,
         "state_frequencies": state_frequencies,
@@ -549,6 +690,8 @@ def generate_diagnostics(df: pd.DataFrame) -> dict[str, Any]:
         "survival_counts": episode_stats["survival_counts"],
         "mature_observations_per_pair": mature_per_pair,
         "mature_sparsity_flags": mature_sparsity_flags,
+        "outcome_distribution": outcome_distribution_global,
+        "outcome_distribution_per_pair": outcome_distribution_per_pair,
     }
 
 
@@ -588,6 +731,12 @@ def print_diagnostics(diagnostics: dict[str, Any], *, pair: str | None = None) -
         flag = diagnostics["mature_sparsity_flags"].get(p, False)
         tag = "  ⚠ SPARSE (<50)" if flag else ""
         print(f"  {p:<20s} {count:>6d} observations{tag}")
+
+    if "outcome_distribution" in diagnostics:
+        print("\nOutcome Distribution")
+        od = diagnostics["outcome_distribution"]
+        for otype in ["exit_reversal", "exit_threshold", "exit_late_reversal", "exit_unknown"]:
+            print(f"  {otype:<24s} {od.get(otype, 0):>6d}")
 
     print()
 

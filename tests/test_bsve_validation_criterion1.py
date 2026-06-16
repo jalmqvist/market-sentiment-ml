@@ -227,3 +227,73 @@ def test_status_pass_requires_sufficient_effect_size() -> None:
     assert result.status == "PASS"
     assert result.passed is True
     assert report["metadata"]["behavioral_effect_size"] == above_threshold
+
+
+def _rich_surface_with_outcome_labels() -> pd.DataFrame:
+    """Surface with realistic outcome labels on terminal bars."""
+    specs: list[tuple[str, int, str, str]] = []
+
+    def _build(state: str, duration: int, terminal: str, gap_state: str = "JPY_NON_EXTREME") -> None:
+        for i in range(duration):
+            event = "entry" if i == 0 else ("continuation" if i < duration - 1 else terminal)
+            specs.append((state, i + 1, event))
+        specs.append((gap_state, 1, "continuation"))
+
+    # YOUNG: 30 episodes — 20 exit_reversal, 10 exit_threshold
+    for _ in range(20):
+        _build("JPY_CONSENSUS_YOUNG", 3, "exit_reversal")
+    for _ in range(10):
+        _build("JPY_CONSENSUS_YOUNG", 3, "exit_threshold")
+    # MATURING: 20 episodes — 10 exit_reversal, 10 exit_threshold
+    for _ in range(10):
+        _build("JPY_CONSENSUS_MATURING", 8, "exit_reversal")
+    for _ in range(10):
+        _build("JPY_CONSENSUS_MATURING", 8, "exit_threshold")
+    # MATURE: 15 episodes — 0 exit_reversal, 10 exit_threshold, 5 exit_late_reversal
+    for _ in range(10):
+        _build("JPY_CONSENSUS_MATURE", 20, "exit_threshold")
+    for _ in range(5):
+        _build("JPY_CONSENSUS_MATURE", 20, "exit_late_reversal")
+
+    rows = []
+    ts = pd.Timestamp("2024-01-01")
+    prev_state: str | None = None
+    for state, maturity, event in specs:
+        rows.append({
+            "pair": "USDJPY",
+            "entry_time": ts,
+            "state_id": state if state != "JPY_NON_EXTREME" else "JPY_NON_EXTREME",
+            "maturity_bars": maturity,
+            "transition_event": event,
+        })
+        ts += pd.Timedelta(hours=1)
+        prev_state = state
+    return pd.DataFrame(rows)
+
+
+def test_transition_frequencies_include_all_new_events() -> None:
+    """transition_frequencies must report exit_threshold and exit_late_reversal columns."""
+    from bsve.validation.criterion1 import compute_transition_frequencies, TRANSITION_EVENTS
+
+    assert "exit_threshold" in TRANSITION_EVENTS
+    assert "exit_late_reversal" in TRANSITION_EVENTS
+
+    surface = _surface_from_episodes([
+        ("JPY_CONSENSUS_YOUNG", 50),
+        ("JPY_NON_EXTREME", 50),
+        ("JPY_CONSENSUS_MATURING", 50),
+        ("JPY_NON_EXTREME", 50),
+        ("JPY_CONSENSUS_MATURE", 50),
+        ("JPY_NON_EXTREME", 50),
+    ])
+    # Manually add exit_threshold and exit_late_reversal rows
+    surface_copy = surface.copy()
+    # Set a couple of rows to new event types for coverage
+    surface_copy.loc[surface_copy.index[0], "transition_event"] = "exit_threshold"
+    surface_copy.loc[surface_copy.index[1], "transition_event"] = "exit_late_reversal"
+
+    rows = compute_transition_frequencies(surface_copy)
+    for row in rows:
+        assert "exit_threshold" in row
+        assert "exit_late_reversal" in row
+

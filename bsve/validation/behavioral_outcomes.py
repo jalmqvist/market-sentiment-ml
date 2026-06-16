@@ -20,12 +20,19 @@ _BEHAVIORAL_COMPARISONS = [
     ("JPY_CONSENSUS_MATURING", "JPY_CONSENSUS_MATURE"),
 ]
 
+_OUTCOME_TYPES = ["exit_reversal", "exit_threshold", "exit_late_reversal", "exit_unknown"]
+
 _ALPHA = 0.05
 _MIN_EPISODE_COUNT = 5
 
 
 def _compute_episode_outcomes(df: pd.DataFrame) -> pd.DataFrame:
-    """Derive per-episode terminal transition events from a state surface."""
+    """Derive per-episode terminal transition events from a state surface.
+
+    Each episode is a consecutive run of the same state_id within a pair.
+    The terminal event is taken from the last bar of the run and used to
+    classify the episode outcome.
+    """
     ordered = df.sort_values(["pair", "entry_time"]).copy()
     shifted_pair = ordered["pair"].ne(ordered["pair"].shift())
     shifted_state = ordered["state_id"].ne(ordered["state_id"].shift())
@@ -39,6 +46,10 @@ def _compute_episode_outcomes(df: pd.DataFrame) -> pd.DataFrame:
         )
     )
     episodes["is_reversal"] = (episodes["terminal_event"] == "exit_reversal").astype(int)
+    episodes["is_threshold"] = (episodes["terminal_event"] == "exit_threshold").astype(int)
+    episodes["is_late_reversal"] = (
+        episodes["terminal_event"] == "exit_late_reversal"
+    ).astype(int)
     return episodes
 
 
@@ -50,9 +61,15 @@ def _cohens_h(p1: float, p2: float) -> float:
 def analyze_behavioral_outcomes(df: pd.DataFrame) -> dict[str, Any]:
     """Analyze behavioral outcomes from a state surface.
 
-    Computes per-state exit reversal rates for consensus states and tests
+    Computes per-state outcome distributions for consensus states and tests
     whether those states exhibit statistically distinct reversal behavior using
     Fisher's exact test.  Cohen's h is used as the effect size metric.
+
+    The reversal rate comparison (Fisher's exact) is the primary behavioral
+    differentiation test.  Outcome type distributions (exit_reversal,
+    exit_threshold, exit_late_reversal) are reported for all consensus states
+    to provide Criterion 1 with independent behavioral labels derived from
+    episode-level outcome classification.
 
     Parameters
     ----------
@@ -70,19 +87,31 @@ def analyze_behavioral_outcomes(df: pd.DataFrame) -> dict[str, Any]:
     """
     episodes = _compute_episode_outcomes(df)
 
-    # Per-state reversal rate summary
+    # Per-state outcome summary
     behavioral_outcomes: list[dict[str, Any]] = []
     for state in _CONSENSUS_STATES:
         state_eps = episodes[episodes["state_id"] == state]
         n = int(len(state_eps))
         n_reversal = int(state_eps["is_reversal"].sum())
+        n_threshold = int(state_eps["is_threshold"].sum())
+        n_late_reversal = int(state_eps["is_late_reversal"].sum())
+        n_unknown = n - n_reversal - n_threshold - n_late_reversal
         reversal_rate = float(n_reversal / n) if n > 0 else 0.0
         behavioral_outcomes.append(
             {
                 "state_id": state,
                 "episode_count": n,
                 "reversal_count": n_reversal,
+                "threshold_count": n_threshold,
+                "late_reversal_count": n_late_reversal,
+                "unknown_count": max(n_unknown, 0),
                 "reversal_rate": round(reversal_rate, 6),
+                "outcome_distribution": {
+                    "exit_reversal": n_reversal,
+                    "exit_threshold": n_threshold,
+                    "exit_late_reversal": n_late_reversal,
+                    "exit_unknown": max(n_unknown, 0),
+                },
             }
         )
 

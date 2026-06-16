@@ -29,7 +29,14 @@ KS_COMPARISONS = [
     ("JPY_CONSENSUS_YOUNG", "JPY_CONSENSUS_MATURE"),
     ("JPY_CONSENSUS_MATURING", "JPY_CONSENSUS_MATURE"),
 ]
-TRANSITION_EVENTS = ["entry", "continuation", "exit_reversal", "exit_unknown"]
+TRANSITION_EVENTS = [
+    "entry",
+    "continuation",
+    "exit_reversal",
+    "exit_threshold",
+    "exit_late_reversal",
+    "exit_unknown",
+]
 SURVIVAL_THRESHOLDS = [8, 24, 48]
 
 
