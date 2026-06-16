@@ -122,7 +122,12 @@ def test_compute_episode_outcomes_counts_reversals() -> None:
 def test_analyze_no_reversals_returns_not_available() -> None:
     surface = _no_reversal_surface()
     result = analyze_behavioral_outcomes(surface)
-    assert result["behavioral_evidence_available"] is False
+    assert "behavioral_evidence_available" not in result
+    assert result["descriptive_behavioral_diagnostics_available"] is True
+    assert (
+        result["behavioral_evidence_status"]
+        == "duration_derived_outcomes_not_independent"
+    )
     assert result["behavioral_effect_size"] is None
     assert isinstance(result["behavioral_tests"], list)
     assert isinstance(result["behavioral_outcomes"], list)
@@ -136,6 +141,8 @@ def test_analyze_outcome_fields_present() -> None:
         assert "episode_count" in outcome
         assert "reversal_count" in outcome
         assert "reversal_rate" in outcome
+        assert outcome["classification"] == "descriptive_diagnostic"
+        assert outcome["used_for_behavioral_evidence"] is False
 
 
 def test_analyze_test_fields_present() -> None:
@@ -151,14 +158,15 @@ def test_analyze_test_fields_present() -> None:
         assert test["effect_size_metric"] == "cohens_h"
         assert "significant" in test
         assert "skipped" in test
+        assert test["classification"] == "descriptive_diagnostic"
+        assert test["used_for_behavioral_evidence"] is False
 
 
-def test_analyze_detects_behavioral_differentiation() -> None:
-    """Strongly differentiated reversal rates should yield available evidence."""
+def test_analyze_reports_descriptive_diagnostics_for_differentiation() -> None:
+    """Strongly differentiated rates should remain descriptive only."""
     surface = _rich_surface_with_reversals()
     result = analyze_behavioral_outcomes(surface)
-    # MATURE (100% reversal) vs YOUNG (~12%) should be highly significant
-    assert result["behavioral_evidence_available"] is True
+    assert result["descriptive_behavioral_diagnostics_available"] is True
     assert result["behavioral_effect_size"] is not None
     assert result["behavioral_effect_size"] > 0.0
 
@@ -183,8 +191,6 @@ def test_analyze_effect_size_is_max_of_significant() -> None:
     """behavioral_effect_size should be the max Cohen's h among significant tests."""
     surface = _rich_surface_with_reversals()
     result = analyze_behavioral_outcomes(surface)
-    if not result["behavioral_evidence_available"]:
-        pytest.skip("no significant tests in this surface")
     significant_effects = [
         t["effect_size"]
         for t in result["behavioral_tests"]

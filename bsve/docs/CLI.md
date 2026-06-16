@@ -14,7 +14,7 @@ Current status:
 ✓ Calibration framework
 ✓ Artifact validation
 ✓ Rule-based state assignment
-✓ Criterion validation (Reactive-JPY Criterion 1)
+✓ Criterion validation reporting (Reactive-JPY Criterion 1)
 □ Environment validation
 □ Multi-ontology support
 
@@ -191,47 +191,49 @@ bsve.test/
 - state frequencies
 - duration statistics
 - duration KS diagnostics (calibration-consistency only)
-- behavioral outcomes (reversal rates per consensus state)
-- behavioral tests (Fisher's exact test results with Cohen's h effect sizes)
+- behavioral outcomes (descriptive reversal-rate diagnostics per consensus state)
+- behavioral tests (descriptive Fisher's exact test results with Cohen's h effect sizes)
 - validation outcome
 
 **Report sections**
 
 | Section | Description |
 |---------|-------------|
-| `metadata` | Criterion name, generation timestamp, thresholds, behavioral evidence flags |
+| `metadata` | Criterion name, generation timestamp, thresholds, and explicit descriptive-only behavioral diagnostic metadata |
 | `state_frequencies` | Observation counts per state and per pair |
 | `duration_statistics` | Median, mean, P25/P75, and max episode durations per state |
 | `duration_ks_diagnostics` | KS-test results for duration distributions (calibration-consistency diagnostics only) |
 | `survival_analysis` | Fraction of episodes surviving past 8, 24, and 48 bars per state |
 | `transition_frequencies` | Counts of entry, continuation, exit_reversal, and exit_unknown events per state |
-| `behavioral_outcomes` | Per consensus state: episode count, reversal count, reversal rate |
-| `behavioral_tests` | Pairwise Fisher's exact test results with Cohen's h effect sizes |
+| `behavioral_outcomes` | Per consensus state: episode count, reversal count, reversal rate, and descriptive-diagnostic classification |
+| `behavioral_tests` | Pairwise Fisher's exact test results with Cohen's h effect sizes, reported as descriptive diagnostics only |
 | `validation_outcome` | Final PASS / FAIL / INCONCLUSIVE verdict and supporting counts |
 
 **Status interpretation**
 
 Criterion 1 invokes behavioral outcome analysis internally before determining
-its status.  The behavioral analysis computes per-state exit reversal rates for
-the three consensus states (`YOUNG`, `MATURING`, `MATURE`) and tests whether
-those rates are statistically distinct using Fisher's exact test.  Cohen's h is
-used as the effect size metric.
+its status. The current outcome-distribution analysis computes per-state exit
+reversal rates for the three consensus states (`YOUNG`, `MATURING`, `MATURE`)
+and tests whether those rates are statistically distinct using Fisher's exact
+test. Cohen's h is reported as a descriptive effect size metric.
+
+Current outcome-distribution analysis is descriptive.
+
+Because outcome labels are derived from episode duration, they are not
+considered independent behavioral evidence.
 
 Criterion 1 emits one of:
 
-- `PASS`: behavioral differentiation evidence is present, the effect size meets the minimum threshold (`MIN_BEHAVIORAL_EFFECT_SIZE = 0.10`), and quality gates pass
 - `FAIL`: quality gates fail (for example insufficient observations)
-- `INCONCLUSIVE`: behavioral differentiation is not established — either only duration-derived diagnostics are available, behavioral evidence is present but the effect size is below `0.10`, or no effect size was supplied
+- `INCONCLUSIVE`: minimum sample thresholds pass, but independent behavioral evidence has not yet been implemented for Reactive-JPY
 
-A statistically significant p-value alone is not sufficient for `PASS`.  The effect
-size must also meet or exceed `MIN_BEHAVIORAL_EFFECT_SIZE = 0.10` to ensure that
-the observed behavioral differentiation is practically meaningful, not merely a
-product of a large sample.
+Reactive-JPY Criterion 1 therefore remains `INCONCLUSIVE` until threshold-exit
+labeling or another independent behavioral outcome mechanism is implemented.
 
-For Reactive-JPY Criterion 1, duration KS diagnostics are reported as
-calibration-consistency checks and are **not** treated as evidence of behavioral
-differentiation. Therefore, runs with sufficient samples but only duration-derived
-evidence are marked `INCONCLUSIVE`.
+For Reactive-JPY Criterion 1, duration KS diagnostics and current outcome
+distribution diagnostics are reported for ontology inspection only. They are
+**not** treated as independent evidence of behavioral differentiation, so the
+current workflow cannot produce `PASS`.
 
 **Progression analysis**
 
@@ -241,7 +243,7 @@ Criterion 1 reports KS-test comparisons for the three consensus-state transition
 - `YOUNG → MATURE`
 - `MATURING → MATURE`
 
-These results are **descriptive only**.  They are included in the validation report
+These results are **descriptive only**. They are included in the validation report
 for ontology interpretation and future research, but are **not** used in Criterion 1
 `PASS`/`FAIL` determination.
 
