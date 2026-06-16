@@ -29,6 +29,7 @@ def _state_surface() -> pd.DataFrame:
 def _market_dataset() -> pd.DataFrame:
     ts = pd.Timestamp("2024-01-01")
     closes = [100.0, 101.0, 101.0, 101.0, 101.0, 101.5, 103.5]
+    # atr_pct is percent-scaled (ATR / close * 100), so 1.0 means 1%.
     atr = [1.0] * len(closes)
     return pd.DataFrame(
         {
