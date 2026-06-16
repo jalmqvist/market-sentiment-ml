@@ -258,7 +258,7 @@ def evaluate_criterion1(
         status = "PASS"
     else:
         warnings.append(
-            "Current Reactive-JPY Criterion 1 runs use duration-derived diagnostics only; this is insufficient for Criterion 1 PASS."
+            "Current Reactive-JPY Criterion 1 runs use duration-derived diagnostics only; independent behavioral evidence is required for a PASS status."
         )
         status = "INCONCLUSIVE"
 

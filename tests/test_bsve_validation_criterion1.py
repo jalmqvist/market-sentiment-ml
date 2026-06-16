@@ -140,7 +140,7 @@ def test_minimum_observation_validation_fails() -> None:
     assert any("Insufficient observations" in warning for warning in result.warnings)
 
 
-def test_report_generation_and_status_logic(tmp_path) -> None:
+def test_report_generation_inconclusive_status(tmp_path) -> None:
     df = _rich_surface()
     artifact = tmp_path / "bsve_states_reactive_jpy_1.0.0.parquet"
     df.to_parquet(artifact, index=False)
@@ -176,3 +176,8 @@ def test_status_pass_when_behavioral_evidence_available() -> None:
     assert result.status == "PASS"
     assert result.passed is True
     assert report["metadata"]["behavioral_evidence_available"] is True
+    assert all(
+        row["classification"] == "calibration_consistency_diagnostic"
+        and row["used_for_behavioral_differentiation"] is False
+        for row in report["duration_ks_diagnostics"]
+    )
