@@ -302,7 +302,7 @@ def evaluate_criterion1(
     )
 
     generated_at = df["entry_time"].max()
-    report: dict[str, Any] = {
+    report = {
         "metadata": {
             "criterion": CRITERION_NAME,
             "module": "bsve.validation.criterion1",

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import pandas as pd
 import pytest
 
@@ -95,7 +97,6 @@ def test_cohens_h_identical_proportions() -> None:
 
 def test_cohens_h_extreme_difference() -> None:
     h = _cohens_h(0.0, 1.0)
-    import math
     assert h == pytest.approx(math.pi, rel=1e-6)
 
 
