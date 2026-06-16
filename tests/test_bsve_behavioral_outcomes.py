@@ -123,7 +123,7 @@ def test_progression_analysis() -> None:
     assert maturing_to_mature["median_time_to_transition"] == 4.0
 
 
-def test_report_generation_and_behavioral_tests(tmp_path) -> None:
+def test_behavioral_outcomes_cli_generates_complete_report(tmp_path) -> None:
     df = _behaviorally_distinct_surface()
     artifact = tmp_path / "bsve_states_reactive_jpy_1.0.0.parquet"
     df.to_parquet(artifact, index=False)

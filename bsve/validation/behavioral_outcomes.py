@@ -72,7 +72,7 @@ def _prepare_surface(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _wilson_interval(successes: int, total: int, z: float = 1.96) -> dict[str, float | None]:
-    """Compute a Wilson-score confidence interval for a binomial proportion."""
+    """Compute a Wilson-score interval using z as the confidence z-score."""
     if total <= 0:
         return {"lower": None, "upper": None}
 
@@ -233,7 +233,7 @@ def compute_progression_analysis(df: pd.DataFrame) -> dict[str, dict[str, Any]]:
 
 
 def _cramers_v(statistic: float, total: int, rows: int, cols: int) -> float | None:
-    """Compute Cramér's V effect size for a chi-squared contingency test."""
+    """Compute Cramér's V from a chi-squared statistic and table dimensions."""
     if total <= 0:
         return None
     scale = min(rows - 1, cols - 1)
@@ -261,7 +261,7 @@ def _run_behavioral_test(
         if count < MIN_BEHAVIORAL_TEST_SAMPLES:
             insufficient_states.append(state)
 
-    if insufficient_states or total == 0:
+    if insufficient_states:
         return {
             "metric": metric_name,
             "classification": "behavioral_evidence",
@@ -282,7 +282,7 @@ def _run_behavioral_test(
             ),
         }
 
-    statistic, p_value, _, _ = chi2_contingency(contingency)
+    statistic, p_value, _, _ = chi2_contingency(contingency)  # dof, expected unused
     return {
         "metric": metric_name,
         "classification": "behavioral_evidence",

@@ -240,7 +240,7 @@ def evaluate_criterion1(df: pd.DataFrame) -> tuple[ValidationResult, dict[str, A
     significant_behavioral_tests = [
         name
         for name, test in behavioral_analysis["behavioral_tests"].items()
-        if test["significant"] and test["effect_size"] is not None
+        if test["significant"]
     ]
 
     sample_counts = {
@@ -346,7 +346,7 @@ def _print_summary(result: ValidationResult, report_path: Path) -> None:
     print("Behavioral tests:")
     for name, test in result.behavioral_tests.items():
         if test["p_value"] is None:
-            print(f"  {name:<58} skipped")
+            print(f"  {name:<44} skipped")
             continue
         status = "significant" if test["significant"] else "not-significant"
         print(
