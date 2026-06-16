@@ -36,7 +36,7 @@ def _surface_from_episodes(
                     "pair": pair,
                     "entry_time": ts,
                     "state_id": state,
-                    "maturity_bars": max(i + 1, 0),
+                    "maturity_bars": i + 1,
                     "transition_event": event,
                 }
             )

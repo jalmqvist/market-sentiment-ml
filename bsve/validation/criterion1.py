@@ -6,7 +6,6 @@ import argparse
 import json
 import sys
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -73,7 +72,11 @@ def reconstruct_state_episodes(df: pd.DataFrame) -> pd.DataFrame:
 
     episodes = (
         ordered.groupby(["pair", "state_id", "episode_id"], as_index=False)
-        .agg(start_time=("entry_time", "min"), end_time=("entry_time", "max"), duration_bars=("state_id", "size"))
+        .agg(
+            start_time=("entry_time", "min"),
+            end_time=("entry_time", "max"),
+            duration_bars=("entry_time", "size"),
+        )
         .drop(columns=["episode_id"])
     )
     episodes["duration_bars"] = episodes["duration_bars"].astype(int)
@@ -255,11 +258,12 @@ def evaluate_criterion1(df: pd.DataFrame) -> tuple[ValidationResult, dict[str, A
         notes=notes,
     )
 
+    generated_at = df["entry_time"].max()
     report = {
         "metadata": {
             "criterion": CRITERION_NAME,
             "module": "bsve.validation.criterion1",
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at": generated_at.isoformat() if pd.notna(generated_at) else None,
             "min_observations_per_state": MIN_OBSERVATIONS_PER_STATE,
             "ks_alpha": 0.05,
             "supported_environment": "reactive_jpy",
