@@ -191,9 +191,31 @@ bsve.test/
 - state frequencies
 - duration statistics
 - duration KS diagnostics (calibration-consistency only)
+- behavioral outcomes (reversal rates per consensus state)
+- behavioral tests (Fisher's exact test results with Cohen's h effect sizes)
 - validation outcome
 
+**Report sections**
+
+| Section | Description |
+|---------|-------------|
+| `metadata` | Criterion name, generation timestamp, thresholds, behavioral evidence flags |
+| `state_frequencies` | Observation counts per state and per pair |
+| `duration_statistics` | Median, mean, P25/P75, and max episode durations per state |
+| `duration_ks_diagnostics` | KS-test results for duration distributions (calibration-consistency diagnostics only) |
+| `survival_analysis` | Fraction of episodes surviving past 8, 24, and 48 bars per state |
+| `transition_frequencies` | Counts of entry, continuation, exit_reversal, and exit_unknown events per state |
+| `behavioral_outcomes` | Per consensus state: episode count, reversal count, reversal rate |
+| `behavioral_tests` | Pairwise Fisher's exact test results with Cohen's h effect sizes |
+| `validation_outcome` | Final PASS / FAIL / INCONCLUSIVE verdict and supporting counts |
+
 **Status interpretation**
+
+Criterion 1 invokes behavioral outcome analysis internally before determining
+its status.  The behavioral analysis computes per-state exit reversal rates for
+the three consensus states (`YOUNG`, `MATURING`, `MATURE`) and tests whether
+those rates are statistically distinct using Fisher's exact test.  Cohen's h is
+used as the effect size metric.
 
 Criterion 1 emits one of:
 

@@ -12,6 +12,7 @@ from typing import Any
 import pandas as pd
 from scipy.stats import ks_2samp
 
+from bsve.validation.behavioral_outcomes import analyze_behavioral_outcomes
 from bsve.validation.report import write_validation_report
 
 CRITERION_NAME = "criterion1_behavioral_differentiation"
@@ -229,6 +230,8 @@ def evaluate_criterion1(
     *,
     behavioral_evidence_available: bool = False,
     behavioral_effect_size: float | None = None,
+    behavioral_tests: list[dict[str, Any]] | None = None,
+    behavioral_outcomes: list[dict[str, Any]] | None = None,
 ) -> tuple[ValidationResult, dict[str, Any]]:
     frequency_report = compute_state_frequency_report(df)
     episodes = reconstruct_state_episodes(df)
@@ -299,7 +302,7 @@ def evaluate_criterion1(
     )
 
     generated_at = df["entry_time"].max()
-    report = {
+    report: dict[str, Any] = {
         "metadata": {
             "criterion": CRITERION_NAME,
             "module": "bsve.validation.criterion1",
@@ -324,6 +327,10 @@ def evaluate_criterion1(
         "transition_frequencies": transitions,
         "validation_outcome": asdict(result),
     }
+    if behavioral_outcomes is not None:
+        report["behavioral_outcomes"] = behavioral_outcomes
+    if behavioral_tests is not None:
+        report["behavioral_tests"] = behavioral_tests
     return result, report
 
 
@@ -376,7 +383,14 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         df = load_state_surface(args.artifact)
-        result, report = evaluate_criterion1(df)
+        behavioral = analyze_behavioral_outcomes(df)
+        result, report = evaluate_criterion1(
+            df,
+            behavioral_evidence_available=behavioral["behavioral_evidence_available"],
+            behavioral_effect_size=behavioral["behavioral_effect_size"],
+            behavioral_tests=behavioral["behavioral_tests"],
+            behavioral_outcomes=behavioral["behavioral_outcomes"],
+        )
         report_path = write_validation_report(report, args.output_dir)
     except (FileNotFoundError, ValueError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
