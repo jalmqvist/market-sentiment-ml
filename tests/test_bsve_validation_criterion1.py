@@ -5,13 +5,14 @@ import json
 import pandas as pd
 
 from bsve.validation.criterion1 import (
-    MIN_OBSERVATIONS_PER_STATE,
     MIN_BEHAVIORAL_EFFECT_SIZE,
+    MIN_OBSERVATIONS_PER_STATE,
     evaluate_criterion1,
     main,
     reconstruct_state_episodes,
     run_duration_ks_tests,
     compute_duration_statistics,
+    summarize_independent_behavioral_evidence,
 )
 from bsve.validation.report import write_validation_report
 
@@ -54,6 +55,34 @@ def _rich_surface() -> pd.DataFrame:
     specs.extend([("JPY_CONSENSUS_MATURING", 10), ("JPY_NON_EXTREME", 1)] * 20)
     specs.extend([("JPY_CONSENSUS_MATURE", 20), ("JPY_NON_EXTREME", 1)] * 10)
     return _surface_from_episodes(specs)
+
+
+def _independent_outcomes(*, significant: bool) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    states = [
+        "JPY_CONSENSUS_YOUNG",
+        "JPY_CONSENSUS_MATURING",
+        "JPY_CONSENSUS_MATURE",
+    ]
+    success_layout = {
+        "JPY_CONSENSUS_YOUNG": 1,
+        "JPY_CONSENSUS_MATURING": 1,
+        "JPY_CONSENSUS_MATURE": 9,
+    } if significant else {state: 5 for state in states}
+
+    for state in states:
+        n_success = success_layout[state]
+        for i in range(10):
+            is_success = i < n_success
+            rows.append(
+                {
+                    "pair": "usd-jpy",
+                    "state_id": state,
+                    "outcome_available": True,
+                    "outcome_label": "SUCCESS" if is_success else "FAILURE",
+                }
+            )
+    return rows
 
 
 def test_reconstruct_state_episodes() -> None:
@@ -141,7 +170,7 @@ def test_minimum_observation_validation_fails() -> None:
     assert any("Insufficient observations" in warning for warning in result.warnings)
 
 
-def test_report_generation_inconclusive_status(tmp_path) -> None:
+def test_report_generation_inconclusive_without_independent_outcomes(tmp_path) -> None:
     df = _rich_surface()
     artifact = tmp_path / "bsve_states_reactive_jpy_1.0.0.parquet"
     df.to_parquet(artifact, index=False)
@@ -155,85 +184,56 @@ def test_report_generation_inconclusive_status(tmp_path) -> None:
     assert exit_code == 0
 
     report_path = tmp_path / "bsve_validation_report.json"
-    assert report_path.exists()
-
     report = json.loads(report_path.read_text(encoding="utf-8"))
-    assert report["validation_outcome"]["passed"] is False
     assert report["validation_outcome"]["status"] == "INCONCLUSIVE"
-    assert report["metadata"]["criterion"] == "criterion1_behavioral_differentiation"
     assert report["metadata"]["behavioral_evidence_available"] is False
-    assert (
-        report["metadata"]["behavioral_evidence_status"]
-        == "duration_derived_outcomes_not_independent"
-    )
-    assert report["metadata"]["behavioral_diagnostics_classification"] == (
-        "descriptive_diagnostic"
-    )
-    assert report["duration_ks_diagnostics"][0]["classification"] == (
-        "calibration_consistency_diagnostic"
-    )
+    assert report["metadata"]["behavioral_evidence_status"] == "independent_outcomes_missing"
+    assert "independent_behavioral_evidence" in report
+    assert "descriptive_diagnostics" in report
 
+
+def test_status_pass_with_significant_independent_evidence() -> None:
+    df = _rich_surface()
+    result, report = evaluate_criterion1(
+        df,
+        independent_outcomes=_independent_outcomes(significant=True),
+    )
+    assert result.status == "PASS"
+    assert result.passed is True
+    assert report["metadata"]["behavioral_evidence_available"] is True
+    assert report["independent_behavioral_evidence"]["has_significant_differentiation"] is True
+    assert report["independent_behavioral_evidence"]["effect_size"] >= MIN_BEHAVIORAL_EFFECT_SIZE
+
+
+def test_status_inconclusive_with_non_significant_independent_evidence() -> None:
+    df = _rich_surface()
+    result, report = evaluate_criterion1(
+        df,
+        independent_outcomes=_independent_outcomes(significant=False),
+    )
+    assert result.status == "INCONCLUSIVE"
+    assert result.passed is False
+    assert report["metadata"]["behavioral_evidence_available"] is True
+    assert report["independent_behavioral_evidence"]["has_significant_differentiation"] is False
+
+
+def test_status_fail_with_insufficient_independent_outcome_samples() -> None:
+    df = _rich_surface()
+    short = _independent_outcomes(significant=True)[:8]
+    result, _ = evaluate_criterion1(df, independent_outcomes=short)
+    assert result.status == "FAIL"
+
+
+def test_independent_evidence_summary_missing_labels() -> None:
+    summary = summarize_independent_behavioral_evidence(None)
+    assert summary["labels_available"] is False
+    assert summary["behavioral_evidence_available"] is False
+
+
+def test_validation_report_write_roundtrip(tmp_path) -> None:
+    df = _rich_surface()
+    result, report = evaluate_criterion1(df)
+    assert result.status in {"INCONCLUSIVE", "FAIL"}
     direct_path = write_validation_report(report, tmp_path / "nested")
     reloaded = json.loads(direct_path.read_text(encoding="utf-8"))
-    assert reloaded["validation_outcome"]["status"] == "INCONCLUSIVE"
-
-
-def test_status_inconclusive_when_descriptive_diagnostics_available() -> None:
-    df = _rich_surface()
-    result, report = evaluate_criterion1(
-        df,
-        descriptive_behavioral_diagnostics_available=True,
-        behavioral_effect_size=MIN_BEHAVIORAL_EFFECT_SIZE,
-    )
-    assert result.status == "INCONCLUSIVE"
-    assert result.passed is False
-    assert report["metadata"]["behavioral_evidence_available"] is False
-    assert report["metadata"]["behavioral_effect_size"] == MIN_BEHAVIORAL_EFFECT_SIZE
-    assert report["metadata"]["minimum_behavioral_effect_size"] == MIN_BEHAVIORAL_EFFECT_SIZE
-    assert any("duration-derived" in w for w in result.warnings)
-    assert all(
-        row["classification"] == "calibration_consistency_diagnostic"
-        and row["used_for_behavioral_differentiation"] is False
-        for row in report["duration_ks_diagnostics"]
-    )
-
-
-def test_status_inconclusive_when_effect_size_below_threshold() -> None:
-    """Descriptive diagnostics stay INCONCLUSIVE even below the legacy threshold."""
-    df = _rich_surface()
-    below_threshold = MIN_BEHAVIORAL_EFFECT_SIZE - 0.01
-    result, report = evaluate_criterion1(
-        df,
-        descriptive_behavioral_diagnostics_available=True,
-        behavioral_effect_size=below_threshold,
-    )
-    assert result.status == "INCONCLUSIVE"
-    assert result.passed is False
-    assert report["metadata"]["behavioral_effect_size"] == below_threshold
-    assert any("descriptive diagnostic only" in w for w in result.warnings)
-
-
-def test_status_inconclusive_when_effect_size_missing() -> None:
-    """Descriptive diagnostics without an effect size still stay INCONCLUSIVE."""
-    df = _rich_surface()
-    result, report = evaluate_criterion1(
-        df, descriptive_behavioral_diagnostics_available=True
-    )
-    assert result.status == "INCONCLUSIVE"
-    assert result.passed is False
-    assert report["metadata"]["behavioral_effect_size"] is None
-    assert any("duration-derived" in w for w in result.warnings)
-
-
-def test_status_never_passes_with_duration_derived_diagnostics() -> None:
-    df = _rich_surface()
-    above_threshold = MIN_BEHAVIORAL_EFFECT_SIZE + 0.05
-    result, report = evaluate_criterion1(
-        df,
-        descriptive_behavioral_diagnostics_available=True,
-        behavioral_effect_size=above_threshold,
-    )
-    assert result.status == "INCONCLUSIVE"
-    assert result.passed is False
-    assert report["metadata"]["behavioral_effect_size"] == above_threshold
-    assert any("does not contribute to Criterion 1 PASS" in w for w in result.warnings)
+    assert reloaded["metadata"]["criterion"] == "criterion1_behavioral_differentiation"
