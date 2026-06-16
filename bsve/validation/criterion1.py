@@ -281,6 +281,7 @@ def evaluate_criterion1(df: pd.DataFrame) -> tuple[ValidationResult, dict[str, A
         "state_frequencies": frequency_report,
         "duration_statistics": duration_statistics,
         "duration_ks_diagnostics": ks_tests,
+        "ks_test_results": ks_tests,
         "survival_analysis": survival_table,
         "transition_frequencies": transitions,
         "validation_outcome": asdict(result),
