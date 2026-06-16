@@ -1073,14 +1073,18 @@ Implemented:
 
 ### PR5 — Validation Framework
 
-Planned.
+Completed (Phase 1).
 
 Scope:
 
-- Criterion testing
+✓ Criterion 1 validation framework
+✓ Validation reporting
+
+Future work:
+
 - Ontology stability testing
 - Cross-family transfer evaluation
-- Validation reporting
+- Criterion 2–5 validation
 
 ### PR6 — Reactive-CHF Calibration
 
@@ -1195,14 +1199,28 @@ This checklist reflects the current implementation status rather than the origin
 
 ### Phase 4 — Validation Framework
 
-#### Planned
+Status:
 
-* [ ] Behavioral differentiation testing
+* [x] Criterion 1 validation framework implemented
+* [x] Validation report generation
+
+Current outcome:
+
+Reactive-JPY Criterion 1 currently returns
+INCONCLUSIVE because only duration-derived
+(calibration-consistency) diagnostics are available.
+
+Independent behavioral evidence remains
+required before Criterion 1 can be considered
+satisfied.
+
+Remaining work:
+
+* [ ] Behavioral differentiation testing (independent evidence)
 * [ ] Family specialization testing
 * [ ] Incremental explanatory power testing
 * [ ] Ontology stability testing
 * [ ] Internal coherence testing (CHF)
-* [ ] Validation report generation
 * [ ] Transfer topology analysis
 
 ### Phase 5 — Reactive-CHF Calibration
@@ -1358,7 +1376,20 @@ bsve/docs/figures/jpy_hazard_curve_v1.png
 
 ---
 
-Future cleanup:
+### Current Implementation Status
+
+Reactive-JPY v1 pipeline complete.
+
+Criterion 1 currently evaluates calibration consistency
+and minimum sample sufficiency.
+
+Behavioral differentiation remains INCONCLUSIVE pending
+implementation of threshold-exit labeling and downstream
+behavioral outcome tests.
+
+---
+
+### Future cleanup
 
 revisit reversal-rate diagnostics,
 which currently provide little additional information
