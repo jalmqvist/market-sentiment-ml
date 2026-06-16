@@ -91,24 +91,24 @@ def _outcome_labeled_surface() -> pd.DataFrame:
     exit_late_reversal) as produced by the episode outcome classifier."""
     specs: list[tuple[str, int, str]] = []
     # YOUNG episodes: 20 exit_reversal, 10 exit_threshold (maturity class mix)
-    for i in range(20):
+    for _ in range(20):
         specs.append(("JPY_CONSENSUS_YOUNG", 3, "exit_reversal"))
         specs.append(("JPY_NON_EXTREME", 2, "continuation"))
-    for i in range(10):
+    for _ in range(10):
         specs.append(("JPY_CONSENSUS_YOUNG", 3, "exit_threshold"))
         specs.append(("JPY_NON_EXTREME", 2, "continuation"))
     # MATURING episodes: 10 exit_reversal, 5 exit_threshold
-    for i in range(10):
+    for _ in range(10):
         specs.append(("JPY_CONSENSUS_MATURING", 8, "exit_reversal"))
         specs.append(("JPY_NON_EXTREME", 2, "continuation"))
-    for i in range(5):
+    for _ in range(5):
         specs.append(("JPY_CONSENSUS_MATURING", 8, "exit_threshold"))
         specs.append(("JPY_NON_EXTREME", 2, "continuation"))
     # MATURE episodes: 0 exit_reversal, 10 exit_threshold, 5 exit_late_reversal
-    for i in range(10):
+    for _ in range(10):
         specs.append(("JPY_CONSENSUS_MATURE", 20, "exit_threshold"))
         specs.append(("JPY_NON_EXTREME", 2, "continuation"))
-    for i in range(5):
+    for _ in range(5):
         specs.append(("JPY_CONSENSUS_MATURE", 20, "exit_late_reversal"))
         specs.append(("JPY_NON_EXTREME", 2, "continuation"))
     return _make_surface(specs)

@@ -95,7 +95,9 @@ def analyze_behavioral_outcomes(df: pd.DataFrame) -> dict[str, Any]:
         n_reversal = int(state_eps["is_reversal"].sum())
         n_threshold = int(state_eps["is_threshold"].sum())
         n_late_reversal = int(state_eps["is_late_reversal"].sum())
-        n_unknown = n - n_reversal - n_threshold - n_late_reversal
+        # n_unknown derived by subtraction; max(0) guards against floating-point
+        # edge cases where is_* flags may double-count a single bar.
+        n_unknown = max(n - n_reversal - n_threshold - n_late_reversal, 0)
         reversal_rate = float(n_reversal / n) if n > 0 else 0.0
         behavioral_outcomes.append(
             {
@@ -104,13 +106,13 @@ def analyze_behavioral_outcomes(df: pd.DataFrame) -> dict[str, Any]:
                 "reversal_count": n_reversal,
                 "threshold_count": n_threshold,
                 "late_reversal_count": n_late_reversal,
-                "unknown_count": max(n_unknown, 0),
+                "unknown_count": n_unknown,
                 "reversal_rate": round(reversal_rate, 6),
                 "outcome_distribution": {
                     "exit_reversal": n_reversal,
                     "exit_threshold": n_threshold,
                     "exit_late_reversal": n_late_reversal,
-                    "exit_unknown": max(n_unknown, 0),
+                    "exit_unknown": n_unknown,
                 },
             }
         )
