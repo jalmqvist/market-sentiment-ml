@@ -168,7 +168,7 @@ def analyze_behavioral_outcomes(df: pd.DataFrame) -> dict[str, Any]:
 
     return {
         "descriptive_behavioral_diagnostics_available": (
-           descriptive_behavioral_diagnostics_available
+            descriptive_behavioral_diagnostics_available
         ),
         "behavioral_evidence_status": _BEHAVIORAL_EVIDENCE_STATUS,
         "behavioral_effect_size": behavioral_effect_size,

@@ -199,6 +199,7 @@ def test_status_inconclusive_when_descriptive_diagnostics_available() -> None:
 
 
 def test_status_inconclusive_when_effect_size_below_threshold() -> None:
+    """Descriptive diagnostics stay INCONCLUSIVE even below the legacy threshold."""
     df = _rich_surface()
     below_threshold = MIN_BEHAVIORAL_EFFECT_SIZE - 0.01
     result, report = evaluate_criterion1(
@@ -213,6 +214,7 @@ def test_status_inconclusive_when_effect_size_below_threshold() -> None:
 
 
 def test_status_inconclusive_when_effect_size_missing() -> None:
+    """Descriptive diagnostics without an effect size still stay INCONCLUSIVE."""
     df = _rich_surface()
     result, report = evaluate_criterion1(
         df, descriptive_behavioral_diagnostics_available=True
