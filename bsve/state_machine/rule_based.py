@@ -200,6 +200,12 @@ def classify_transition(
 
     Returns:
         One of the :data:`BSVE_TRANSITION_EVENT_VALUES`.
+
+    Note:
+        These transition labels support descriptive episode diagnostics, but
+        they are not an independent behavioral outcome variable for Criterion 1
+        validation because the current Reactive-JPY episode taxonomy is tied to
+        maturity-threshold progression.
     """
     if prev_state_id is None:
         return "entry"
