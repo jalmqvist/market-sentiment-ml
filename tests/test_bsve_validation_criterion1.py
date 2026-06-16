@@ -57,7 +57,9 @@ def _rich_surface() -> pd.DataFrame:
     return _surface_from_episodes(specs)
 
 
-def _independent_outcomes(*, significant: bool) -> list[dict[str, object]]:
+def _independent_outcomes(
+    *, with_significant_differentiation: bool
+) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     states = [
         "JPY_CONSENSUS_YOUNG",
@@ -68,7 +70,7 @@ def _independent_outcomes(*, significant: bool) -> list[dict[str, object]]:
         "JPY_CONSENSUS_YOUNG": 1,
         "JPY_CONSENSUS_MATURING": 1,
         "JPY_CONSENSUS_MATURE": 9,
-    } if significant else {state: 5 for state in states}
+    } if with_significant_differentiation else {state: 5 for state in states}
 
     for state in states:
         n_success = success_layout[state]
@@ -196,7 +198,9 @@ def test_status_pass_with_significant_independent_evidence() -> None:
     df = _rich_surface()
     result, report = evaluate_criterion1(
         df,
-        independent_outcomes=_independent_outcomes(significant=True),
+        independent_outcomes=_independent_outcomes(
+            with_significant_differentiation=True
+        ),
     )
     assert result.status == "PASS"
     assert result.passed is True
@@ -209,7 +213,9 @@ def test_status_inconclusive_with_non_significant_independent_evidence() -> None
     df = _rich_surface()
     result, report = evaluate_criterion1(
         df,
-        independent_outcomes=_independent_outcomes(significant=False),
+        independent_outcomes=_independent_outcomes(
+            with_significant_differentiation=False
+        ),
     )
     assert result.status == "INCONCLUSIVE"
     assert result.passed is False
@@ -219,7 +225,7 @@ def test_status_inconclusive_with_non_significant_independent_evidence() -> None
 
 def test_status_fail_with_insufficient_independent_outcome_samples() -> None:
     df = _rich_surface()
-    short = _independent_outcomes(significant=True)[:8]
+    short = _independent_outcomes(with_significant_differentiation=True)[:8]
     result, _ = evaluate_criterion1(df, independent_outcomes=short)
     assert result.status == "FAIL"
 

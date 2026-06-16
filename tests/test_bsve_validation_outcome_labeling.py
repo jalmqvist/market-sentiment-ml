@@ -59,7 +59,7 @@ def test_assign_independent_outcome_labels_success_and_failure() -> None:
     assert mature["outcome_label"] == "SUCCESS"
 
 
-def test_outcome_labeling_cli_writes_payload(tmp_path) -> None:
+def test_outcome_labeling_cli_execution_and_payload(tmp_path) -> None:
     artifact = tmp_path / "bsve_states_reactive_jpy_1.0.0.parquet"
     dataset = tmp_path / "dataset.csv"
     _state_surface().assign(maturity_bars=1, transition_event="continuation").to_parquet(

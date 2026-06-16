@@ -58,6 +58,7 @@ def _ordered_states(observed: pd.Series) -> list[str]:
 
 
 def _cohens_h(p1: float, p2: float) -> float:
+    """Compute Cohen's h effect size for two proportions."""
     return float(abs(2.0 * np.arcsin(np.sqrt(p1)) - 2.0 * np.arcsin(np.sqrt(p2))))
 
 
@@ -292,7 +293,7 @@ def summarize_independent_behavioral_evidence(
         }
 
     if "outcome_available" in frame.columns:
-        frame = frame[frame["outcome_available"] == True]  # noqa: E712
+        frame = frame[frame["outcome_available"]]
     if "outcome_label" in frame.columns:
         frame = frame[frame["outcome_label"].isin(["SUCCESS", "FAILURE"])]
 
@@ -371,6 +372,7 @@ def summarize_independent_behavioral_evidence(
             }
         )
 
+    # Use the strongest observed significant contrast as criterion-level effect size.
     effect_size = max(significant_effect_sizes) if significant_effect_sizes else None
     has_significant_differentiation = any(test["significant"] for test in outcome_tests)
     effect_size_threshold_met = (
@@ -416,7 +418,7 @@ def evaluate_criterion1(
         state for state, count in sample_counts.items() if count < MIN_OBSERVATIONS_PER_STATE
     ]
 
-    warnings = [*ks_warnings, *independent_evidence["warnings"]]
+    warnings = list(ks_warnings) + list(independent_evidence["warnings"])
     notes = [
         "Criterion 1 validates behavioral differentiation, not trading performance.",
         f"Minimum observations per state threshold: {MIN_OBSERVATIONS_PER_STATE}.",

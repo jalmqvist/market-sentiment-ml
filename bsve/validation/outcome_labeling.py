@@ -92,11 +92,11 @@ def _compute_forward_frame(
     ordered = market_df.sort_values(["pair", "entry_time"]).copy()
     grouped = ordered.groupby("pair", sort=False)
     ordered["future_close"] = grouped[DEFAULT_PRICE_COL].shift(-outcome_window_bars)
-    ordered["forward_return_24h"] = (
+    ordered["forward_return"] = (
         ordered["future_close"] / ordered[DEFAULT_PRICE_COL] - 1.0
     )
     ordered["success_threshold"] = ordered[DEFAULT_THRESHOLD_COL].abs()
-    return ordered[["pair", "entry_time", "forward_return_24h", "success_threshold"]]
+    return ordered[["pair", "entry_time", "forward_return", "success_threshold"]]
 
 
 def assign_independent_outcome_labels(
@@ -118,7 +118,7 @@ def assign_independent_outcome_labels(
                 "episode_end_time",
                 "episode_bars",
                 "outcome_window_bars",
-                "forward_return_24h",
+                "forward_return",
                 "success_threshold",
                 "outcome_label",
                 "outcome_available",
@@ -138,14 +138,16 @@ def assign_independent_outcome_labels(
 
     merged["outcome_window_bars"] = int(outcome_window_bars)
     merged["outcome_available"] = (
-        merged["forward_return_24h"].notna()
+        merged["forward_return"].notna()
         & merged["success_threshold"].notna()
         & (merged["success_threshold"] > 0)
     )
     merged["outcome_label"] = None
 
+    # Criterion 1 evidence is directional-agnostic here: either sufficiently large
+    # up or down follow-through is treated as successful post-episode behavior.
     success = merged["outcome_available"] & (
-        merged["forward_return_24h"].abs() >= merged["success_threshold"]
+        merged["forward_return"].abs() >= merged["success_threshold"]
     )
     failure = merged["outcome_available"] & ~success
 
@@ -160,7 +162,7 @@ def assign_independent_outcome_labels(
             "episode_end_time",
             "episode_bars",
             "outcome_window_bars",
-            "forward_return_24h",
+            "forward_return",
             "success_threshold",
             "outcome_label",
             "outcome_available",
@@ -181,6 +183,7 @@ def build_outcome_payload(
     )
 
     evaluable = outcomes[outcomes["outcome_available"]]
+    evaluable_count = int(len(evaluable))
     success_count = int((evaluable["outcome_label"] == "SUCCESS").sum())
     failure_count = int((evaluable["outcome_label"] == "FAILURE").sum())
 
@@ -190,15 +193,15 @@ def build_outcome_payload(
             "outcome_window_bars": int(outcome_window_bars),
             "price_column": DEFAULT_PRICE_COL,
             "threshold_column": DEFAULT_THRESHOLD_COL,
-            "success_rule": "abs(forward_return_24h) >= success_threshold",
+            "success_rule": "abs(forward_return) >= success_threshold",
             "outcome_classes": ["SUCCESS", "FAILURE"],
         },
         "summary": {
             "total_consensus_episodes": int(len(outcomes)),
-            "evaluable_episodes": int(len(evaluable)),
+            "evaluable_episodes": evaluable_count,
             "success_count": success_count,
             "failure_count": failure_count,
-            "success_rate": (float(success_count / len(evaluable)) if len(evaluable) else None),
+            "success_rate": (float(success_count / evaluable_count) if evaluable_count else None),
         },
         "independent_outcomes": outcomes.to_dict(orient="records"),
     }
