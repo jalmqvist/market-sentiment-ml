@@ -178,12 +178,74 @@ Independent outcomes are required for Criterion 1 PASS eligibility. Labels are
 computed from realized forward returns over a fixed 24-bar H1 window after
 episode termination and do not depend on maturity duration boundaries.
 
+**Additional options**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--outcome-window-bars` | `24` | Fixed forward horizon (H1 bars) used to label outcomes |
+| `--threshold-column` | `vol_48b` | Dataset column used as the volatility threshold (must be in return units) |
+
+**Threshold column**
+
+The default threshold column is `vol_48b`, which is present in all BSVE-format
+datasets (v1.5.1+), is strictly backward-looking, and is expressed in return
+units — consistent with `forward_return`.
+
+To use a different column from the same dataset:
+
+```bash
+python -m bsve.validation.outcome_labeling \
+    --artifact bsve.test/bsve_states_reactive_jpy_1.0.0.parquet \
+    --dataset-path data/output/1.5.1/master_research_dataset_core.csv \
+    --output-dir bsve.test/ \
+    --threshold-column vol_12b
+```
+
+The selected threshold column is validated for existence and surfaced in the
+output metadata under `threshold_column`.
+
+### Criterion 1 outcome definition
+
+Outcome labels are:
+
+```
+SUCCESS
+FAILURE
+```
+
+based on:
+
+```python
+abs(forward_return) >= volatility_threshold
+```
+
+where:
+
+```
+volatility_threshold = vol_48b  (default)
+```
+
+Key properties of this definition:
+
+- **Direction-agnostic**: either sufficiently large up or down follow-through
+  is classified as SUCCESS. Direction is intentionally ignored in the current
+  Reactive-JPY implementation. The objective is detecting whether maturity
+  states lead to different *magnitudes* of post-episode behavior.
+- **Maturity-duration-independent**: outcome labeling uses only the episode
+  end time and a fixed forward window. It does not depend on maturity duration
+  boundaries.
+- **Ontology-independent**: outcome labeling does not depend on state
+  assignment logic; it joins only on `(pair, episode_end_time)`.
+- **Unit-consistent**: `forward_return` and `vol_48b` are both expressed in
+  return units, so no conversion is required.
+
+Directional outcome variants remain a possible future enhancement.
+
 **Unit convention**
 
 - `forward_return` is stored as a fraction: `future_close / close - 1`
-- `atr_pct` is stored in percent units: `ATR / close * 100`
-- `success_threshold` is converted to fraction units before comparison:
-  `success_threshold = abs(atr_pct) / 100`
+- `vol_48b` is expressed in return units (e.g. `0.01` means 1% volatility)
+- `success_threshold = abs(vol_48b)` — no conversion required
 - Classification rule: `SUCCESS` if `abs(forward_return) >= success_threshold`,
   else `FAILURE`
 
@@ -196,9 +258,26 @@ bsve.test/
 
 `independent_outcomes.json` includes:
 
-- metadata describing fixed-horizon labeling
-- summary counts (total episodes, evaluable episodes, SUCCESS/FAILURE)
+- metadata describing fixed-horizon labeling and the threshold column used
+- summary counts (total episodes, evaluable episodes, SUCCESS/FAILURE, success_rate)
 - episode-level independent outcomes for consensus states
+
+**Console output**
+
+```
+[BSVE] Independent Outcome Labeling (Reactive-JPY)
+------------------------------------------------------------
+Threshold column:   vol_48b
+Consensus episodes: N
+Evaluable episodes: N
+SUCCESS: N
+FAILURE: N
+Success rate:       XX.X%
+Output: bsve.test/independent_outcomes.json
+```
+
+A healthy label distribution avoids extreme imbalance (e.g. ~0% or ~100%
+success rate). Inspect `success_rate` immediately after generation.
 
 ---
 
