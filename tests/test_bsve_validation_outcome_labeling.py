@@ -170,7 +170,7 @@ def test_schema_regression_atr_pct_dependency_absent() -> None:
         )
 
 
-def test_cli_threshold_column_option(tmp_path) -> None:
+def test_cli_threshold_column_option_metadata_surfacing(tmp_path) -> None:
     """--threshold-column selects the correct dataset column and surfaces it in metadata."""
     artifact = tmp_path / "bsve_states_reactive_jpy_1.0.0.parquet"
     dataset_csv = tmp_path / "dataset.csv"
@@ -194,8 +194,8 @@ def test_cli_threshold_column_option(tmp_path) -> None:
     assert payload["metadata"]["threshold_column"] == "vol_12b"
 
 
-def test_cli_missing_threshold_column_exits_nonzero(tmp_path) -> None:
-    """--threshold-column referencing a missing column must cause a non-zero exit."""
+def test_cli_nonexistent_threshold_column_exits_nonzero(tmp_path) -> None:
+    """--threshold-column referencing a column absent from the dataset must cause a non-zero exit."""
     artifact = tmp_path / "bsve_states_reactive_jpy_1.0.0.parquet"
     dataset_csv = tmp_path / "dataset.csv"
     _state_surface().assign(maturity_bars=1, transition_event="continuation").to_parquet(
