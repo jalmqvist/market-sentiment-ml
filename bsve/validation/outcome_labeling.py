@@ -18,7 +18,7 @@ CONSENSUS_STATES = {
     "JPY_CONSENSUS_MATURE",
 }
 DEFAULT_OUTCOME_WINDOW_BARS = 24
-DEFAULT_THRESHOLD_COL = "atr_pct"
+DEFAULT_THRESHOLD_COL = "vol_48b"
 DEFAULT_PRICE_COL = "entry_close"
 
 
@@ -41,12 +41,15 @@ def load_state_surface(path: str | Path) -> pd.DataFrame:
     return out
 
 
-def load_market_dataset(path: str | Path) -> pd.DataFrame:
+def load_market_dataset(
+    path: str | Path,
+    threshold_col: str = DEFAULT_THRESHOLD_COL,
+) -> pd.DataFrame:
     adapter = MasterResearchDatasetAdapter.from_artifact(path)
     frame = adapter.get_structural_observations(
-        columns=[DEFAULT_PRICE_COL, DEFAULT_THRESHOLD_COL]
+        columns=[DEFAULT_PRICE_COL, threshold_col]
     )
-    required = {adapter.config.pair_col, adapter.config.timestamp_col, DEFAULT_PRICE_COL, DEFAULT_THRESHOLD_COL}
+    required = {adapter.config.pair_col, adapter.config.timestamp_col, DEFAULT_PRICE_COL, threshold_col}
     missing = sorted(required - set(frame.columns))
     if missing:
         raise ValueError(f"dataset missing required columns: {missing}")
@@ -88,6 +91,7 @@ def _compute_forward_frame(
     market_df: pd.DataFrame,
     *,
     outcome_window_bars: int,
+    threshold_col: str = DEFAULT_THRESHOLD_COL,
 ) -> pd.DataFrame:
     ordered = market_df.sort_values(["pair", "entry_time"]).copy()
     grouped = ordered.groupby("pair", sort=False)
@@ -95,9 +99,8 @@ def _compute_forward_frame(
     ordered["forward_return"] = (
         ordered["future_close"] / ordered[DEFAULT_PRICE_COL] - 1.0
     )
-    # atr_pct is stored in percent units (ATR / Close * 100). Convert to a
-    # fractional threshold so it is unit-consistent with forward_return.
-    ordered["success_threshold"] = ordered[DEFAULT_THRESHOLD_COL].abs() / 100.0
+    # vol_48b is already expressed in return units; no conversion required.
+    ordered["success_threshold"] = ordered[threshold_col].abs()
     return ordered[["pair", "entry_time", "forward_return", "success_threshold"]]
 
 
@@ -106,6 +109,7 @@ def assign_independent_outcome_labels(
     market_dataset: pd.DataFrame,
     *,
     outcome_window_bars: int = DEFAULT_OUTCOME_WINDOW_BARS,
+    threshold_col: str = DEFAULT_THRESHOLD_COL,
 ) -> pd.DataFrame:
     if outcome_window_bars <= 0:
         raise ValueError("outcome_window_bars must be positive")
@@ -130,6 +134,7 @@ def assign_independent_outcome_labels(
     forward = _compute_forward_frame(
         market_dataset,
         outcome_window_bars=outcome_window_bars,
+        threshold_col=threshold_col,
     )
     merged = episodes.merge(
         forward,
@@ -177,11 +182,13 @@ def build_outcome_payload(
     market_dataset: pd.DataFrame,
     *,
     outcome_window_bars: int = DEFAULT_OUTCOME_WINDOW_BARS,
+    threshold_col: str = DEFAULT_THRESHOLD_COL,
 ) -> dict[str, Any]:
     outcomes = assign_independent_outcome_labels(
         state_surface,
         market_dataset,
         outcome_window_bars=outcome_window_bars,
+        threshold_col=threshold_col,
     )
 
     evaluable = outcomes[outcomes["outcome_available"]]
@@ -194,7 +201,7 @@ def build_outcome_payload(
             "module": "bsve.validation.outcome_labeling",
             "outcome_window_bars": int(outcome_window_bars),
             "price_column": DEFAULT_PRICE_COL,
-            "threshold_column": DEFAULT_THRESHOLD_COL,
+            "threshold_column": threshold_col,
             "success_rule": "abs(forward_return) >= success_threshold",
             "outcome_classes": ["SUCCESS", "FAILURE"],
         },
@@ -223,12 +230,17 @@ def _write_payload(payload: dict[str, Any], output_dir: str | Path) -> Path:
 
 def _print_summary(payload: dict[str, Any], output_path: Path) -> None:
     summary = payload["summary"]
+    meta = payload["metadata"]
+    success_rate = summary["success_rate"]
+    rate_str = f"{success_rate:.1%}" if success_rate is not None else "N/A"
     print("[BSVE] Independent Outcome Labeling (Reactive-JPY)")
     print("-" * 60)
+    print(f"Threshold column:   {meta['threshold_column']}")
     print(f"Consensus episodes: {summary['total_consensus_episodes']}")
     print(f"Evaluable episodes: {summary['evaluable_episodes']}")
     print(f"SUCCESS: {summary['success_count']}")
     print(f"FAILURE: {summary['failure_count']}")
+    print(f"Success rate:       {rate_str}")
     print(f"Output: {output_path}")
 
 
@@ -249,6 +261,14 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_OUTCOME_WINDOW_BARS,
         help="Fixed forward horizon (H1 bars) used to label outcomes.",
     )
+    parser.add_argument(
+        "--threshold-column",
+        default=DEFAULT_THRESHOLD_COL,
+        help=(
+            "Dataset column used as the volatility threshold for outcome labeling. "
+            "Must be expressed in return units. Default: %(default)s"
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -257,11 +277,12 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         state_surface = load_state_surface(args.artifact)
-        market_dataset = load_market_dataset(args.dataset_path)
+        market_dataset = load_market_dataset(args.dataset_path, threshold_col=args.threshold_column)
         payload = build_outcome_payload(
             state_surface,
             market_dataset,
             outcome_window_bars=args.outcome_window_bars,
+            threshold_col=args.threshold_column,
         )
         output_path = _write_payload(payload, args.output_dir)
     except (FileNotFoundError, ValueError) as exc:
