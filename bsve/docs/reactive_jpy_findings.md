@@ -105,74 +105,162 @@ Result:
 
 ---
 
-## Independent Outcome Labeling (v1)
+# Outcome Discovery Studies (June 2026)
 
-Outcome definition:
+Following the initial Criterion 1 investigation, a series of exploratory outcome-discovery studies were performed to identify candidate independent behavioral outcomes for Reactive-JPY.
+
+These studies are descriptive only and must not be interpreted as validation because they were conducted on the same DL-active window used during ontology development.
+
+## Magnitude-Based Outcomes
+
+Multiple volatility-adjusted outcome definitions were evaluated:
 
 ```text
-SUCCESS if abs(forward_return_24b) >= vol_48b
-FAILURE otherwise
+SUCCESS if |return_24b| >= k × vol_48b
 ```
 
-Properties:
+for:
 
-* Independent of maturity duration
-* Independent of calibration thresholds
-* Independent of state assignment rules
-* Uses only post-episode price behavior
-
-Results:
-
-| Metric             | Value |
-| ------------------ | ----- |
-| Evaluable episodes | 791   |
-| SUCCESS            | 756   |
-| FAILURE            | 35    |
-| Success rate       | 95.6% |
+- k = 1
+- k = 2
+- k = 3
+- k = 4
+- k = 5
 
 Observations:
 
-* Outcome labels are extremely imbalanced.
-* Most episodes are classified as SUCCESS.
-* Statistical power for behavioral differentiation is weak.
+- Outcome distributions were highly similar across maturity states.
+- State separation remained weak regardless of threshold.
+- Magnitude-based outcomes do not currently appear to capture the primary behavioral distinction represented by the ontology.
 
-Criterion 1 result:
+Current assessment:
 
-**INCONCLUSIVE**
+**Low priority.**
 
-No statistically significant differentiation was observed between maturity states under this outcome definition.
+------
+
+## Directional Continuation Outcomes
+
+Continuation and reversal outcomes were evaluated across horizons:
+
+- 1 bar
+- 2 bars
+- 4 bars
+- 6 bars
+- 12 bars
+- 24 bars
+- 48 bars
+
+A notable separation was observed at 24–48 bars:
+
+| State    | Continuation (24b) |
+| -------- | ------------------ |
+| Young    | 45.8%              |
+| Maturing | 29.3%              |
+| Mature   | 61.9%              |
+
+However:
+
+- The effect was not consistently present across shorter horizons.
+- Mature observations remain sparse.
+- The temporal pattern does not yet support a clear lifecycle interpretation.
+
+Current assessment:
+
+**Interesting but inconclusive.**
+
+------
+
+## Return Distribution Analysis
+
+Future return distributions were examined directly rather than through binary outcome labels.
+
+At both 24-bar and 48-bar horizons:
+
+- Young episodes were approximately neutral.
+- Maturing episodes exhibited consistently more positive future returns.
+- The effect was observed across EURJPY, GBPJPY, and USDJPY.
+
+Examples (24-bar horizon):
+
+| Pair   | Young Mean | Maturing Mean |
+| ------ | ---------- | ------------- |
+| EURJPY | -0.05%     | +0.14%        |
+| GBPJPY | +0.03%     | +0.22%        |
+| USDJPY | +0.04%     | +0.16%        |
+
+The same directional relationship persisted at 48 bars.
+
+Additional observations:
+
+- Median returns also increased for Maturing episodes.
+- The improvement was not confined to the upper tail.
+- The entire return distribution appears shifted upward relative to Young episodes.
+
+Current assessment:
+
+**Most promising outcome family identified so far.**
+
+------
+
+## Episode Lifecycle Findings
+
+Consensus episode reconstruction produced:
+
+| Terminal State | Episodes |
+| -------------- | -------- |
+| Young          | 554      |
+| Maturing       | 92       |
+| Mature         | 21       |
+
+Observations:
+
+- Most consensus episodes terminate in the Young state.
+- Only a minority survive long enough to become Maturing.
+- Mature episodes are rare.
+- The lifecycle funnel observed during calibration is reproducible in state-surface artifacts.
+
+Current exit-event labels are derived from ontology logic and therefore cannot be used as independent behavioral evidence.
+
+Future exit-mechanism studies should focus on raw episode characteristics rather than BSVE-generated outcome labels.
+
+------
+
+# Updated Interpretation
+
+Reactive-JPY currently shows little evidence that maturity states differentiate future volatility magnitude.
+
+However, exploratory evidence suggests that Maturing episodes may be associated with systematically different future directional return behavior.
+
+This effect:
+
+- survives pair decomposition,
+- appears at both 24-bar and 48-bar horizons,
+- is visible in both means and medians,
+- is observed across EURJPY, GBPJPY, and USDJPY.
+
+These findings are exploratory and require independent validation.
+
+------
+
+# Current Research Priority
+
+Highest-priority follow-up:
+
+## Outcome Discovery Study #2
+
+Investigate crowd-relative returns rather than raw market returns.
+
+Candidate formulation:
+
+```text
+crowd_relative_return =
+    (-crowd_side) × future_return
+```
+
+This directly measures crowd success versus crowd failure and may provide a more behaviorally meaningful independent outcome definition for Reactive-JPY validation.
 
 ---
-
-# Current Interpretation
-
-The Reactive-JPY ontology successfully produces:
-
-* Stable calibration artifacts
-* Reproducible state surfaces
-* Distinct maturity regimes
-
-The remaining scientific question is whether these maturity regimes correspond to meaningful differences in independently measured future behavior.
-
-Current evidence is insufficient to answer that question.
-
----
-
-# Active Research Questions
-
-## Outcome Discovery
-
-The current outcome definition appears too permissive.
-
-Candidate directions:
-
-* Higher volatility thresholds (2×, 3×, 4× vol_48b)
-* Directional outcomes
-* Continuation vs reversal outcomes
-* Maximum adverse excursion
-* Maximum favorable excursion
-* Trend continuation measures
-* Alternative fixed-horizon outcome definitions
 
 ## Ontology Structure
 
