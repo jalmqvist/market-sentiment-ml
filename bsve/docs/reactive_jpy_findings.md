@@ -1,5 +1,12 @@
 # Reactive-JPY Findings
 
+Research status: Exploratory
+Dataset window: 2019–2026
+Hypothesis generation: Same dataset
+Independent validation: Not yet performed
+
+---
+
 ## Purpose
 
 This document records empirical findings, calibration results, validation outcomes, and research observations related to the Reactive-JPY ontology.
@@ -22,6 +29,16 @@ The current ontology contains:
 State transitions are driven by consensus persistence duration calibrated from historical sentiment behavior.
 
 ---
+
+![jpy_hazard_curve](../calibration_artifacts/plots/jpy_hazard_curve.png)
+
+**Figure: Empirical reversal hazard and consensus-state calibration (Reactive-JPY).**
+
+The upper panel shows the empirical probability that a consensus episode terminates (reverses) at each maturity level, measured in hourly bars. The blue line shows the observed reversal hazard rate, while the orange dashed line shows a 12-bar rolling average used to identify broad structural trends. The green vertical line marks the Young boundary (8 bars), the red vertical line marks the Mature boundary (24 bars), and the purple line indicates the approximate crossover point (~13 bars) identified during calibration analysis.
+
+The lower panel shows the Kaplan–Meier survival curve for consensus episodes. The y-axis represents the probability that a consensus episode remains active without reversal as maturity increases. Rapid early decay indicates that most consensus episodes terminate within the first several hours, while a small minority survive long enough to reach advanced maturity states.
+
+Together, the hazard and survival curves provide the empirical basis for the Reactive-JPY ontology. The Young, Maturing, and Mature state boundaries were selected from observed episode-lifecycle dynamics rather than imposed *a priori*. The Young→Maturing transition occurs near the region where reversal risk begins to stabilise, while the Mature boundary identifies a small population of unusually persistent consensus episodes.
 
 # Calibration Results
 
@@ -226,51 +243,187 @@ Future exit-mechanism studies should focus on raw episode characteristics rather
 
 ------
 
-# Updated Interpretation
+## Crowd-Relative Outcome Analysis
 
-Reactive-JPY currently shows little evidence that maturity states differentiate future volatility magnitude.
+A second outcome-discovery study transformed future returns into crowd-relative outcomes.
 
-However, exploratory evidence suggests that Maturing episodes may be associated with systematically different future directional return behavior.
+Definition:
 
-This effect:
-
-- survives pair decomposition,
-- appears at both 24-bar and 48-bar horizons,
-- is visible in both means and medians,
-- is observed across EURJPY, GBPJPY, and USDJPY.
-
-These findings are exploratory and require independent validation.
-
-------
-
-# Current Research Priority
-
-Highest-priority follow-up:
-
-## Outcome Discovery Study #2
-
-Investigate crowd-relative returns rather than raw market returns.
-
-Candidate formulation:
-
-```text
 crowd_relative_return =
-    (-crowd_side) × future_return
-```
+    crowd_side × future_return
 
-This directly measures crowd success versus crowd failure and may provide a more behaviorally meaningful independent outcome definition for Reactive-JPY validation.
+Interpretation:
+
+* Positive values indicate crowd success.
+* Negative values indicate crowd failure.
+
+An initial implementation incorrectly used:
+
+    (-crowd_side) × future_return
+
+which inverted outcome interpretation. The issue was identified through manual sanity checks and corrected before analysis continued.
+
+### Crowd Success Rates
+
+24-bar horizon:
+
+| State    | Success | Failure |
+| -------- | ------: | ------: |
+| Young    |   45.8% |   54.2% |
+| Maturing |   29.3% |   70.7% |
+| Mature   |   61.9% |   38.1% |
+
+48-bar horizon:
+
+| State    | Success | Failure |
+| -------- | ------: | ------: |
+| Young    |   42.9% |   57.1% |
+| Maturing |   31.9% |   68.1% |
+| Mature   |   38.1% |   61.9% |
+
+Observations:
+
+* Maturing episodes exhibit substantially higher crowd-failure rates than Young episodes.
+* The effect appears at both 24-bar and 48-bar horizons.
+* The effect survives transformation from raw returns to crowd-relative outcomes.
+* Mature-state results remain difficult to interpret because of limited sample size.
 
 ---
 
-## Ontology Structure
+## Pair Decomposition
 
-Open questions:
+Crowd-failure outcomes were examined separately for EURJPY, GBPJPY, and USDJPY.
 
-* Is `JPY_CONSENSUS_MATURING` independently meaningful?
-* Is the primary distinction simply young vs non-young?
-* Does mature consensus contain unique behavioral information?
+24-bar horizon:
 
-These questions will be revisited after additional outcome studies.
+| Pair   | Young Failure | Maturing Failure | Difference |
+| ------ | ------------: | ---------------: | ---------: |
+| EURJPY |         51.6% |            71.4% |     +19.8% |
+| GBPJPY |         55.7% |            68.2% |     +12.4% |
+| USDJPY |         56.3% |            71.4% |     +15.1% |
+
+48-bar horizon:
+
+| Pair   | Young Failure | Maturing Failure | Difference |
+| ------ | ------------: | ---------------: | ---------: |
+| EURJPY |         54.8% |            68.3% |     +13.5% |
+| GBPJPY |         57.9% |            68.2% |     +10.3% |
+| USDJPY |         59.3% |            67.9% |      +8.5% |
+
+Observations:
+
+* All three JPY pairs show the same directional relationship.
+* Maturing failure rates exceed Young failure rates for every pair tested.
+* The effect weakens somewhat at 48 bars but remains directionally consistent.
+* The result is not driven by a single currency pair.
+
+---
+
+## Statistical Assessment
+
+Young vs Maturing crowd-failure rates were compared using contingency-table methods.
+
+### 24-Bar Horizon
+
+| Metric                  |                   Value |
+| ----------------------- | ----------------------: |
+| Fisher p-value          |                  0.0032 |
+| Chi-square p-value      |                  0.0047 |
+| Odds ratio              |                    0.49 |
+| Failure-rate difference | +16.4 percentage points |
+
+### 48-Bar Horizon
+
+| Metric                  |                   Value |
+| ----------------------- | ----------------------: |
+| Fisher p-value          |                   0.051 |
+| Chi-square p-value      |                   0.061 |
+| Odds ratio              |                    0.62 |
+| Failure-rate difference | +11.0 percentage points |
+
+Interpretation:
+
+* The 24-bar effect is statistically significant in exploratory testing.
+* The 48-bar effect is weaker but remains directionally consistent.
+* Results should be interpreted as outcome discovery rather than validation because the hypothesis emerged during exploratory analysis.
+
+---
+
+# Current Interpretation
+
+The strongest behavioral distinction identified so far is not volatility magnitude, but crowd-failure probability.
+
+Reactive-JPY Maturing episodes appear substantially more likely than Young episodes to experience crowd-unfavorable outcomes over subsequent 24–48 bar horizons.
+
+The effect:
+
+* survives pair decomposition,
+* survives horizon variation,
+* survives transformation to crowd-relative outcomes,
+* exhibits exploratory statistical support at 24 bars.
+
+Current working hypothesis:
+
+> Maturing consensus episodes represent a vulnerable consensus state in which crowd positioning is more likely to fail than during newly established consensus episodes.
+
+This hypothesis remains exploratory and requires future independent validation.
+
+---
+
+![Figure_1](../calibration_artifacts/plots/Figure_1.png)
+
+**Figure: Crowd-failure rate as a function of consensus maturity (Reactive-JPY).**
+
+The x-axis shows the maximum maturity reached by a consensus episode before termination, measured in hourly bars. A maturity of 1 indicates that consensus failed almost immediately, while higher values indicate longer-lived consensus episodes.
+
+The y-axis shows the proportion of episodes that subsequently produced a crowd-unfavourable outcome over a 24-bar horizon. A crowd-failure occurs when price movement over the following 24 hours moves against the majority trader positioning implied by sentiment data.
+
+Blue points show observed failure rates at each maturity level. Vertical error bars show 95% Wilson confidence intervals. The dark blue curve shows a 5-bar rolling average used only for visualisation. Grey bars indicate the number of episodes contributing to each maturity level. The dashed vertical line marks the Young→Maturing boundary (8 bars) and the dotted vertical line marks the Maturing→Mature boundary (24 bars).
+
+Failure rates appear to increase as maturity approaches the Young→Maturing boundary, consistent with the state-level finding that Maturing episodes exhibit higher crowd-failure rates than Young episodes. Beyond approximately 12–15 bars, sample sizes become sparse and maturity-level estimates should be interpreted cautiously.
+
+---
+
+### Reframing the Maturity States
+
+The calibration defined maturity states in terms of survival duration.
+The outcome discovery studies suggest a different interpretation:
+
+- JPY_CONSENSUS_YOUNG: Episodes where crowd positioning is still being established. Crowd failure rate is only modestly elevated (~54–57%), suggesting that newly formed consensus episodes are not yet strongly associated with systematic crowd failure.
+  
+- JPY_CONSENSUS_MATURING: Episodes where crowd positioning has survived initial reversal pressure and consolidated. Crowd failure rate rises to ~68-71%. The crowd has committed, and that commitment appears to be associated with a substantially higher probability of subsequent crowd failure.
+
+This is consistent with the consensus formation → maturation → decay chain described in RESEARCH_STATE.md, but gives it a specific mechanistic interpretation: maturation may represent the point at which crowd positioning becomes overextended rather than merely persistent. 
+
+This interpretation is speculative and requires independent validation.
+
+---
+
+# Frozen Findings (June 2026)
+
+The following findings are considered stable enough to record and carry forward:
+
+1. Magnitude-based outcome families show little differentiation between maturity states.
+2. Duration-derived outcomes are not independent of the ontology and cannot support validation.
+3. Maturing episodes exhibit elevated crowd-failure rates relative to Young episodes.
+4. The crowd-failure effect is present across EURJPY, GBPJPY, and USDJPY.
+5. The strongest observed outcome family is crowd-failure probability at approximately 24 bars.
+
+Reactive-JPY outcome discovery is therefore considered provisionally complete.
+
+Future work should focus on validation and cross-family comparison rather than continued outcome searching.
+
+---
+
+# Next Research Priority
+
+Reactive-CHF.
+
+Primary question:
+
+> Does Reactive-CHF exhibit an analogous crowd-failure phenomenon, or is the Reactive-JPY result specific to JPY markets?
+
+Reactive-JPY will remain frozen unless future validation work requires additional investigation.
 
 ---
 
@@ -281,11 +434,23 @@ Framework status:
 * Calibration: Complete
 * State assignment: Complete
 * Independent outcome labeling: Complete
-* Criterion 1 validation: Operational
+* Criterion 1 validation framework: Complete
 
 Scientific status:
 
-**Reactive-JPY remains under validation.**
+* Reactive-JPY outcome discovery: Complete
+* Reactive-JPY validation: Pending
+* Reactive-CHF investigation: Next
 
-Criterion 1 has not yet been demonstrated using independent behavioral evidence.
+---
+
+## Ontology Structure
+
+Open questions:
+
+* Does the elevated crowd-failure behavior observed in Maturing episodes persist under future independent validation?
+* Is the primary behavioral separation Young vs (Maturing + Mature), or do all maturity states contain distinct information?
+* Does Mature consensus contain unique behavioral information beyond Maturing, or is it primarily an extreme-duration subset?
+
+These questions remain unresolved and will be revisited during future validation and cross-family studies.
 
