@@ -24,9 +24,90 @@ Importantly, these studies are exploratory but falsifiable. The objective is not
 
 ------
 
-### Study 0A: ATR% Distribution
+## Study -1: Volatility Measure Discovery (Completed)
 
-**Question:** Is the ATR% distribution for CHF pairs structured in a way that supports natural volatility regimes, or is it primarily unimodal?
+### Purpose
+
+Before evaluating volatility-conditioned persistence, it was necessary to determine whether volatility itself exhibited any meaningful behavioral relationship to the persistence features that originally caused CHF pairs to be classified as reactive.
+
+This study therefore preceded Studies 0A–0C and served as an exploratory assessment of volatility representations and their relationship to crowd persistence.
+
+### Data
+
+The study used the 2019–2026 CHF subset of the master research dataset.
+
+Pairs examined:
+
+- EURCHF
+- USDCHF
+
+Volatility measures examined:
+
+- vol_12b (12-bar rolling return volatility)
+- vol_48b (48-bar rolling return volatility)
+
+At this stage, volatility was treated as a continuous variable rather than a regime variable.
+
+### Study -1A: Volatility Distribution Analysis
+
+The first objective was to determine whether CHF volatility naturally separated into distinct regimes.
+
+Results:
+
+- Both volatility measures exhibited largely unimodal distributions.
+- No clear evidence of naturally occurring low-, medium-, and high-volatility clusters was observed.
+- The distributions were right-skewed, with elevated-volatility tail events but no obvious multimodal structure.
+- EURCHF and USDCHF displayed similar distributional shapes, although USDCHF exhibited consistently higher volatility levels.
+
+Interpretation:
+
+The results did not support the existence of obvious volatility regimes based solely on distributional structure.
+
+However, a unimodal distribution does not imply behavioral irrelevance. Volatility may still contain predictive information even if natural regime boundaries are not visually apparent.
+
+### Study -1B: Volatility vs Persistence
+
+The second objective was to determine whether volatility was related to the persistence features that originally motivated the CHF classification.
+
+Persistence variables examined:
+
+- side_streak
+- extreme_streak_70
+- extreme_streak_80
+
+Results:
+
+- A strong inverse relationship was observed between volatility and persistence.
+- The relationship was strongest for vol_48b.
+- Low-volatility observations exhibited substantially longer side streaks than high-volatility observations.
+- The effect survived pair decomposition and was observed independently in both EURCHF and USDCHF.
+- The relationship appeared nonlinear and threshold-like rather than purely linear.
+
+The most stable signal was observed in side_streak. Extreme-state persistence displayed the same broad direction but with greater noise.
+
+### Preliminary Interpretation
+
+The findings suggest that volatility context is behaviorally relevant in CHF pairs.
+
+Importantly, the volatility distributions themselves appeared largely continuous, while persistence behavior displayed threshold-like structure. This implies that regime-like behavior may emerge from the relationship between volatility and persistence rather than from discrete volatility clusters.
+
+At present, the strongest candidate explanatory variable is vol_48b.
+
+This does not establish a CHF ontology. However, it provides preliminary evidence that the Volatility-Conditioned Persistence hypothesis survives initial exploratory testing and warrants continuation into Studies 0A–0C.
+
+### Methodological Note
+
+An exploratory attempt was made to introduce ATR-based and Kaufman-style volatility measures.
+
+This effort revealed that the master sentiment dataset consists of irregularly sampled sentiment observations rather than continuous hourly price bars. ATR-derived measures therefore cannot be computed directly within the sentiment dataset and require reconstruction from the underlying continuous OHLC price series.
+
+This limitation does not affect the validity of the existing vol_12b and vol_48b features, which were generated during dataset construction.
+
+---
+
+### Study 0A: Volatility Distribution
+
+**Question:** Is the volatility distribution for CHF pairs structured in a way that supports natural volatility regimes, or is it primarily unimodal?
 
 **Why this study comes first**
 
@@ -46,8 +127,8 @@ A unimodal distribution does not imply that volatility is behaviorally irrelevan
 
 **Output**
 
-- ATR% distribution plots for EURCHF and USDCHF separately.
-- Pooled ATR% distribution.
+- Volatility distribution plots for EURCHF and USDCHF separately.
+- Pooled volatility distribution.
 - Kernel density estimates.
 - Notes on visible modes, shoulders, tails, and structural features.
 
@@ -170,6 +251,20 @@ In this case, volatility is unlikely to be an appropriate ontology variable and 
 If crowd failure does not vary meaningfully with volatility context, this does not necessarily invalidate the CHF research program. It may instead indicate that crowd failure is not the primary behavioral outcome family for CHF and that alternative outcome families should be investigated.
 
 ------
+
+## Current Status
+
+The exploratory pre-study phase produced two important findings.
+
+First, CHF volatility distributions appear largely unimodal and do not provide strong visual evidence for naturally occurring volatility regimes.
+
+Second, volatility exhibits a robust inverse relationship with crowd-persistence measures across both EURCHF and USDCHF. The relationship is strongest for vol_48b and appears nonlinear, suggesting possible threshold behavior.
+
+As a result, the Volatility-Conditioned Persistence hypothesis remains viable. The primary unresolved question is no longer whether volatility matters, but rather how volatility should be represented within the ontology and whether persistence mediates subsequent behavioral outcomes.
+
+The next phase therefore shifts from volatility-measure discovery toward testing whether persistence and volatility jointly predict meaningful outcome families.
+
+---
 
 ## Decision Logic
 
