@@ -65,6 +65,16 @@ The results did not support the existence of obvious volatility regimes based so
 
 However, a unimodal distribution does not imply behavioral irrelevance. Volatility may still contain predictive information even if natural regime boundaries are not visually apparent.
 
+![volatility_distributions](/home/almqvist/Documents/PycharmProjects/market-sentiment-ml/bsve/calibration_artifacts/plots/volatility_distributions.png)
+
+> **Figure -1A. CHF volatility distributions (2019–2026).** Distribution of rolling volatility measures used during the CHF exploratory studies. Both the 12-bar (`vol_12b`) and 48-bar (`vol_48b`) measures exhibit largely unimodal, right-skewed distributions. Elevated-volatility observations occur as a continuous tail rather than as clearly separated clusters. This suggests that volatility environments in CHF are not naturally partitioned into discrete low-, medium-, and high-volatility regimes based on distributional structure alone. Notice the volatility range difference between the two plots.
+
+---
+
+**Figure -1A** summarizes the distributional structure of the volatility measures examined during Study -1. Contrary to the original intuition behind a volatility-conditioned ontology, neither measure exhibits obvious multimodal behavior. Instead, volatility appears to vary along a largely continuous spectrum with an extended high-volatility tail. This result weakens the argument for defining CHF states directly from volatility buckets alone. At the same time, the absence of discrete volatility clusters does not imply behavioral irrelevance. Subsequent analyses demonstrated that persistence behavior varies substantially across this continuous volatility spectrum, suggesting that volatility may still influence crowd dynamics even in the absence of naturally separated volatility regimes.
+
+---
+
 ### Study -1B: Volatility vs Persistence
 
 The second objective was to determine whether volatility was related to the persistence features that originally motivated the CHF classification.
@@ -84,6 +94,38 @@ Results:
 - The relationship appeared nonlinear and threshold-like rather than purely linear.
 
 The most stable signal was observed in side_streak. Extreme-state persistence displayed the same broad direction but with greater noise.
+![eurchf_vol48b_sidestreak_median_extremestreak70_vol48b_percentile_bin](/home/almqvist/Documents/PycharmProjects/market-sentiment-ml/bsve/calibration_artifacts/plots/eurchf_vol48b_sidestreak_median_extremestreak70_vol48b_percentile_bin.png)
+
+> **Figure -1B. Volatility versus persistence in EURCHF.**
+>
+> Scatterplot showing the relationship between 48-bar rolling volatility (`vol_48b`) and crowd persistence (`side_streak`) in EURCHF observations from 2019–2026. Each point represents a sentiment observation. The x-axis measures how long the crowd has maintained the same directional positioning, while the y-axis measures recent realized market volatility.
+>
+> The relationship is strongly nonlinear. High-volatility environments are associated exclusively with short-lived crowd states, whereas very persistent crowd states occur only within a narrow low-volatility corridor. Importantly, low volatility does not guarantee persistence; many low-volatility observations still exhibit short streak lengths. This suggests that low volatility may be a necessary but not sufficient condition for extended crowd persistence.
+>
+> Several visually distinct clusters correspond to long-lived crowd episodes that remained active within relatively stable volatility environments. These observations provide preliminary support for the Volatility-Conditioned Persistence hypothesis and motivated the subsequent CHF ontology studies.
+
+---
+
+**Figure -1B** provides a more direct view of the volatility–persistence relationship than percentile-bin analysis. Rather than imposing volatility buckets, the scatterplot shows the raw relationship between volatility and crowd-state duration. The absence of highly persistent crowd states at elevated volatility levels suggests that volatility acts as a constraint on persistence. The figure therefore supports the interpretation that volatility may influence the conditions under which long-lived CHF crowd states can emerge.
+
+---
+
+### **USDCHF Mid-Volatility Persistence Anomaly**
+
+Unlike EURCHF, which exhibits a broadly monotonic decline in persistence as volatility increases, USDCHF displays a secondary persistence peak at intermediate volatility levels (approximately volatility percentile bins 7–8 in the vol_48b analysis).
+
+This feature was not anticipated by the original CHF hypothesis and remains unexplained at this stage. Several interpretations remain possible:
+
+- The USDCHF volatility–persistence relationship may differ structurally from EURCHF, reflecting the dual influence of CHF safe-haven dynamics and USD macro cycles on USDCHF positioning.
+- USD-driven trend environments may sustain crowd states at intermediate volatility levels through a different mechanism than the low-volatility equilibrium persistence observed in EURCHF.
+- The feature may reflect concentration of a small number of unusually long-lived episodes at a specific volatility level.
+- The feature may be a statistical artifact that disappears under alternative volatility definitions or finer bin resolution.
+
+At present there is insufficient evidence to distinguish between these explanations. The anomaly therefore remains an open question rather than a confirmed finding.
+
+If the effect survives into Studies 0B and 0C -- particularly if it appears in outcome-conditioned analyses -- it will be treated as evidence that EURCHF and USDCHF do not share a single volatility-conditioned persistence ontology and may require separate ontological treatment. This would represent a significant structural finding for the CHF research program.
+
+---
 
 ### Preliminary Interpretation
 
@@ -95,6 +137,27 @@ At present, the strongest candidate explanatory variable is vol_48b.
 
 This does not establish a CHF ontology. However, it provides preliminary evidence that the Volatility-Conditioned Persistence hypothesis survives initial exploratory testing and warrants continuation into Studies 0A–0C.
 
+---
+
+### Volatility Measure Selection
+
+Study -1 evaluated two volatility representations: **vol_12b** and **vol_48b**.
+
+Both measures produced broadly consistent results, but the relationship between volatility and persistence was substantially clearer for **vol_48b**. Across pair-level analyses, volatility-binned persistence statistics, and volatility-versus-persistence scatterplots, the vol_48b measure consistently produced:
+
+- Stronger persistence relationships.
+- Cleaner threshold behavior.
+- Reduced noise.
+- More interpretable behavioral structure.
+
+By comparison, vol_12b exhibited greater short-term variability and weaker persistence signals, making interpretation less stable.
+
+Accordingly, **vol_48b will be treated as the primary volatility measure for all subsequent CHF studies.** The vol_12b measure will be retained as a robustness check and sensitivity analysis but will not be used as the primary ontology variable unless later studies provide evidence that it contains additional behavioral information.
+
+This decision reflects empirical performance rather than theoretical preference and may be revisited if future analyses identify superior volatility representations.
+
+---
+
 ### Methodological Note
 
 An exploratory attempt was made to introduce ATR-based and Kaufman-style volatility measures.
@@ -105,32 +168,39 @@ This limitation does not affect the validity of the existing vol_12b and vol_48b
 
 ---
 
-### Study 0A: Volatility Distribution
+### Study 0A: Volatility Partition Discovery
 
-**Question:** Is the volatility distribution for CHF pairs structured in a way that supports natural volatility regimes, or is it primarily unimodal?
+**Question:** Can the continuous CHF volatility spectrum be partitioned into behaviorally distinct regions that exhibit different persistence characteristics?
 
 **Why this study comes first**
 
-The current CHF hypothesis assumes that distinct volatility environments exist. If volatility regimes do not exist empirically, any subsequent ontology based on volatility buckets would be arbitrary.
+Study -1 demonstrated that CHF volatility distributions are largely unimodal and do not exhibit strong evidence of naturally occurring volatility regimes. However, the persistence analyses revealed substantial behavioral variation across the volatility spectrum.
 
-Study 0A therefore examines the shape of the volatility distribution before any regime boundaries are proposed.
+The question is therefore no longer whether volatility regimes exist statistically. The question is whether meaningful behavioral partitions exist within a continuous volatility variable.
+
+Study 0A investigates whether persistence behavior changes smoothly across volatility levels or whether threshold effects emerge that justify dividing volatility into separate behavioral environments.
 
 **What to look for**
 
-- Bimodal or multimodal distributions may indicate naturally occurring volatility regimes.
-- Heavy-tailed distributions may support a "high-volatility tail" interpretation rather than discrete regimes.
-- Smooth unimodal distributions may suggest that volatility is better treated as a continuous variable.
+- Persistence thresholds where crowd-state duration changes abruptly.
+- Stable low-volatility regions associated with unusually persistent crowd behavior.
+- Intermediate-volatility regions that exhibit distinct persistence characteristics.
+- Evidence that persistence changes smoothly with volatility, implying that volatility should remain a continuous variable.
+- Pair-specific partition structure that differs between EURCHF and USDCHF.
 
 **Important caveat**
 
-A unimodal distribution does not imply that volatility is behaviorally irrelevant. Many valid behavioral variables are continuous. Study 0A evaluates whether natural volatility regimes are visually supported by the data; it does not test whether volatility influences market behavior.
+Behavioral partitions do not require multimodal volatility distributions. A continuous variable can still contain meaningful thresholds if behavior changes nonlinearly across its range.
+
+The objective of Study 0A is therefore not to identify statistical clusters in volatility itself, but to determine whether volatility contains behavioral breakpoints that may justify ontology boundaries.
 
 **Output**
 
-- Volatility distribution plots for EURCHF and USDCHF separately.
-- Pooled volatility distribution.
-- Kernel density estimates.
-- Notes on visible modes, shoulders, tails, and structural features.
+- Volatility-versus-persistence scatterplots.
+- Persistence statistics across volatility percentile bins.
+- Threshold and breakpoint analysis.
+- Candidate volatility partitions for ontology construction.
+- Assessment of whether EURCHF and USDCHF share a common partition structure.
 
 ------
 
@@ -173,10 +243,20 @@ The goal is to allow the data to suggest possible partitions rather than imposin
 
 **Output**
 
-- Persistence duration versus ATR% scatter plots.
+- Persistence duration versus vol_48b scatter plots.
 - Binned persistence statistics across volatility percentiles.
 - Survival curves conditioned on volatility.
 - Preliminary assessment of whether persistence appears linked to volatility.
+
+> **Relationship to Study 0A**
+>
+> Study 0A and Study 0B use many of the same exploratory visualizations, including volatility-versus-persistence scatterplots and volatility-binned persistence statistics. The distinction lies in the question being asked rather than the plots themselves.
+>
+> Study 0A uses these analyses to identify possible behavioral thresholds and candidate partition boundaries within the volatility spectrum.
+>
+> Study 0B uses the same analyses to determine whether persistence is meaningfully related to volatility and therefore whether persistence should be treated as a candidate ontology variable.
+>
+> Thus, Study 0A focuses on partition discovery, while Study 0B focuses on mechanism validation.
 
 ------
 
@@ -272,12 +352,13 @@ The purpose of Studies 0A–0C is not to prove that a volatility ontology exists
 
 The purpose is to determine whether one is justified.
 
-### Study 0A
+### **Study 0A**
 
-Is volatility structurally distributed in a way that suggests natural regimes?
+ Does volatility contain identifiable behavioral thresholds or partition structure?
 
-- Yes → proceed to Study 0B.
-- No → volatility may still be behaviorally informative, but regime boundaries require stronger justification.
+- No threshold evidence → treat volatility as a continuous covariate in Studies 0B and 0C; no ontology partition proposed at this stage.
+- Weak evidence → retain candidate partitions and proceed to Study 0B.
+- Strong evidence → candidate volatility partitions become ontology candidates; proceed to Study 0B.
 
 ### Study 0B
 
@@ -301,6 +382,15 @@ A final possibility must remain available throughout the CHF program:
 > CHF may not possess a stable behavioral ontology within the available dataset.
 
 This is a legitimate scientific conclusion rather than a failure state. The purpose of the CHF investigation is to determine whether a meaningful ontology exists, not to guarantee that one will be found.
+
+---
+
+### Working Interpretation (Tentative)
+
+EURCHF and USDCHF are structurally different instruments:
+
+- **EURCHF** is a cross rate driven primarily by European risk appetite and SNB policy. The CHF safe-haven bid compresses volatility and creates the calm, persistent crowd states that motivated the CHF classification in the first place. The inverse vol-persistence relationship in EURCHF is almost mechanically explained by this: when European risk appetite is stable and the SNB is not intervening, volatility is low and crowd states are long-lived.
+- **USDCHF** is also influenced by the CHF safe-haven dynamic, but it has a second major driver: USD macro cycles. The 2022 USD strength cycle appears in the volatility time series as a sustained elevated-volatility period. During that period, USDCHF was trending strongly on USD fundamentals, not CHF safe-haven flows. A trend-driven market can produce long-lived crowd states *at intermediate volatility* — the crowd is persistently positioned with the trend, and the trend sustains itself through fundamental momentum rather than low-volatility equilibrium.
 
 ---
 
