@@ -12,6 +12,22 @@ environment:
   timeframe: "H1"
   sentiment_required: true
 
+ontology:
+  name: "Reactive JPY Consensus Maturity Ontology"
+  behavioral_object: "consensus_maturity"
+  status: "frozen"
+  deterministic: true
+  causal: true
+  calibration_required: true
+  description: >
+    Behavioral ontology describing the maturity of extreme crowd
+    consensus episodes in JPY currency pairs.
+
+    The ontology assigns one behavioral state to every H1 observation.
+    Numerical thresholds are supplied exclusively by the calibration
+    artifact. The ontology itself defines behavioral semantics rather
+    than numerical calibration.
+
 dataset_windows:
   full_range:
     start: "2012-01-01"
@@ -25,14 +41,32 @@ feature_sets:
     - "atr_pct"
     - "trend_strength_12"
     - "trend_strength_48"
+
   sentiment:
     - "net_sentiment"
     - "abs_sentiment"
     - "crowd_side"
     - "sentiment_change"
+
   state_derived:
     - "consensus_maturity_bars"
     - "consensus_velocity"
+
+consensus_episode:
+  description: >
+    Consecutive H1 observations where the same crowd side
+    remains above the calibrated extreme threshold.
+
+  starts_when:
+    - "enters_extreme_region"
+
+  ends_when:
+    - "crowd_side_changes"
+    - "exits_extreme_region"
+    - "dataset_boundary"
+    - "data_gap"
+
+  maturity_definition: "running_episode_length"
 
 threshold_placeholders:
   extreme_threshold_net_pct: null
@@ -40,22 +74,72 @@ threshold_placeholders:
   mature_boundary_bars: null
 
 states:
+
   - state_id: "JPY_CONSENSUS_YOUNG"
-    description: "Extreme consensus state with early maturity."
+
+    description: >
+      Extreme crowd consensus during the early stage of a
+      consensus episode.
+
     entry_conditions:
       sentiment_extreme_flag: true
       maturity_class: "young"
+
   - state_id: "JPY_CONSENSUS_MATURING"
-    description: "Extreme consensus state in mid maturity."
+
+    description: >
+      Extreme crowd consensus during the intermediate
+      maturity stage of a consensus episode.
+
     entry_conditions:
       sentiment_extreme_flag: true
       maturity_class: "maturing"
+
   - state_id: "JPY_CONSENSUS_MATURE"
-    description: "Extreme consensus state in mature phase."
+
+    description: >
+      Extreme crowd consensus after the mature boundary
+      has been reached.
+
     entry_conditions:
       sentiment_extreme_flag: true
       maturity_class: "mature"
+
   - state_id: "JPY_NON_EXTREME"
-    description: "Control state when sentiment is not extreme."
+
+    description: >
+      Sentiment has not reached the calibrated extreme
+      consensus threshold.
+
     entry_conditions:
       sentiment_extreme_flag: false
+
+scientific_status:
+  calibration: "frozen"
+  ontology: "frozen"
+  validation: "pending_oos"
+
+notes:
+
+  - >
+    This ontology defines behavioral state rather than
+    market regime.
+
+  - >
+    Threshold values are supplied exclusively by the
+    calibration artifact.
+
+  - >
+    Hazard analysis belongs exclusively to calibration.
+
+  - >
+    Running maturity refers to the current episode length,
+    never the final episode duration.
+
+  - >
+    Future observations must never influence historical
+    state assignments.
+
+  - >
+    Streaming and historical execution must produce
+    identical behavioral state assignments.
