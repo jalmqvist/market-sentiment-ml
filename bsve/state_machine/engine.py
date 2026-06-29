@@ -10,6 +10,39 @@ import pandas as pd
 
 from bsve.state_machine.protocol import BehavioralOntologyPlugin, CalibrationArtifact
 
+
+def _normalize_crowd_side(value: Any) -> str:
+    """Normalise a crowd-side value to a canonical string label.
+
+    Handles both string labels (``"LONG"``, ``"SHORT"``) and the integer
+    encoding used by the master research dataset (``1`` = LONG, ``-1`` = SHORT,
+    ``0`` = neutral / no side).
+
+    Returns one of ``"LONG"``, ``"SHORT"``, or ``""`` (neutral / unknown).
+
+    Examples::
+
+        _normalize_crowd_side(1)      # "LONG"
+        _normalize_crowd_side(-1)     # "SHORT"
+        _normalize_crowd_side(0)      # ""
+        _normalize_crowd_side("LONG") # "LONG"
+        _normalize_crowd_side("long") # "LONG"
+        _normalize_crowd_side(None)   # ""
+    """
+    if value is None:
+        return ""
+    # Integer encoding: positive → LONG, negative → SHORT, zero → neutral.
+    try:
+        numeric = float(value)
+        if numeric > 0:
+            return "LONG"
+        if numeric < 0:
+            return "SHORT"
+        return ""
+    except (ValueError, TypeError):
+        pass
+    return str(value).strip().upper()
+
 BEHAVIORAL_SURFACE_SCHEMA_VERSION = "1.0.0"
 
 
@@ -56,8 +89,15 @@ class BehavioralSurfaceEngine:
         if pd.isna(timestamp):
             raise ValueError(f"invalid timestamp for pair={pair!r}: {observation[self.timestamp_col]!r}")
 
-        crowd_side = str(observation.get(self.crowd_side_col, "")).strip().upper()
-        consensus_active = self.plugin.is_consensus_active(observation, self.calibration_artifact)
+        crowd_side = _normalize_crowd_side(observation.get(self.crowd_side_col))
+
+        # Expose the normalised crowd-side back into the observation dict so
+        # that plugin methods receive canonical labels regardless of whether the
+        # source dataset encodes crowd-side as integers or strings.
+        normalised_observation = dict(observation)
+        normalised_observation[self.crowd_side_col] = crowd_side
+
+        consensus_active = self.plugin.is_consensus_active(normalised_observation, self.calibration_artifact)
 
         prior = self._pair_state.get(pair)
         if prior is None:
@@ -81,7 +121,7 @@ class BehavioralSurfaceEngine:
             episode_id = prior.current_episode_id
             maturity = prior.last_maturity + 1 if consensus_active else 0
 
-        state = self.plugin.classify(observation, maturity, self.calibration_artifact)
+        state = self.plugin.classify(normalised_observation, maturity, self.calibration_artifact)
 
         self._pair_state[pair] = _PairRuntime(
             last_timestamp=timestamp,
