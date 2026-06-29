@@ -126,15 +126,21 @@ def test_gap_handling_breaks_episode(calibration_artifact: CalibrationArtifact) 
     assert surface.iloc[2]["episode_id"] != surface.iloc[1]["episode_id"]
 
 
-def test_episode_identity_breaks_on_crowd_side_change(
+def test_episode_identity_unbroken_across_crowd_side_change(
     calibration_artifact: CalibrationArtifact,
 ) -> None:
+    """Crowd-side change no longer breaks an episode — only sentiment threshold matters.
+
+    Calibration ground truth uses only abs(net_sentiment) >= threshold to define
+    episode boundaries.  A LONG→SHORT transition within an extreme sentiment run
+    does not end the episode.
+    """
     surface = _generate(
         _make_df([80, 80, 80], crowd_sides=["LONG", "LONG", "SHORT"]),
         calibration_artifact,
     )
-    assert list(surface["maturity_bars"]) == [1, 2, 1]
-    assert surface.iloc[2]["episode_id"] != surface.iloc[1]["episode_id"]
+    assert list(surface["maturity_bars"]) == [1, 2, 3]
+    assert surface.iloc[2]["episode_id"] == surface.iloc[1]["episode_id"]
 
 
 def test_reactive_jpy_state_boundaries(calibration_artifact: CalibrationArtifact) -> None:
@@ -317,14 +323,14 @@ def test_integer_crowd_side_short_episode_continues(
     assert (surface["crowd_side"] == "SHORT").all()
 
 
-def test_integer_crowd_side_zero_is_non_extreme(
+def test_integer_crowd_side_zero_non_extreme_sentiment(
     calibration_artifact: CalibrationArtifact,
 ) -> None:
-    """Integer crowd_side=0 (neutral) must not form an active consensus episode.
+    """Integer crowd_side=0 (neutral) with non-extreme sentiment stays NON_EXTREME.
 
-    With a non-extreme sentiment, the state is JPY_NON_EXTREME regardless of
-    crowd_side. With extreme sentiment and crowd_side=0, maturity cannot
-    accumulate (is_consensus_active returns False), so maturity stays at 0.
+    Crowd-side is no longer part of the consensus-active predicate; only
+    abs(net_sentiment) >= threshold matters.  Non-extreme sentiment therefore
+    produces NON_EXTREME state regardless of crowd_side.
     """
     # Non-extreme sentiment → NON_EXTREME state, zero maturity.
     df = _make_df_int_sides([60, 65], [0, 0])
@@ -332,25 +338,28 @@ def test_integer_crowd_side_zero_is_non_extreme(
     assert (surface["state"] == "JPY_NON_EXTREME").all()
     assert (surface["maturity_bars"] == 0).all()
 
-    # Extreme sentiment but neutral crowd_side: maturity cannot accumulate.
+    # Extreme sentiment with neutral crowd_side: maturity accumulates because
+    # is_consensus_active depends only on abs(net_sentiment) >= threshold.
     df2 = _make_df_int_sides([80, 80, 80], [0, 0, 0])
     surface2 = _generate(df2, calibration_artifact)
-    assert (surface2["maturity_bars"] == 0).all()
-    # crowd_side=0 maps to "" (neutral) so is_consensus_active returns False for
-    # all bars; extreme_changed stays False (False→False) and side_changed stays
-    # False ("" == "") → no episode boundary between the three observations.
+    assert list(surface2["maturity_bars"]) == [1, 2, 3]
     assert surface2["episode_id"].nunique() == 1
 
 
-def test_integer_crowd_side_side_change_breaks_episode(
+def test_integer_crowd_side_change_does_not_break_episode(
     calibration_artifact: CalibrationArtifact,
 ) -> None:
-    """Flipping from integer 1 (LONG) to -1 (SHORT) must start a new episode."""
+    """Flipping from integer 1 (LONG) to -1 (SHORT) must NOT start a new episode.
+
+    The calibration ground truth defines episode boundaries solely by
+    abs(net_sentiment) crossing the extreme threshold.  A crowd-side reversal
+    within an extreme sentiment run is not an episode boundary.
+    """
     df = _make_df_int_sides([80, 80, 80], [1, 1, -1])
     surface = _generate(df, calibration_artifact)
 
-    assert list(surface["maturity_bars"]) == [1, 2, 1]
-    assert surface.iloc[2]["episode_id"] != surface.iloc[1]["episode_id"]
+    assert list(surface["maturity_bars"]) == [1, 2, 3]
+    assert surface["episode_id"].nunique() == 1
     assert surface.iloc[0]["crowd_side"] == "LONG"
     assert surface.iloc[2]["crowd_side"] == "SHORT"
 

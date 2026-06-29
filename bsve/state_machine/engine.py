@@ -51,7 +51,6 @@ class _PairRuntime:
     """Runtime state tracked per pair during causal iteration."""
 
     last_timestamp: pd.Timestamp
-    last_crowd_side: str
     last_consensus_active: bool
     last_maturity: int
     current_episode_id: str
@@ -110,9 +109,8 @@ class BehavioralSurfaceEngine:
                 )
 
             gap_detected = (timestamp - prior.last_timestamp) > self.max_gap
-            side_changed = crowd_side != prior.last_crowd_side
             extreme_changed = consensus_active != prior.last_consensus_active
-            boundary = gap_detected or side_changed or extreme_changed
+            boundary = gap_detected or extreme_changed
 
         if boundary:
             episode_id = self._next_episode_id(pair)
@@ -125,7 +123,6 @@ class BehavioralSurfaceEngine:
 
         self._pair_state[pair] = _PairRuntime(
             last_timestamp=timestamp,
-            last_crowd_side=crowd_side,
             last_consensus_active=consensus_active,
             last_maturity=maturity,
             current_episode_id=episode_id,

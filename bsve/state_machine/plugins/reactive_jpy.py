@@ -75,11 +75,7 @@ class ReactiveJPYPlugin:
     ) -> bool:
         thresholds = self._thresholds(calibration_artifact)
         sentiment = self._sentiment(observation)
-        crowd_side = self._crowd_side(observation)
-        return (
-            abs(sentiment) >= thresholds.extreme_threshold_net_pct
-            and crowd_side in {"LONG", "SHORT"}
-        )
+        return abs(sentiment) >= thresholds.extreme_threshold_net_pct
 
     def classify(
         self,
