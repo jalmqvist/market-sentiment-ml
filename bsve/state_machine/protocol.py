@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Mapping, Protocol, TypedDict, runtime_checkable
 
 
-class CalibrationArtifact(TypedDict, total=False):
+class CalibrationArtifact(TypedDict):
     """Top-level calibration artifact fields used by state-machine components."""
 
     calibration_id: str

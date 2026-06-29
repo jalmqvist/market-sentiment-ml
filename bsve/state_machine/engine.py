@@ -51,7 +51,7 @@ class BehavioralSurfaceEngine:
         return f"{pair}:{self._episode_counter:08d}"
 
     def process_observation(self, observation: dict[str, Any]) -> dict[str, Any]:
-        pair = str(observation[self.pair_col])
+        pair = _pair_key(observation[self.pair_col])
         timestamp = pd.Timestamp(observation[self.timestamp_col])
         if pd.isna(timestamp):
             raise ValueError(f"invalid timestamp for pair={pair!r}: {observation[self.timestamp_col]!r}")
@@ -107,6 +107,13 @@ def _require_columns(df: pd.DataFrame, required: list[str]) -> None:
         raise ValueError(f"input dataset missing required columns: {missing}")
 
 
+def _pair_key(value: Any) -> str:
+    pair = str(value).strip()
+    if not pair:
+        raise ValueError("pair value must be a non-empty string")
+    return pair
+
+
 def generate_behavioral_surface(
     dataset: pd.DataFrame,
     *,
@@ -117,7 +124,10 @@ def generate_behavioral_surface(
     timestamp_col: str = "entry_time",
     crowd_side_col: str = "crowd_side",
 ) -> pd.DataFrame:
-    """Generate one deterministic behavioral-state assignment per pair/timestamp row."""
+    """Generate one deterministic behavioral-state assignment per pair/timestamp row.
+
+    Pair values are treated as already normalized by the dataset adapter.
+    """
     _require_columns(dataset, [pair_col, timestamp_col, crowd_side_col, "net_sentiment"])
 
     working = dataset[[pair_col, timestamp_col, crowd_side_col, "net_sentiment"]].copy()
