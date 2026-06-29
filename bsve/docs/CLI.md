@@ -178,6 +178,57 @@ the Behavioral Surface Generator engine and ontology plugin.
 
 ---
 
+## Behavioral Surface Inspection
+
+Inspect a generated Behavioral Surface before running any validation.
+
+```bash
+python -m bsve.validation.inspect_surface \
+    --surface bsve.test/behavioral_surface_reactive_jpy_1.0.0.parquet \
+    --calibration bsve/calibration_artifacts/reactive_jpy_calibration_v1.json \
+    --output-dir bsve.test/inspection
+```
+
+**Purpose**
+
+The inspection utility performs structural sanity checks on a generated Behavioral Surface before downstream validation. It is intended to catch implementation errors (such as broken episode construction or maturity tracking) before Criterion 1 is executed.
+
+**Generated outputs**
+
+```
+bsve.test/
+└── inspection/
+    ├── 01_episode_length_distribution.png
+    ├── 02_state_frequencies.png
+    └── 03_maturity_distribution.png
+```
+
+**Console summary**
+
+The inspection report includes:
+
+- total observations
+- total episodes
+- pair frequencies
+- state frequencies
+- episode length statistics
+- longest detected episodes
+- maximum observed maturity
+- number of episodes surviving beyond the ontology boundaries (8 and 24 bars)
+- calibration thresholds
+- automatic warnings for suspicious Behavioral Surface properties
+
+Typical warning conditions include:
+
+- no MATURING observations
+- no MATURE observations
+- maturity never exceeds zero
+- unusually short episode lengths
+
+The inspection utility is intended as the first validation step after Behavioral Surface generation and before ontology validation or Criterion 1 analysis.
+
+---
+
 ## Independent Outcome Labeling
 
 Generate ontology-independent, episode-level outcome labels from fixed
