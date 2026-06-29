@@ -116,11 +116,36 @@ def test_running_maturity_not_final_duration(calibration_artifact: CalibrationAr
     assert list(surface["maturity_bars"]) == [1, 2, 3, 4]
 
 
-def test_gap_handling_breaks_episode(calibration_artifact: CalibrationArtifact) -> None:
+def test_gap_does_not_break_episode_by_default(calibration_artifact: CalibrationArtifact) -> None:
+    """Large timestamp gaps do NOT break episodes by default (max_gap=None).
+
+    The Reactive-JPY calibration defines episodes purely by whether
+    abs(net_sentiment) >= extreme_threshold.  It does not use wall-clock time
+    to terminate episodes.  The engine must match that semantics by default.
+    """
+    df = _make_df([80, 80, 80])
+    # Introduce a 3-hour gap — historically this would have fragmented the episode.
+    df.loc[2, "entry_time"] = pd.Timestamp("2024-01-01 04:00:00")
+
+    surface = _generate(df, calibration_artifact)
+    # All observations have extreme sentiment → one continuous episode.
+    assert list(surface["maturity_bars"]) == [1, 2, 3]
+    assert surface["episode_id"].nunique() == 1
+
+
+def test_gap_breaks_episode_when_max_gap_is_set(calibration_artifact: CalibrationArtifact) -> None:
+    """An explicit max_gap still fragments episodes when the gap exceeds the threshold."""
     df = _make_df([80, 80, 80])
     df.loc[2, "entry_time"] = pd.Timestamp("2024-01-01 04:00:00")  # 3h gap
 
-    surface = _generate(df, calibration_artifact)
+    engine = BehavioralSurfaceEngine(
+        plugin=ReactiveJPYPlugin(),
+        calibration_artifact=calibration_artifact,
+        max_gap="1h",
+    )
+    rows = [engine.process_observation(r) for r in df.to_dict(orient="records")]
+    surface = pd.DataFrame(rows)
+
     assert list(surface["maturity_bars"]) == [1, 2, 1]
     assert surface.iloc[0]["episode_id"] == surface.iloc[1]["episode_id"]
     assert surface.iloc[2]["episode_id"] != surface.iloc[1]["episode_id"]
@@ -374,3 +399,138 @@ def test_integer_crowd_side_maturity_progression(
     assert (surface.iloc[:7]["state"] == "JPY_CONSENSUS_YOUNG").all()
     assert (surface.iloc[7:23]["state"] == "JPY_CONSENSUS_MATURING").all()
     assert (surface.iloc[23:]["state"] == "JPY_CONSENSUS_MATURE").all()
+
+
+# ---------------------------------------------------------------------------
+# Episode continuity regression tests — calibration semantics alignment
+# ---------------------------------------------------------------------------
+
+
+def _make_df_with_gaps(
+    sentiments: list[float],
+    *,
+    pair: str = "usd-jpy",
+    gap_hours: float = 8.0,
+    start: str = "2024-01-01 00:00:00",
+) -> pd.DataFrame:
+    """Build a dataset with large gaps between observations (simulates ~3x/day sampling)."""
+    n = len(sentiments)
+    start_ts = pd.Timestamp(start)
+    timestamps = [start_ts + pd.Timedelta(hours=gap_hours * i) for i in range(n)]
+    return pd.DataFrame(
+        {
+            "pair": [pair] * n,
+            "entry_time": timestamps,
+            "net_sentiment": sentiments,
+            "crowd_side": ["LONG"] * n,
+        }
+    )
+
+
+def test_large_gap_extreme_sentiment_forms_single_episode(
+    calibration_artifact: CalibrationArtifact,
+) -> None:
+    """Consecutive extreme-sentiment observations spaced 8h apart form one episode.
+
+    The historical dataset is sampled ~3 times per day (~8h gaps).  The
+    Reactive-JPY calibration never terminates an episode because of the
+    inter-observation gap; it only terminates when abs(net_sentiment) drops
+    below the threshold.  The engine must reproduce this behaviour.
+    """
+    df = _make_df_with_gaps([80.0] * 10, gap_hours=8.0)
+    surface = _generate(df, calibration_artifact)
+
+    assert surface["episode_id"].nunique() == 1, "all observations must share one episode"
+    assert list(surface["maturity_bars"]) == list(range(1, 11))
+
+
+def test_episode_interrupted_by_non_extreme_then_resumes(
+    calibration_artifact: CalibrationArtifact,
+) -> None:
+    """A non-extreme observation ends the episode; re-entering extreme starts a new one.
+
+    This matches calibration semantics exactly: the boundary is the
+    threshold crossing, not the clock.
+    """
+    # extreme × 5 → non-extreme × 1 → extreme × 5
+    sentiments = [80.0] * 5 + [60.0] + [80.0] * 5
+    df = _make_df_with_gaps(sentiments, gap_hours=8.0)
+    surface = _generate(df, calibration_artifact)
+
+    first_ep = surface.iloc[0]["episode_id"]
+    # Rows 0-4: extreme → episode 1
+    assert all(surface.iloc[i]["episode_id"] == first_ep for i in range(5))
+    # Row 5: non-extreme → maturity resets to 0
+    assert surface.iloc[5]["maturity_bars"] == 0
+    # Rows 6-10: new extreme episode
+    second_ep = surface.iloc[6]["episode_id"]
+    assert second_ep != first_ep
+    assert list(surface.iloc[6:]["maturity_bars"]) == list(range(1, 6))
+
+
+def test_maturing_and_mature_states_reachable_with_large_gaps(
+    calibration_artifact: CalibrationArtifact,
+) -> None:
+    """MATURING and MATURE states must be reachable even when observations are far apart.
+
+    With the previous max_gap="1h" default, datasets sampled ~3x/day (~8h
+    gaps) could never reach MATURING (requires maturity >= 8) or MATURE
+    (requires maturity >= 24) because every observation triggered a new
+    episode.  After the fix, a long enough run of extreme observations should
+    advance through all three maturity states.
+    """
+    # 25 observations with extreme sentiment, 8h spacing
+    df = _make_df_with_gaps([80.0] * 25, gap_hours=8.0)
+    surface = _generate(df, calibration_artifact)
+
+    states = list(surface["state"])
+    assert "JPY_CONSENSUS_MATURING" in states, "MATURING state must be reachable"
+    assert "JPY_CONSENSUS_MATURE" in states, "MATURE state must be reachable"
+    # Verify exact boundaries match calibration thresholds (young<8, maturing<24, mature>=24)
+    assert (surface.iloc[:7]["state"] == "JPY_CONSENSUS_YOUNG").all()
+    assert (surface.iloc[7:23]["state"] == "JPY_CONSENSUS_MATURING").all()
+    assert (surface.iloc[23:]["state"] == "JPY_CONSENSUS_MATURE").all()
+
+
+def test_episode_survival_counts_match_calibration_semantics(
+    calibration_artifact: CalibrationArtifact,
+) -> None:
+    """Verify episode survival statistics match calibration replay on the same mini-dataset.
+
+    Constructs a synthetic dataset that mirrors the calibration's episode
+    extraction logic and asserts that the engine produces the same episode
+    count and maximum episode length.
+    """
+    from bsve.calibration.jpy_maturity_calibration import extract_consensus_lifecycles
+
+    # Build a dataset: two long extreme runs separated by a non-extreme gap
+    # Run A: 30 extreme observations (8h gaps)
+    # Gap: 3 non-extreme observations
+    # Run B: 15 extreme observations (8h gaps)
+    sentiments = [80.0] * 30 + [60.0] * 3 + [80.0] * 15
+    df = _make_df_with_gaps(sentiments, gap_hours=8.0)
+
+    # --- Calibration replay (ground truth) ---
+    cal_df = df.rename(columns={"net_sentiment": "sentiment_net"})
+    extreme_threshold = float(
+        calibration_artifact["thresholds"]["extreme_threshold_net_pct"]
+    )
+    lifecycles = extract_consensus_lifecycles(cal_df, "usd-jpy", extreme_threshold, min_episode_bars=1)
+    cal_episode_count = len(lifecycles)
+    cal_max_length = max(lc.duration_bars for lc in lifecycles)
+
+    # --- Engine replay ---
+    surface = _generate(df, calibration_artifact)
+    engine_episode_count = surface[surface["maturity_bars"] == 1]["episode_id"].nunique()
+    engine_max_maturity = int(surface["maturity_bars"].max())
+
+    # Engine episodes == calibration episodes (2 runs → 2 episodes)
+    assert engine_episode_count == cal_episode_count, (
+        f"episode count mismatch: engine={engine_episode_count}, "
+        f"calibration={cal_episode_count}"
+    )
+    # Engine max maturity should match calibration max episode length (run A = 30)
+    assert engine_max_maturity == cal_max_length, (
+        f"max length mismatch: engine={engine_max_maturity}, "
+        f"calibration={cal_max_length}"
+    )

@@ -108,13 +108,13 @@ def _boundary_reason(
     prior: Any,
     timestamp: pd.Timestamp,
     consensus_active: bool,
-    max_gap: pd.Timedelta,
+    max_gap: pd.Timedelta | None,
 ) -> str:
     """Return a human-readable reason for an episode boundary."""
     if prior is None:
         return "first_observation"
     gap = timestamp - prior["last_timestamp"]
-    if gap > max_gap:
+    if max_gap is not None and gap > max_gap:
         return f"timestamp_gap ({gap})"
     if consensus_active != prior["last_consensus_active"]:
         if consensus_active:
@@ -130,7 +130,7 @@ def _run_instrumented_surface(
     pair_col: str,
     timestamp_col: str,
     extreme_threshold: float,
-    max_gap: pd.Timedelta,
+    max_gap: pd.Timedelta | None,
     print_boundaries: bool = True,
     max_boundary_rows: int = 50,
 ) -> dict[str, Any]:
@@ -166,7 +166,7 @@ def _run_instrumented_surface(
             boundary = True
         else:
             gap = timestamp - prior["last_timestamp"]
-            gap_detected = gap > max_gap
+            gap_detected = max_gap is not None and gap > max_gap
             extreme_changed = consensus_active != prior["last_consensus_active"]
             boundary = gap_detected or extreme_changed
             reason = _boundary_reason(
@@ -286,8 +286,13 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--max-gap",
-        default="1h",
-        help="Maximum gap between consecutive observations before a new episode starts",
+        default=None,
+        help=(
+            "Maximum gap between consecutive observations before a new episode "
+            "starts (e.g. '7d').  Defaults to None (disabled), matching the "
+            "calibration semantics where episodes are defined solely by "
+            "abs(net_sentiment) >= threshold."
+        ),
     )
     parser.add_argument(
         "--max-boundary-rows",
@@ -322,7 +327,7 @@ def main() -> None:
     adapter = MasterResearchDatasetAdapter.from_artifact(dataset_path)
     pair_col = adapter.config.pair_col
     timestamp_col = adapter.config.timestamp_col
-    max_gap = pd.Timedelta(args.max_gap)
+    max_gap = pd.Timedelta(args.max_gap) if args.max_gap is not None else None
 
     artifact = load_calibration_artifact(
         args.calibration_artifact, strict=True
