@@ -13,7 +13,7 @@ validation utilities for pre-deployment sign-off.
 Current status:
 ✓ Calibration framework
 ✓ Artifact validation
-✓ Rule-based state assignment
+✓ Behavioral Surface Generator
 ✓ Criterion validation reporting (Reactive-JPY Criterion 1)
 □ Environment validation
 □ Multi-ontology support
@@ -108,25 +108,26 @@ assignment begins.  Run this after each new calibration run.
 
 ---
 
-## State Assignment
+## Behavioral Surface Generator
 
-Assign behavioral states using a committed calibration artifact and
-environment specification.
+Run the deterministic, causal Behavioral Surface Generator from a frozen calibration artifact.
 
 ```bash
 python -m bsve.state_machine.rule_based \
     --dataset-path data/output/1.5.1/master_research_dataset_core.csv \
-    --environment reactive_jpy \
-    --output-dir bsve.test/
+    --output-dir bsve.test/ \
+    --calibration-artifact bsve/calibration_artifacts/reactive_jpy_calibration_v1.json \
+    --state-spec bsve/state_specs/reactive_jpy_v1.yaml \
+    --dataset-version 1.5.1
 ```
 
 **Required inputs**
 
-| Input                | Description                                                                         |
-| -------------------- | ----------------------------------------------------------------------------------- |
-| Dataset              | Master research dataset (e.g. `data/output/1.5.1/master_research_dataset_core.csv`) |
-| Environment spec     | State ontology YAML (e.g. `reactive_jpy_v1.yaml`)                                   |
-| Calibration artifact | Signed calibration artifact stored under `bsve/calibration_artifacts/`              |
+| Input                | Description                                                                          |
+| -------------------- | ------------------------------------------------------------------------------------ |
+| Dataset              | Master research dataset (CSV/parquet) loaded via `MasterResearchDatasetAdapter`     |
+| Calibration artifact | Validated `CalibrationArtifact` loaded through `load_calibration_artifact`          |
+| Ontology spec        | Frozen ontology YAML (default: `bsve/state_specs/reactive_jpy_v1.yaml`)            |
 
 **Outputs**
 
@@ -134,29 +135,46 @@ The command produces:
 
 ```
 bsve.test/
-├── bsve_states_reactive_jpy_1.0.0.parquet
-├── diagnostics.json
-└── run_manifest.json
+├── behavioral_surface_reactive_jpy_1.0.0.parquet
+└── behavioral_surface_manifest.json
 ```
 
-**Artifact descriptions**
+**Behavioral Surface columns**
 
-| Artifact                                 | Purpose                                                                               |
-| ---------------------------------------- | ------------------------------------------------------------------------------------- |
-| `bsve_states_reactive_jpy_1.0.0.parquet` | Row-level state assignments suitable for criterion testing and downstream analysis    |
-| `diagnostics.json`                       | State counts, episode statistics, survival counts, maturity sparsity diagnostics      |
-| `run_manifest.json`                      | Provenance record linking dataset version, ontology, calibration artifact, and run ID |
+```
+timestamp
+pair
+state
+episode_id
+maturity_bars
+crowd_side
+```
 
-**Validation behavior**
+**Provenance fields**
 
-Before writing artifacts the state machine performs:
+```
+ontology_id
+ontology_version
+calibration_id
+calibration_hash
+schema_version
+dataset_version
+generated_timestamp
+```
 
-* calibration artifact validation
-* ontology validation
-* state artifact validation
-* uniqueness checks on `(pair, environment_id, entry_time)`
+**Manifest fields**
 
-State assignment fails fast if any contract violation is detected.
+- ontology id/version
+- calibration artifact id/hash
+- dataset version
+- row count
+- pair counts
+- state counts
+- schema version
+- generation timestamp
+
+The orchestration layer is intentionally thin: behavioral assignment logic lives in
+the Behavioral Surface Generator engine and ontology plugin.
 
 ---
 
@@ -385,7 +403,7 @@ review and validation.
 ```
 Calibration
   ↓
-State Assignment
+Behavioral Surface Generator
   ↓
 Independent Outcome Labeling
   ↓
