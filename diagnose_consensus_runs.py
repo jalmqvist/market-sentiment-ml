@@ -282,7 +282,7 @@ def _parse_args() -> argparse.Namespace:
         "--pairs",
         nargs="+",
         default=["USDJPY", "EURJPY", "GBPJPY"],
-        help="Pairs to analyse",
+        help="Pairs to analyze",
     )
     parser.add_argument(
         "--max-gap",

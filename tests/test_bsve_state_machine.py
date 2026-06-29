@@ -346,7 +346,7 @@ def test_integer_crowd_side_zero_non_extreme_sentiment(
     assert surface2["episode_id"].nunique() == 1
 
 
-def test_integer_crowd_side_side_change_does_not_break_episode(
+def test_integer_crowd_side_change_does_not_break_episode(
     calibration_artifact: CalibrationArtifact,
 ) -> None:
     """Flipping from integer 1 (LONG) to -1 (SHORT) must NOT start a new episode.
