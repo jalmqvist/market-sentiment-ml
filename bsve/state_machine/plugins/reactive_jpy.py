@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from dataclasses import dataclass
+from typing import Mapping
 
 from bsve.state_machine.protocol import CalibrationArtifact, Observation
+
+
+@dataclass(frozen=True)
+class ReactiveJPYThresholds:
+    """Typed threshold view extracted from calibration artifact."""
+
+    extreme_threshold_net_pct: float
+    young_boundary_bars: int
+    mature_boundary_bars: int
 
 
 class ReactiveJPYPlugin:
@@ -27,7 +37,7 @@ class ReactiveJPYPlugin:
         self.sentiment_col = sentiment_col
         self.crowd_side_col = crowd_side_col
 
-    def _thresholds(self, calibration_artifact: CalibrationArtifact) -> tuple[float, int, int]:
+    def _thresholds(self, calibration_artifact: CalibrationArtifact) -> ReactiveJPYThresholds:
         thresholds = calibration_artifact.get("thresholds")
         if not isinstance(thresholds, Mapping):
             raise ValueError("calibration artifact thresholds are missing")
@@ -40,7 +50,11 @@ class ReactiveJPYPlugin:
                 "calibration artifact missing one or more required thresholds: "
                 "extreme_threshold_net_pct, young_boundary_bars, mature_boundary_bars"
             )
-        return float(extreme), int(young), int(mature)
+        return ReactiveJPYThresholds(
+            extreme_threshold_net_pct=float(extreme),
+            young_boundary_bars=int(young),
+            mature_boundary_bars=int(mature),
+        )
 
     def _sentiment(self, observation: Observation) -> float:
         value = observation.get(self.sentiment_col)
@@ -59,10 +73,13 @@ class ReactiveJPYPlugin:
         observation: Observation,
         calibration_artifact: CalibrationArtifact,
     ) -> bool:
-        extreme_threshold, _, _ = self._thresholds(calibration_artifact)
+        thresholds = self._thresholds(calibration_artifact)
         sentiment = self._sentiment(observation)
         crowd_side = self._crowd_side(observation)
-        return abs(sentiment) >= extreme_threshold and crowd_side in {"LONG", "SHORT"}
+        return (
+            abs(sentiment) >= thresholds.extreme_threshold_net_pct
+            and crowd_side in {"LONG", "SHORT"}
+        )
 
     def classify(
         self,
@@ -70,16 +87,14 @@ class ReactiveJPYPlugin:
         running_maturity: int,
         calibration_artifact: CalibrationArtifact,
     ) -> str:
-        extreme_threshold, young_boundary, mature_boundary = self._thresholds(
-            calibration_artifact
-        )
+        thresholds = self._thresholds(calibration_artifact)
         sentiment = self._sentiment(observation)
 
-        if abs(sentiment) < extreme_threshold:
+        if abs(sentiment) < thresholds.extreme_threshold_net_pct:
             return self._NON_EXTREME
 
-        if running_maturity < young_boundary:
+        if running_maturity < thresholds.young_boundary_bars:
             return self._YOUNG
-        if running_maturity < mature_boundary:
+        if running_maturity < thresholds.mature_boundary_bars:
             return self._MATURING
         return self._MATURE

@@ -13,7 +13,7 @@ validation utilities for pre-deployment sign-off.
 Current status:
 ✓ Calibration framework
 ✓ Artifact validation
-✓ Behavioral Surface generation
+✓ Behavioral Surface Generator
 ✓ Criterion validation reporting (Reactive-JPY Criterion 1)
 □ Environment validation
 □ Multi-ontology support
@@ -108,9 +108,9 @@ assignment begins.  Run this after each new calibration run.
 
 ---
 
-## Behavioral Surface Generation
+## Behavioral Surface Generator
 
-Generate the deterministic, causal Behavioral Surface from a frozen calibration artifact.
+Run the deterministic, causal Behavioral Surface Generator from a frozen calibration artifact.
 
 ```bash
 python -m bsve.state_machine.rule_based \
@@ -403,7 +403,7 @@ review and validation.
 ```
 Calibration
   ↓
-Behavioral Surface Generation
+Behavioral Surface Generator
   ↓
 Independent Outcome Labeling
   ↓

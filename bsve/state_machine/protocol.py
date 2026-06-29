@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Protocol, runtime_checkable
+from typing import Any, Mapping, Protocol, TypedDict, runtime_checkable
 
 
-CalibrationArtifact = dict[str, Any]
+class CalibrationArtifact(TypedDict, total=False):
+    """Top-level calibration artifact fields used by state-machine components."""
+
+    calibration_id: str
+    artifact_hash: str
+    thresholds: Mapping[str, Any]
+
+
 Observation = Mapping[str, Any]
 
 

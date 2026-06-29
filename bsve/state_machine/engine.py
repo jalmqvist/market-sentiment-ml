@@ -8,7 +8,6 @@ from typing import Any
 
 import pandas as pd
 
-from bsve.adapters.dataset_adapter import MasterResearchDatasetAdapter
 from bsve.state_machine.protocol import BehavioralOntologyPlugin, CalibrationArtifact
 
 BEHAVIORAL_SURFACE_SCHEMA_VERSION = "1.0.0"
@@ -52,7 +51,7 @@ class BehavioralSurfaceEngine:
         return f"{pair}:{self._episode_counter:08d}"
 
     def process_observation(self, observation: dict[str, Any]) -> dict[str, Any]:
-        pair = MasterResearchDatasetAdapter.normalize_pair(observation[self.pair_col])
+        pair = str(observation[self.pair_col])
         timestamp = pd.Timestamp(observation[self.timestamp_col])
         if pd.isna(timestamp):
             raise ValueError(f"invalid timestamp for pair={pair!r}: {observation[self.timestamp_col]!r}")
@@ -122,7 +121,6 @@ def generate_behavioral_surface(
     _require_columns(dataset, [pair_col, timestamp_col, crowd_side_col, "net_sentiment"])
 
     working = dataset[[pair_col, timestamp_col, crowd_side_col, "net_sentiment"]].copy()
-    working[pair_col] = working[pair_col].map(MasterResearchDatasetAdapter.normalize_pair)
     working[timestamp_col] = pd.to_datetime(working[timestamp_col], errors="coerce")
     if working[timestamp_col].isna().any():
         raise ValueError(f"column {timestamp_col!r} contains non-datetime values")
