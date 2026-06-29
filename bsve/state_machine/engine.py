@@ -67,14 +67,26 @@ class BehavioralSurfaceEngine:
         pair_col: str = "pair",
         timestamp_col: str = "entry_time",
         crowd_side_col: str = "crowd_side",
-        max_gap: str = "1h",
+        max_gap: str | None = None,
     ) -> None:
+        """Initialise the engine.
+
+        Args:
+            max_gap: Maximum wall-clock gap between consecutive observations
+                before a new episode is forced.  Defaults to ``None``
+                (disabled), which matches the Reactive-JPY calibration
+                semantics: episodes are defined solely by whether
+                ``abs(net_sentiment) >= extreme_threshold``, not by elapsed
+                time.  Pass an explicit timedelta string (e.g. ``"7d"``) only
+                when you need to handle genuinely missing data periods in a
+                specific dataset.
+        """
         self.plugin = plugin
         self.calibration_artifact = calibration_artifact
         self.pair_col = pair_col
         self.timestamp_col = timestamp_col
         self.crowd_side_col = crowd_side_col
-        self.max_gap = pd.Timedelta(max_gap)
+        self.max_gap = pd.Timedelta(max_gap) if max_gap is not None else None
         self._pair_state: dict[str, _PairRuntime] = {}
         self._episode_counter = 0
 
@@ -108,7 +120,10 @@ class BehavioralSurfaceEngine:
                     f"{timestamp} <= {prior.last_timestamp}"
                 )
 
-            gap_detected = (timestamp - prior.last_timestamp) > self.max_gap
+            gap_detected = (
+                self.max_gap is not None
+                and (timestamp - prior.last_timestamp) > self.max_gap
+            )
             extreme_changed = consensus_active != prior.last_consensus_active
             boundary = gap_detected or extreme_changed
 
