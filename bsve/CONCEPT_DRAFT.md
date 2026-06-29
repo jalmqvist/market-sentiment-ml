@@ -2,13 +2,19 @@
 
 ## Purpose
 
-BSVE is a research framework for defining, calibrating, assigning, and validating behavioral state ontologies derived from crowd-sentiment data.
+BSVE is a research framework for defining, calibrating, assigning and validating behavioral state ontologies derived from crowd-sentiment data.
 
-The framework exists to answer a specific scientific question:
+The immediate scientific objective is:
 
-> Do empirically calibrated behavioral states capture reproducible differences in market behavior that are not already explained by raw sentiment levels alone?
+> Do empirically calibrated behavioral states capture reproducible differences in market behavior that are not already explained by raw sentiment alone?
 
-BSVE separates ontology design from ontology validation. State definitions are treated as scientific hypotheses that must survive independent testing before they are used by downstream systems.
+The broader research objective is:
+
+> Which behavioral representations simplify the market prediction problem?
+
+Behavioral ontologies are therefore not considered endpoints in themselves. They are candidate behavioral representations that may later be consumed by predictive systems such as MSML and trading systems such as MPML.
+
+BSVE intentionally remains independent of both prediction and trading evaluation. Its role is to establish whether behavioral representations are scientifically valid before they are evaluated downstream.
 
 ------
 
@@ -69,6 +75,54 @@ A calibrated ontology is not considered scientifically valid until it demonstrat
 The purpose of BSVE is not merely to generate states, but to determine whether those states correspond to meaningful behavioral regimes.
 
 ------
+
+# Validation Philosophy
+
+BSVE validation is intentionally separated into three independent scientific stages.
+
+### Stage 1 — Behavioral Validation (BSVE)
+
+Question:
+
+> Does the ontology describe a genuine behavioral phenomenon?
+
+Outputs:
+
+- calibrated ontology
+- behavioral surface
+- statistical validation
+- independent replication
+
+### Stage 2 — Predictive Validation (MSML)
+
+Question:
+
+> Does the validated behavioral surface simplify the prediction problem?
+
+Outputs:
+
+- behavioral-surface-trained prediction models
+- walk-forward prediction metrics
+
+### Stage 3 — Trading Validation (MPML)
+
+Question:
+
+> Does improved prediction translate into improved trading performance?
+
+Outputs:
+
+- walk-forward trading evaluation
+- strategy-selection performance
+- trading utility
+
+BSVE is responsible only for Stage 1.
+
+Prediction and trading evaluation belong to downstream systems.
+
+This separation avoids conflating behavioral validity with predictive or trading performance.
+
+---
 
 # Validation Framework
 
@@ -167,29 +221,43 @@ Current research focuses on identifying outcome definitions capable of testing t
 
 Not yet implemented.
 
-Reactive-CHF is the next planned ontology family.
+Reactive-CHF is the next planned ontology under active investigation.
 
 ------
 
-# Relationship to MPML
+# Relationship to MSML and MPML
 
-BSVE is a research and validation layer.
+BSVE occupies the first stage of a larger research pipeline.
 
-MPML remains responsible for:
+```text
+BSVE
+        ↓
+Behavioral surface
+        ↓
+MSML
+        ↓
+Prediction surface
+        ↓
+MPML
+        ↓
+Trading evaluation
+```
 
-- Market-phase modeling
-- Strategy research
-- Trading-system evaluation
+Responsibilities are intentionally separated.
 
-BSVE is responsible only for determining whether behavioral ontologies represent valid and reproducible state structures.
+BSVE determines whether behavioral representations are scientifically valid.
 
-Validated ontologies may later be consumed by MPML.
+MSML determines whether validated behavioral representations simplify the prediction problem.
+
+MPML determines whether improved prediction can be converted into improved trading performance.
+
+Each stage answers a different scientific question and should remain methodologically independent.
 
 ------
 
 # Current Research Focus
 
-Behavioral Outcome Discovery.
+Current Research Focus — Independent Behavioral Validation
 
 The primary scientific question is:
 
@@ -205,9 +273,8 @@ Findings and experimental results are documented separately from this concept do
 
 ## Active
 
-1. Reactive-JPY outcome discovery
-2. Reactive-JPY Criterion 1 determination
-3. Reactive-CHF calibration
+1. Reactive-JPY Criterion 1 — Independent Validation (Week 27)
+2. Reactive-CHF calibration (pending JPY validation outcome)
 
 ## Planned
 
@@ -221,3 +288,7 @@ Findings and experimental results are documented separately from this concept do
 1. Cross-family transfer analysis
 2. Additional ontology families
 3. Integration with downstream MPML research
+
+## Long-Term Direction
+
+Current FX pair families are viewed as stable manifestations of underlying behavioral processes rather than permanent categories. Long-term, BSVE may produce multiple behavioral representations simultaneously, allowing downstream systems to dynamically select the representation that currently provides the simplest prediction problem instead of permanently assigning currency pairs to fixed behavioral families.
