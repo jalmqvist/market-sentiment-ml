@@ -266,3 +266,99 @@ def test_orchestration_pipeline_exports_surface_and_manifest(
 
     manifest = json.loads(manifest_path.read_text())
     assert manifest["dataset_version"] == "1.5.1"
+
+
+# ---------------------------------------------------------------------------
+# Integer crowd-side encoding (master research dataset uses 1/-1/0)
+# ---------------------------------------------------------------------------
+
+
+def _make_df_int_sides(
+    sentiments: list[float],
+    sides: list[int],
+    *,
+    pair: str = "usd-jpy",
+    start: str = "2024-01-01 00:00:00",
+) -> pd.DataFrame:
+    """Build a test dataset using integer crowd_side encoding (1=LONG, -1=SHORT, 0=neutral)."""
+    n = len(sentiments)
+    assert len(sides) == n
+    return pd.DataFrame(
+        {
+            "pair": [pair] * n,
+            "entry_time": pd.date_range(start, periods=n, freq="h"),
+            "net_sentiment": sentiments,
+            "crowd_side": sides,
+        }
+    )
+
+
+def test_integer_crowd_side_long_episode_continues(
+    calibration_artifact: CalibrationArtifact,
+) -> None:
+    """Integer crowd_side=1 (LONG) with extreme sentiment must form a continuous episode."""
+    df = _make_df_int_sides([80, 80, 80, 80], [1, 1, 1, 1])
+    surface = _generate(df, calibration_artifact)
+
+    assert list(surface["maturity_bars"]) == [1, 2, 3, 4]
+    assert surface["episode_id"].nunique() == 1
+    assert (surface["crowd_side"] == "LONG").all()
+
+
+def test_integer_crowd_side_short_episode_continues(
+    calibration_artifact: CalibrationArtifact,
+) -> None:
+    """Integer crowd_side=-1 (SHORT) with extreme sentiment must form a continuous episode."""
+    df = _make_df_int_sides([80, 80, 80], [-1, -1, -1])
+    surface = _generate(df, calibration_artifact)
+
+    assert list(surface["maturity_bars"]) == [1, 2, 3]
+    assert surface["episode_id"].nunique() == 1
+    assert (surface["crowd_side"] == "SHORT").all()
+
+
+def test_integer_crowd_side_zero_is_non_extreme(
+    calibration_artifact: CalibrationArtifact,
+) -> None:
+    """Integer crowd_side=0 (neutral) must not form an active consensus episode.
+
+    With a non-extreme sentiment, the state is JPY_NON_EXTREME regardless of
+    crowd_side. With extreme sentiment and crowd_side=0, maturity cannot
+    accumulate (is_consensus_active returns False), so maturity stays at 0.
+    """
+    # Non-extreme sentiment → NON_EXTREME state, zero maturity.
+    df = _make_df_int_sides([60, 65], [0, 0])
+    surface = _generate(df, calibration_artifact)
+    assert (surface["state"] == "JPY_NON_EXTREME").all()
+    assert (surface["maturity_bars"] == 0).all()
+
+    # Extreme sentiment but neutral crowd_side: maturity cannot accumulate.
+    df2 = _make_df_int_sides([80, 80, 80], [0, 0, 0])
+    surface2 = _generate(df2, calibration_artifact)
+    assert (surface2["maturity_bars"] == 0).all()
+    assert surface2["episode_id"].nunique() == 1  # same episode (no boundary from side or extreme change)
+
+
+def test_integer_crowd_side_side_change_breaks_episode(
+    calibration_artifact: CalibrationArtifact,
+) -> None:
+    """Flipping from integer 1 (LONG) to -1 (SHORT) must start a new episode."""
+    df = _make_df_int_sides([80, 80, 80], [1, 1, -1])
+    surface = _generate(df, calibration_artifact)
+
+    assert list(surface["maturity_bars"]) == [1, 2, 1]
+    assert surface.iloc[2]["episode_id"] != surface.iloc[1]["episode_id"]
+    assert surface.iloc[0]["crowd_side"] == "LONG"
+    assert surface.iloc[2]["crowd_side"] == "SHORT"
+
+
+def test_integer_crowd_side_maturity_progression(
+    calibration_artifact: CalibrationArtifact,
+) -> None:
+    """Integer crowd_side must produce the full YOUNG → MATURING → MATURE progression."""
+    df = _make_df_int_sides([80.0] * 25, [1] * 25)
+    surface = _generate(df, calibration_artifact)
+
+    assert (surface.iloc[:7]["state"] == "JPY_CONSENSUS_YOUNG").all()
+    assert (surface.iloc[7:23]["state"] == "JPY_CONSENSUS_MATURING").all()
+    assert (surface.iloc[23:]["state"] == "JPY_CONSENSUS_MATURE").all()
