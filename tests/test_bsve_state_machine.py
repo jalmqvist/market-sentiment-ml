@@ -512,7 +512,9 @@ def test_episode_survival_counts_match_calibration_semantics(
 
     # --- Calibration replay (ground truth) ---
     cal_df = df.rename(columns={"net_sentiment": "sentiment_net"})
-    extreme_threshold = 70.0  # matches calibration_artifact fixture
+    extreme_threshold = float(
+        calibration_artifact["thresholds"]["extreme_threshold_net_pct"]
+    )
     lifecycles = extract_consensus_lifecycles(cal_df, "usd-jpy", extreme_threshold, min_episode_bars=1)
     cal_episode_count = len(lifecycles)
     cal_max_length = max(lc.duration_bars for lc in lifecycles)
