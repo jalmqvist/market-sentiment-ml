@@ -19,6 +19,15 @@ def _normalize_crowd_side(value: Any) -> str:
     ``0`` = neutral / no side).
 
     Returns one of ``"LONG"``, ``"SHORT"``, or ``""`` (neutral / unknown).
+
+    Examples::
+
+        _normalize_crowd_side(1)      # "LONG"
+        _normalize_crowd_side(-1)     # "SHORT"
+        _normalize_crowd_side(0)      # ""
+        _normalize_crowd_side("LONG") # "LONG"
+        _normalize_crowd_side("long") # "LONG"
+        _normalize_crowd_side(None)   # ""
     """
     if value is None:
         return ""

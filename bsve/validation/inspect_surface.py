@@ -81,7 +81,6 @@ def inspect_surface(
         .head(10)
         .rename("length")
         .reset_index()
-        .rename(columns={"episode_id": "episode_id"})
         .to_dict(orient="records")
     )
 
@@ -261,7 +260,8 @@ def _try_generate_plots(
     try:
         ep_lengths = surface.groupby("episode_id").size()
         fig, ax = plt.subplots(figsize=(8, 4))
-        ax.hist(ep_lengths, bins=min(50, len(ep_lengths)), edgecolor="white")
+        n_bins = min(50, max(10, len(ep_lengths) // 10))
+        ax.hist(ep_lengths, bins=n_bins, edgecolor="white")
         ax.set_xlabel("Episode length (bars)")
         ax.set_ylabel("Count")
         ax.set_title("Episode Length Distribution")

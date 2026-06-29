@@ -336,7 +336,10 @@ def test_integer_crowd_side_zero_is_non_extreme(
     df2 = _make_df_int_sides([80, 80, 80], [0, 0, 0])
     surface2 = _generate(df2, calibration_artifact)
     assert (surface2["maturity_bars"] == 0).all()
-    assert surface2["episode_id"].nunique() == 1  # same episode (no boundary from side or extreme change)
+    # crowd_side=0 maps to "" (neutral) so is_consensus_active returns False for
+    # all bars; extreme_changed stays False (False→False) and side_changed stays
+    # False ("" == "") → no episode boundary between the three observations.
+    assert surface2["episode_id"].nunique() == 1
 
 
 def test_integer_crowd_side_side_change_breaks_episode(
