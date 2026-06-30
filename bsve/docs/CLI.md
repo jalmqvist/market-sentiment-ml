@@ -229,124 +229,88 @@ The inspection utility is intended as the first validation step after Behavioral
 
 ---
 
-## Independent Outcome Labeling
+## Join Validation
 
-Generate ontology-independent, episode-level outcome labels from fixed
-post-state market behavior.
-
-```bash
-python -m bsve.validation.outcome_labeling \
-    --artifact bsve.test/bsve_states_reactive_jpy_1.0.0.parquet \
-    --dataset-path data/output/1.5.1/master_research_dataset_core.csv \
-    --output-dir bsve.test/
-```
-
-**Purpose**
-
-Independent outcomes are required for Criterion 1 PASS eligibility. Labels are
-computed from realized forward returns over a fixed 24-bar H1 window after
-episode termination and do not depend on maturity duration boundaries.
-
-**Additional options**
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--outcome-window-bars` | `24` | Fixed forward horizon (H1 bars) used to label outcomes |
-| `--threshold-column` | `vol_48b` | Dataset column used as the volatility threshold (must be in return units) |
-
-**Threshold column**
-
-The default threshold column is `vol_48b`, which is present in all BSVE-format
-datasets (v1.5.1+), is strictly backward-looking, and is expressed in return
-units — consistent with `forward_return`.
-
-To use a different column from the same dataset:
+Validate that a generated Behavioral Surface aligns one-to-one with the originating master research dataset.
 
 ```bash
-python -m bsve.validation.outcome_labeling \
-    --artifact bsve.test/bsve_states_reactive_jpy_1.0.0.parquet \
-    --dataset-path data/output/1.5.1/master_research_dataset_core.csv \
-    --output-dir bsve.test/ \
-    --threshold-column vol_12b
+python -m bsve.validation.validate_join \
+    --surface bsve.test/behavioral_surface_reactive_jpy_1.0.0.parquet \
+    --dataset data/output/1.5.1/master_research_dataset_core.csv
 ```
 
-The selected threshold column is validated for existence and surfaced in the
-output metadata under `threshold_column`.
+### Purpose
 
-### Criterion 1 outcome definition
+This utility verifies that the Behavioral Surface preserves the original research observations before downstream analysis.
 
-Outcome labels are:
+The validator automatically detects the ontology's participating currency pairs, filters the master dataset accordingly, and verifies:
 
-```
-SUCCESS
-FAILURE
-```
+- identical row counts,
+- duplicate `(timestamp, pair)` keys,
+- identical key sets,
+- one-to-one join cardinality,
+- pair frequencies,
+- crowd-side consistency.
 
-based on:
+The script aborts immediately if any validation fails.
 
-```python
-abs(forward_return) >= volatility_threshold
-```
+This validation should be run before outcome labeling.
 
-where:
+---
 
-```
-volatility_threshold = vol_48b  (default)
-```
+## Behavioral Outcome Labeling
 
-Key properties of this definition:
+Attach crowd-relative outcome labels to a Behavioral Surface.
 
-- **Direction-agnostic**: either sufficiently large up or down follow-through
-  is classified as SUCCESS. Direction is intentionally ignored in the current
-  Reactive-JPY implementation. The objective is detecting whether maturity
-  states lead to different *magnitudes* of post-episode behavior.
-- **Maturity-duration-independent**: outcome labeling uses only the episode
-  end time and a fixed forward window. It does not depend on maturity duration
-  boundaries.
-- **Ontology-independent**: outcome labeling does not depend on state
-  assignment logic; it joins only on `(pair, episode_end_time)`.
-- **Unit-consistent**: `forward_return` and `vol_48b` are both expressed in
-  return units, so no conversion is required.
-
-Directional outcome variants remain a possible future enhancement.
-
-**Unit convention**
-
-- `forward_return` is stored as a fraction: `future_close / close - 1`
-- `vol_48b` is expressed in return units (e.g. `0.01` means 1% volatility)
-- `success_threshold = abs(vol_48b)` — no conversion required
-- Classification rule: `SUCCESS` if `abs(forward_return) >= success_threshold`,
-  else `FAILURE`
-
-**Generated outputs**
-
-```
-bsve.test/
-└── independent_outcomes.json
+```bash
+python -m bsve.validation.label_outcomes \
+    --surface bsve.test/behavioral_surface_reactive_jpy_1.0.0.parquet \
+    --dataset data/output/1.5.1/master_research_dataset_core.csv \
+    --output-dir bsve.test/labeled \
+    --dataset-version 1.5.1 \
+    --horizon 24
 ```
 
-`independent_outcomes.json` includes:
+### Purpose
 
-- metadata describing fixed-horizon labeling and the threshold column used
-- summary counts (total episodes, evaluable episodes, SUCCESS/FAILURE, success_rate)
-- episode-level independent outcomes for consensus states
+Outcome labeling combines a validated Behavioral Surface with the originating master research dataset and computes ontology-independent outcome labels for downstream statistical validation.
 
-**Console output**
+The utility:
+
+- validates the one-to-one join,
+- retrieves the requested forward-return horizon,
+- computes
 
 ```
-[BSVE] Independent Outcome Labeling (Reactive-JPY)
-------------------------------------------------------------
-Threshold column:   vol_48b
-Consensus episodes: N
-Evaluable episodes: N
-SUCCESS: N
-FAILURE: N
-Success rate:       XX.X%
-Output: bsve.test/independent_outcomes.json
+future_return
+crowd_relative_return
+crowd_failed
 ```
 
-A healthy label distribution avoids extreme imbalance (e.g. ~0% or ~100%
-success rate). Inspect `success_rate` immediately after generation.
+- preserves the behavioral state assignments,
+- exports a canonical labeled Behavioral Surface together with a provenance manifest.
+
+The implementation is ontology-agnostic and accepts any Behavioral Surface conforming to the standard BSVE schema.
+
+### Outputs
+
+```
+behavioral_surface_<ontology>_labeled_<horizon>b.parquet
+
+behavioral_surface_labels_manifest.json
+```
+
+### Console summary
+
+The utility reports:
+
+- state frequencies,
+- crowd-failure frequency by behavioral state,
+- overall crowd-failure rate,
+- pair frequencies,
+- confirmation that join validation succeeded.
+
+The labeled Behavioral Surface becomes the canonical input to the statistical validation stage.
 
 ---
 
@@ -434,6 +398,119 @@ Current support is limited to Reactive-JPY Criterion 1 validation.
 
 ---
 
+## Independent Outcome Labeling (Legacy Research Utility)
+
+Generate independent episode-level outcome labels for the original Criterion 1 behavioral validation workflow.
+
+```bash
+python -m bsve.validation.outcome_labeling \
+    --artifact bsve.test/bsve_states_reactive_jpy_1.0.0.parquet \
+    --dataset-path data/output/1.5.1/master_research_dataset_core.csv \
+    --output-dir bsve.test/
+```
+
+### Purpose
+
+This utility implements the original independent-outcome methodology developed during early BSVE research.
+
+Rather than attaching observation-level crowd-relative returns to a Behavioral Surface, it computes fixed-horizon episode outcomes (`SUCCESS` / `FAILURE`) suitable for the original Criterion 1 validation framework.
+
+It remains part of BSVE because:
+
+- it reproduces the historical validation methodology,
+- it supports comparison with earlier research results,
+- it remains useful for ontology-level behavioral studies.
+
+### Relationship to `label_outcomes`
+
+BSVE now provides two complementary outcome-labeling utilities:
+
+| Utility                            | Purpose                                                      |
+| ---------------------------------- | ------------------------------------------------------------ |
+| `bsve.validation.label_outcomes`   | Canonical observation-level labeling used for Behavioral Surface validation and contingency analysis. |
+| `bsve.validation.outcome_labeling` | Legacy episode-level independent outcome labeling used by the original Criterion 1 workflow. |
+
+For new Behavioral Surface validation work, `label_outcomes` is the recommended utility.
+
+`outcome_labeling` remains available for backwards compatibility and historical Criterion 1 analyses.
+
+### Criterion 1 outcome definition
+
+Outcome labels are:
+
+```
+SUCCESS
+FAILURE
+```
+
+based on:
+
+```python
+abs(forward_return) >= volatility_threshold
+```
+
+where:
+
+```
+volatility_threshold = vol_48b  (default)
+```
+
+Key properties of this definition:
+
+- **Direction-agnostic**: either sufficiently large up or down follow-through
+  is classified as SUCCESS. Direction is intentionally ignored in the current
+  Reactive-JPY implementation. The objective is detecting whether maturity
+  states lead to different *magnitudes* of post-episode behavior.
+- **Maturity-duration-independent**: outcome labeling uses only the episode
+  end time and a fixed forward window. It does not depend on maturity duration
+  boundaries.
+- **Ontology-independent**: outcome labeling does not depend on state
+  assignment logic; it joins only on `(pair, episode_end_time)`.
+- **Unit-consistent**: `forward_return` and `vol_48b` are both expressed in
+  return units, so no conversion is required.
+
+Directional outcome variants remain a possible future enhancement.
+
+**Unit convention**
+
+- `forward_return` is stored as a fraction: `future_close / close - 1`
+- `vol_48b` is expressed in return units (e.g. `0.01` means 1% volatility)
+- `success_threshold = abs(vol_48b)` — no conversion required
+- Classification rule: `SUCCESS` if `abs(forward_return) >= success_threshold`,
+  else `FAILURE`
+
+**Generated outputs**
+
+```
+bsve.test/
+└── independent_outcomes.json
+```
+
+`independent_outcomes.json` includes:
+
+- metadata describing fixed-horizon labeling and the threshold column used
+- summary counts (total episodes, evaluable episodes, SUCCESS/FAILURE, success_rate)
+- episode-level independent outcomes for consensus states
+
+**Console output**
+
+```
+[BSVE] Independent Outcome Labeling (Reactive-JPY)
+------------------------------------------------------------
+Threshold column:   vol_48b
+Consensus episodes: N
+Evaluable episodes: N
+SUCCESS: N
+FAILURE: N
+Success rate:       XX.X%
+Output: bsve.test/independent_outcomes.json
+```
+
+A healthy label distribution avoids extreme imbalance (e.g. ~0% or ~100%
+success rate). Inspect `success_rate` immediately after generation.
+
+---
+
 ## Artifact Locations
 
 Committed, immutable calibration artifacts are stored under:
@@ -451,19 +528,36 @@ review and validation.
 
 ## Current Workflow
 
-```
+The standard BSVE behavioral-validation workflow is:
+
+```text
 Calibration
-  ↓
+    ↓
 Behavioral Surface Generator
-  ↓
-Independent Outcome Labeling
-  ↓
-Criterion Validation
-  ├─ Independent Behavioral Evidence
-  └─ Descriptive Diagnostics
-  ↓
-Research Review
+    ↓
+Behavioral Surface Inspection
+    ↓
+Join Validation
+    ↓
+Outcome Labeling
+    ↓
+Behavioral Validation (Criterion 1 / statistical validation)
+    ↓
+Research Interpretation
 ```
+
+Each stage validates the previous stage before additional information is introduced.
+
+The recommended execution order is therefore:
+
+1. Run the calibration (or use an existing frozen calibration artifact).
+2. Generate the Behavioral Surface.
+3. Inspect the Behavioral Surface for structural anomalies.
+4. Validate one-to-one alignment with the master research dataset.
+5. Attach outcome labels.
+6. Perform behavioral/statistical validation.
+
+This staged workflow ensures that engineering, data integrity and statistical validation remain methodologically independent.
 
 ---
 
