@@ -87,12 +87,18 @@ def inspect_surface(
     # --- maturity statistics ---
     max_maturity = int(surface["maturity_bars"].max())
 
+    # --- episode maturity statistics ---
+    ep_max_maturity = (
+        surface.groupby("episode_id")["maturity_bars"]
+        .max()
+    )
+
     # --- survival counts ---
     survival_counts: dict[str, int] = {}
-    if "episode_id" in surface.columns and "maturity_bars" in surface.columns:
-        ep_max_maturity = surface.groupby("episode_id")["maturity_bars"].max()
-        for threshold in [8, 16, 24, 32, 48]:
-            survival_counts[f">= {threshold} bars"] = int((ep_max_maturity >= threshold).sum())
+    for threshold in [8, 16, 24, 32, 48]:
+        survival_counts[f">= {threshold} bars"] = int(
+            (ep_max_maturity >= threshold).sum()
+        )
 
     # --- calibration thresholds ---
     thresholds_section: dict[str, Any] = {}
@@ -144,7 +150,9 @@ def inspect_surface(
     return {
         "total_observations": n_obs,
         "total_episodes": n_episodes,
+        "episode_lengths": ep_lengths.tolist(),
         "max_maturity_bars": max_maturity,
+        "episode_peak_maturity": ep_max_maturity.tolist(),
         "pair_counts": pair_counts,
         "state_counts": state_counts,
         "episode_length_stats": ep_length_stats,
@@ -154,6 +162,26 @@ def inspect_surface(
         "warnings": warnings,
     }
 
+# ---------------------------------------------------------------------------
+# Public summary API
+# ---------------------------------------------------------------------------
+
+def summarize_surface(
+    surface: pd.DataFrame,
+    *,
+    calibration_artifact: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Return the canonical statistical summary for a Behavioral Surface.
+
+    This is a thin public wrapper around :func:`inspect_surface` intended for
+    reuse by downstream validation utilities (for example calibration-drift
+    analysis) without invoking the CLI.
+    """
+    return inspect_surface(
+        surface,
+        calibration_artifact=calibration_artifact,
+    )
 
 # ---------------------------------------------------------------------------
 # Console output helpers
@@ -343,7 +371,10 @@ def main() -> None:
     if args.calibration:
         calibration_artifact = json.loads(Path(args.calibration).read_text(encoding="utf-8"))
 
-    report = inspect_surface(surface, calibration_artifact=calibration_artifact)
+    report = summarize_surface(
+        surface,
+        calibration_artifact=calibration_artifact,
+    )
     _print_report(report)
 
     if args.output_dir:
