@@ -108,6 +108,56 @@ assignment begins.  Run this after each new calibration run.
 
 ---
 
+## Validation Window Extraction
+
+Partition the master research dataset into the frozen validation windows defined
+by the BSVE validation protocol.
+
+```bash
+python -m bsve.validation.extract_validation_windows \
+    --dataset data/output/1.5.1/master_research_dataset_core.csv \
+    --output-dir bsve.test/validation
+```
+
+### Purpose
+
+This utility extracts the four fixed validation windows defined by the
+Behavioral Validation Specification:
+
+- Development (2019–2022)
+- OOS validation
+- Excluded sentiment-gap window
+- Future holdout
+
+The extraction is purely chronological and contains no ontology-specific logic.
+
+### Outputs
+
+```
+bsve.test/
+└── validation/
+    ├── development/
+    │   └── master_research_dataset_core.csv
+    ├── oos/
+    │   └── master_research_dataset_core.csv
+    ├── excluded/
+    │   └── master_research_dataset_core.csv
+    └── holdout/
+        └── master_research_dataset_core.csv
+```
+
+### Integrity checks
+
+The utility automatically verifies that:
+
+- every observation belongs to exactly one validation window,
+- validation windows are mutually exclusive,
+- all master-dataset observations are accounted for.
+
+These checks should pass before any Behavioral Surface generation begins.
+
+---
+
 ## Behavioral Surface Generator
 
 Run the deterministic, causal Behavioral Surface Generator from a frozen calibration artifact.
@@ -226,6 +276,68 @@ Typical warning conditions include:
 - unusually short episode lengths
 
 The inspection utility is intended as the first validation step after Behavioral Surface generation and before ontology validation or Criterion 1 analysis.
+
+---
+
+## Calibration Drift
+
+Compare a development Behavioral Surface with an out-of-sample (OOS)
+Behavioral Surface to assess whether the ontology continues to produce a
+plausible behavioral structure before statistical validation.
+
+```bash
+python -m bsve.validation.calibration_drift \
+    --development bsve/calibration_artifacts/reference_surface.parquet \
+    --oos bsve.test/behavioral_surface_reactive_jpy_1.0.0.parquet \
+    --development-calibration bsve/calibration_artifacts/reactive_jpy_calibration_v1.json \
+    --oos-calibration bsve/calibration_artifacts/reactive_jpy_calibration_v1.json \
+    --output-dir bsve.test/drift
+```
+
+### Purpose
+
+Calibration drift is assessed descriptively rather than inferentially.
+
+The utility compares the canonical Behavioral Surface summaries produced by
+`bsve.validation.inspect_surface.summarize_surface()` and reports whether the
+behavioral structure observed during development remains plausible on the
+validation window.
+
+Calibration drift provides context for interpreting statistical validation and
+is **not** itself a pass/fail criterion.
+
+### Comparison metrics
+
+The report compares:
+
+- state occupancy (counts and percentages),
+- episode count,
+- episode length statistics,
+- maturity survival counts,
+- pair frequencies,
+- structural warnings.
+
+### Outputs
+
+```
+bsve.test/
+└── drift/
+    └── calibration_drift_report.json
+```
+
+### Console summary
+
+The utility prints:
+
+- state occupancy comparison,
+- episode statistics comparison,
+- maturity survival comparison,
+- pair-count comparison,
+- descriptive assessment.
+
+No statistical tests are performed. Calibration drift is interpreted together
+with the Behavioral Surface inspection report and automated sentinel checks
+before contingency analysis is executed.
 
 ---
 
@@ -537,11 +649,13 @@ Behavioral Surface Generator
     ↓
 Behavioral Surface Inspection
     ↓
+Calibration Drift
+    ↓
 Join Validation
     ↓
-Outcome Labeling
+Behavioral Outcome Labeling
     ↓
-Behavioral Validation (Criterion 1 / statistical validation)
+Behavioral Validation
     ↓
 Research Interpretation
 ```
@@ -551,11 +665,14 @@ Each stage validates the previous stage before additional information is introdu
 The recommended execution order is therefore:
 
 1. Run the calibration (or use an existing frozen calibration artifact).
-2. Generate the Behavioral Surface.
-3. Inspect the Behavioral Surface for structural anomalies.
-4. Validate one-to-one alignment with the master research dataset.
-5. Attach outcome labels.
-6. Perform behavioral/statistical validation.
+2. Extract the frozen validation windows.
+3. Generate the Development and OOS Behavioral Surfaces.
+4. Inspect the OOS Behavioral Surface.
+5. Compare Development and OOS Behavioral Surfaces using the calibration drift utility.
+6. Validate one-to-one alignment with the OOS master research dataset.
+7. Attach behavioral outcome labels.
+8. Perform behavioral/statistical validation.
+9. Interpret the results in the context of the inspection report, calibration drift report and sentinel checks.
 
 This staged workflow ensures that engineering, data integrity and statistical validation remain methodologically independent.
 
