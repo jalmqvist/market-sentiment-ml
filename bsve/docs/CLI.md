@@ -426,6 +426,102 @@ The labeled Behavioral Surface becomes the canonical input to the statistical va
 
 ---
 
+## Behavioral Validation
+
+Run the predefined statistical validation on a labeled Behavioral Surface.
+
+```bash
+python -m bsve.validation.behavioral_validation \
+    --labeled-surface bsve.test/labeled/behavioral_surface_reactive_jpy_1.0.0_labeled_24b.parquet \
+    --output-dir bsve.test/analysis
+```
+
+### Purpose
+
+This utility performs the primary statistical validation defined by the BSVE
+validation specification.
+
+The implementation is ontology-agnostic. It consumes a canonical labeled
+Behavioral Surface and compares the predefined behavioral states using
+contingency analysis.
+
+For the Reactive-JPY ontology the default comparison is:
+
+- `JPY_CONSENSUS_YOUNG`
+- `JPY_CONSENSUS_MATURING`
+
+Alternative state names may be supplied through:
+
+```
+--reference-state
+--target-state
+```
+
+making the utility reusable for future ontologies without code changes.
+
+### Statistical outputs
+
+The pooled analysis reports:
+
+- contingency table,
+- Reference failure rate,
+- Target failure rate,
+- failure-rate difference,
+- relative risk,
+- odds ratio,
+- one-sided Fisher exact test.
+
+The analysis is then repeated independently for each currency pair.
+
+### Validation criteria
+
+The implementation evaluates the frozen BSVE validation criteria exactly as
+specified in `VALIDATION_SPEC_JPY.md`.
+
+The report records:
+
+- Criterion 1
+- Criterion 2
+- Criterion 3
+- Criterion 4
+
+and emits one of:
+
+```
+CONFIRMED
+INCONCLUSIVE
+NOT_CONFIRMED
+```
+
+### Outputs
+
+```
+bsve.test/
+└── analysis/
+    ├── behavioral_validation_report.json
+    ├── behavioral_validation_pooled.csv
+    └── behavioral_validation_pairs.csv
+```
+
+### Console summary
+
+The console report displays:
+
+- pooled contingency table,
+- pooled failure rates,
+- effect sizes,
+- Fisher p-value,
+- pair decomposition,
+- validation criteria,
+- final validation outcome.
+
+This utility performs the primary statistical analysis of the frozen behavioral
+hypothesis and should only be run after the Behavioral Surface has passed
+inspection, calibration-drift assessment, join validation and outcome
+labeling.
+
+---
+
 ## Criterion Validation
 
 Validate Criterion 1 (Behavioral Differentiation) using the Reactive-JPY
@@ -671,8 +767,8 @@ The recommended execution order is therefore:
 5. Compare Development and OOS Behavioral Surfaces using the calibration drift utility.
 6. Validate one-to-one alignment with the OOS master research dataset.
 7. Attach behavioral outcome labels.
-8. Perform behavioral/statistical validation.
-9. Interpret the results in the context of the inspection report, calibration drift report and sentinel checks.
+8. Run the Behavioral Validation utility.
+9. Interpret the statistical results in the context of the inspection report, calibration-drift report and sentinel checks.
 
 This staged workflow ensures that engineering, data integrity and statistical validation remain methodologically independent.
 
