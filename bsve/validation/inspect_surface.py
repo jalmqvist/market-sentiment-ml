@@ -50,7 +50,7 @@ def inspect_surface(
     dict
         Structured inspection report suitable for JSON serialisation.
     """
-    required = {"pair", "state", "episode_id", "maturity_bars"}
+    required = {"pair", "state_id", "episode_id", "maturity_bars"}
     missing = required - set(surface.columns)
     if missing:
         raise ValueError(f"surface is missing required columns: {sorted(missing)}")
@@ -62,7 +62,7 @@ def inspect_surface(
     pair_counts = {str(k): int(v) for k, v in surface["pair"].value_counts().sort_index().items()}
 
     # --- state frequencies ---
-    state_counts = {str(k): int(v) for k, v in surface["state"].value_counts().sort_index().items()}
+    state_counts = {str(k): int(v) for k, v in surface["state_id"].value_counts().sort_index().items()}
 
     # --- episode length distribution ---
     ep_lengths = surface.groupby("episode_id").size()

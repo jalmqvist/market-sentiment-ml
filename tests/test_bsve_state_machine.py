@@ -104,7 +104,7 @@ def test_causal_alignment_when_appending_future_rows(
     surface_base = _generate(base, calibration_artifact)
     surface_extended = _generate(pd.concat([base, future], ignore_index=True), calibration_artifact)
 
-    cols = ["state", "episode_id", "maturity_bars", "crowd_side"]
+    cols = ["state_id", "episode_id", "maturity_bars", "crowd_side"]
     pd.testing.assert_frame_equal(
         surface_base[cols].reset_index(drop=True),
         surface_extended.iloc[: len(surface_base)][cols].reset_index(drop=True),
@@ -171,14 +171,14 @@ def test_episode_identity_unbroken_across_crowd_side_change(
 def test_reactive_jpy_state_boundaries(calibration_artifact: CalibrationArtifact) -> None:
     surface = _generate(_make_df([80.0] * 25), calibration_artifact)
 
-    assert (surface.iloc[:7]["state"] == "JPY_CONSENSUS_YOUNG").all()
-    assert (surface.iloc[7:23]["state"] == "JPY_CONSENSUS_MATURING").all()
-    assert (surface.iloc[23:]["state"] == "JPY_CONSENSUS_MATURE").all()
+    assert (surface.iloc[:7]["state_id"] == "JPY_CONSENSUS_YOUNG").all()
+    assert (surface.iloc[7:23]["state_id"] == "JPY_CONSENSUS_MATURING").all()
+    assert (surface.iloc[23:]["state_id"] == "JPY_CONSENSUS_MATURE").all()
 
 
 def test_extreme_threshold_boundaries(calibration_artifact: CalibrationArtifact) -> None:
     surface = _generate(_make_df([69.999, 70.000, 70.001]), calibration_artifact)
-    assert list(surface["state"]) == [
+    assert list(surface["state_id"]) == [
         "JPY_NON_EXTREME",
         "JPY_CONSENSUS_YOUNG",
         "JPY_CONSENSUS_YOUNG",
@@ -189,13 +189,13 @@ def test_extreme_threshold_boundaries(calibration_artifact: CalibrationArtifact)
 def test_maturity_boundaries_exact_transitions(calibration_artifact: CalibrationArtifact) -> None:
     surface = _generate(_make_df([80.0] * 24), calibration_artifact)
     assert surface.iloc[6]["maturity_bars"] == 7
-    assert surface.iloc[6]["state"] == "JPY_CONSENSUS_YOUNG"
+    assert surface.iloc[6]["state_id"] == "JPY_CONSENSUS_YOUNG"
     assert surface.iloc[7]["maturity_bars"] == 8
-    assert surface.iloc[7]["state"] == "JPY_CONSENSUS_MATURING"
+    assert surface.iloc[7]["state_id"] == "JPY_CONSENSUS_MATURING"
     assert surface.iloc[22]["maturity_bars"] == 23
-    assert surface.iloc[22]["state"] == "JPY_CONSENSUS_MATURING"
+    assert surface.iloc[22]["state_id"] == "JPY_CONSENSUS_MATURING"
     assert surface.iloc[23]["maturity_bars"] == 24
-    assert surface.iloc[23]["state"] == "JPY_CONSENSUS_MATURE"
+    assert surface.iloc[23]["state_id"] == "JPY_CONSENSUS_MATURE"
 
 
 def test_consensus_interruption_creates_new_episode(
@@ -208,7 +208,7 @@ def test_consensus_interruption_creates_new_episode(
 
 def test_non_extreme_rows_are_non_extreme_state(calibration_artifact: CalibrationArtifact) -> None:
     surface = _generate(_make_df([60, 65, 69]), calibration_artifact)
-    assert (surface["state"] == "JPY_NON_EXTREME").all()
+    assert (surface["state_id"] == "JPY_NON_EXTREME").all()
     assert (surface["maturity_bars"] == 0).all()
 
 
@@ -217,10 +217,13 @@ def test_surface_contains_required_columns(calibration_artifact: CalibrationArti
     assert list(surface.columns) == [
         "timestamp",
         "pair",
-        "state",
+        "surface_id",
+        "surface_version",
+        "state_id",
         "episode_id",
         "maturity_bars",
         "crowd_side",
+        "transition_event",
     ]
 
 
@@ -250,6 +253,7 @@ def test_provenance_and_manifest(calibration_artifact: CalibrationArtifact) -> N
         "pair_counts",
         "state_counts",
         "schema_version",
+        "behavioral_surface_schema_version",
         "generated_timestamp",
     ]:
         assert key in manifest
@@ -289,10 +293,13 @@ def test_orchestration_pipeline_exports_surface_and_manifest(
     assert set(surface.columns) == {
         "timestamp",
         "pair",
-        "state",
+        "surface_id",
+        "surface_version",
+        "state_id",
         "episode_id",
         "maturity_bars",
         "crowd_side",
+        "transition_event",
     }
 
     manifest = json.loads(manifest_path.read_text())
@@ -360,7 +367,7 @@ def test_integer_crowd_side_zero_non_extreme_sentiment(
     # Non-extreme sentiment → NON_EXTREME state, zero maturity.
     df = _make_df_int_sides([60, 65], [0, 0])
     surface = _generate(df, calibration_artifact)
-    assert (surface["state"] == "JPY_NON_EXTREME").all()
+    assert (surface["state_id"] == "JPY_NON_EXTREME").all()
     assert (surface["maturity_bars"] == 0).all()
 
     # Extreme sentiment with neutral crowd_side: maturity accumulates because
@@ -396,9 +403,9 @@ def test_integer_crowd_side_maturity_progression(
     df = _make_df_int_sides([80.0] * 25, [1] * 25)
     surface = _generate(df, calibration_artifact)
 
-    assert (surface.iloc[:7]["state"] == "JPY_CONSENSUS_YOUNG").all()
-    assert (surface.iloc[7:23]["state"] == "JPY_CONSENSUS_MATURING").all()
-    assert (surface.iloc[23:]["state"] == "JPY_CONSENSUS_MATURE").all()
+    assert (surface.iloc[:7]["state_id"] == "JPY_CONSENSUS_YOUNG").all()
+    assert (surface.iloc[7:23]["state_id"] == "JPY_CONSENSUS_MATURING").all()
+    assert (surface.iloc[23:]["state_id"] == "JPY_CONSENSUS_MATURE").all()
 
 
 # ---------------------------------------------------------------------------
@@ -483,13 +490,13 @@ def test_maturing_and_mature_states_reachable_with_large_gaps(
     df = _make_df_with_gaps([80.0] * 25, gap_hours=8.0)
     surface = _generate(df, calibration_artifact)
 
-    states = list(surface["state"])
+    states = list(surface["state_id"])
     assert "JPY_CONSENSUS_MATURING" in states, "MATURING state must be reachable"
     assert "JPY_CONSENSUS_MATURE" in states, "MATURE state must be reachable"
     # Verify exact boundaries match calibration thresholds (young<8, maturing<24, mature>=24)
-    assert (surface.iloc[:7]["state"] == "JPY_CONSENSUS_YOUNG").all()
-    assert (surface.iloc[7:23]["state"] == "JPY_CONSENSUS_MATURING").all()
-    assert (surface.iloc[23:]["state"] == "JPY_CONSENSUS_MATURE").all()
+    assert (surface.iloc[:7]["state_id"] == "JPY_CONSENSUS_YOUNG").all()
+    assert (surface.iloc[7:23]["state_id"] == "JPY_CONSENSUS_MATURING").all()
+    assert (surface.iloc[23:]["state_id"] == "JPY_CONSENSUS_MATURE").all()
 
 
 def test_episode_survival_counts_match_calibration_semantics(

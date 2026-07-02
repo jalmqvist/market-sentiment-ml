@@ -164,7 +164,7 @@ def build_labeled_surface(
     columns = [
         "timestamp",
         "pair",
-        "state",
+        "state_id",
         "episode_id",
         "maturity_bars",
         "crowd_side_surface",
@@ -215,7 +215,7 @@ def print_summary(df: pd.DataFrame):
     print("-" * 72)
 
     print(
-        df["state"]
+        df["state_id"]
         .value_counts()
         .sort_index()
     )
@@ -226,7 +226,7 @@ def print_summary(df: pd.DataFrame):
     print("-" * 72)
 
     failure = (
-        df.groupby("state")["crowd_failed"]
+        df.groupby("state_id")["crowd_failed"]
         .mean()
         .sort_index()
     )

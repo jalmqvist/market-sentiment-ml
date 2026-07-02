@@ -134,7 +134,14 @@ class BehavioralSurfaceEngine:
             episode_id = prior.current_episode_id
             maturity = prior.last_maturity + 1 if consensus_active else 0
 
-        state = self.plugin.classify(normalised_observation, maturity, self.calibration_artifact)
+        state_id = self.plugin.classify(normalised_observation, maturity, self.calibration_artifact)
+
+        # Compute stable transition label for downstream consumers.
+        if consensus_active:
+            transition_event = "entry" if boundary else "continuation"
+        else:
+            prior_was_consensus = prior is not None and prior.last_consensus_active
+            transition_event = "exit_reversal" if prior_was_consensus else "exit_unknown"
 
         self._pair_state[pair] = _PairRuntime(
             last_timestamp=timestamp,
@@ -146,10 +153,13 @@ class BehavioralSurfaceEngine:
         return {
             "timestamp": timestamp,
             "pair": pair,
-            "state": state,
+            "surface_id": self.plugin.ontology_id,
+            "surface_version": self.plugin.ontology_version,
+            "state_id": state_id,
             "episode_id": episode_id,
             "maturity_bars": maturity,
             "crowd_side": crowd_side,
+            "transition_event": transition_event,
         }
 
 
@@ -203,10 +213,13 @@ def generate_behavioral_surface(
         columns=[
             "timestamp",
             "pair",
-            "state",
+            "surface_id",
+            "surface_version",
+            "state_id",
             "episode_id",
             "maturity_bars",
             "crowd_side",
+            "transition_event",
         ],
     )
 
@@ -216,6 +229,7 @@ def generate_behavioral_surface(
         "calibration_id": str(calibration_artifact.get("calibration_id", "")),
         "calibration_hash": str(calibration_artifact.get("artifact_hash", "")),
         "schema_version": BEHAVIORAL_SURFACE_SCHEMA_VERSION,
+        "behavioral_surface_schema_version": BEHAVIORAL_SURFACE_SCHEMA_VERSION,
         "dataset_version": dataset_version,
         "generated_timestamp": datetime.now(timezone.utc).isoformat(),
     }
@@ -233,8 +247,11 @@ def build_behavioral_surface_manifest(surface: pd.DataFrame) -> dict[str, Any]:
         "calibration_hash": provenance.get("calibration_hash", ""),
         "dataset_version": provenance.get("dataset_version", ""),
         "schema_version": provenance.get("schema_version", BEHAVIORAL_SURFACE_SCHEMA_VERSION),
+        "behavioral_surface_schema_version": provenance.get(
+            "behavioral_surface_schema_version", BEHAVIORAL_SURFACE_SCHEMA_VERSION
+        ),
         "generated_timestamp": provenance.get("generated_timestamp", ""),
         "row_count": int(len(surface)),
         "pair_counts": {str(k): int(v) for k, v in surface["pair"].value_counts().sort_index().items()},
-        "state_counts": {str(k): int(v) for k, v in surface["state"].value_counts().sort_index().items()},
+        "state_counts": {str(k): int(v) for k, v in surface["state_id"].value_counts().sort_index().items()},
     }
