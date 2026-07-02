@@ -574,7 +574,7 @@ def print_report(report: dict[str, Any]) -> None:
     print("-" * 72)
 
     for pair, result in sorted(report["pairs"].items()):
-        
+
         print(
             f"{pair:<10}"
             f"{100 * result['reference_failure_rate']:6.2f}% -> "
