@@ -273,7 +273,7 @@ python -m bsve.validation.inspect_surface \
     --output-dir bsve.test/inspection
 ```
 
-### 4. Join onto the master research dataset (future PR)
+### 4. Join onto the master research dataset
 
 ```python
 import pandas as pd

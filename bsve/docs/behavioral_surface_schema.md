@@ -24,7 +24,7 @@ or future research pipelines.
 | `episode_id`       | string   | Deterministic episode identifier. Unique per consensus episode per pair. Format: `{pair}:{counter:08d}`.                                                                                                                                                                   |
 | `maturity_bars`    | int      | Running episode maturity. Counts consecutive consensus bars within the current episode; resets to `0` on non-extreme observations and to `1` on a new consensus episode.                                                                                                   |
 | `crowd_side`       | string   | Crowd direction during consensus. Canonical values: `LONG`, `SHORT`, or `""` (neutral/unknown). Integer encodings from the master research dataset (`1`, `-1`, `0`) are normalised to these strings before export.                                                         |
-| `transition_event` | string   | **String enum.** Stable transition label produced by the ontology state engine. Current Reactive-JPY values are `entry`, `continuation`, `exit_reversal`, and `exit_unknown`. Semantics are defined below. This field must not introduce new transition labels in this PR. |
+| `transition_event` | string   | **String enum.** Stable transition label produced by the ontology state engine. Current Reactive-JPY values are `entry`, `continuation`, `exit_reversal`, and `exit_unknown`. Semantics are defined below. The schema is versioned; new values may be added in future ontology versions but existing values and semantics remain stable. |
 
 ---
 
