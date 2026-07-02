@@ -26,6 +26,17 @@ def _parse_args(argv=None):
     p.add_argument("--price-dir", type=Path, default=cfg.PRICE_DIR)
     p.add_argument("--log-level", default=cfg.LOG_LEVEL)
     p.add_argument("--no-log-file", action="store_true")
+    p.add_argument(
+        "--behavioral-surface",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help=(
+            "Optional path to a frozen Behavioral Surface Parquet produced by BSVE. "
+            "When supplied, behaviorally-augmented dataset variants are written alongside "
+            "the original datasets. The original datasets are never modified."
+        ),
+    )
     return p.parse_args(argv)
 
 
@@ -100,6 +111,33 @@ def main(argv=None):
             json.dump(manifest, f, indent=2)
 
     logger.info("Dataset build complete")
+
+    # ------------------------------------------------------------------
+    # Optional Behavioral Surface augmentation
+    # ------------------------------------------------------------------
+    if args.behavioral_surface is not None:
+        from bsve.dataset_augmentation import run_behavioral_augmentation
+
+        logger.info(
+            "Behavioral Surface augmentation requested: %s", args.behavioral_surface
+        )
+
+        base_dataset_paths = {}
+        for variant_label, path in [
+            ("full", full_path),
+            ("core", core_path),
+            ("extended", extended_path),
+        ]:
+            if path.exists():
+                base_dataset_paths[variant_label] = path
+
+        run_behavioral_augmentation(
+            surface_path=args.behavioral_surface,
+            dataset_version=args.version,
+            output_dir=output_dir,
+            base_dataset_paths=base_dataset_paths,
+            base_manifest_path=manifest_path if manifest_path.exists() else None,
+        )
 
 
 if __name__ == "__main__":
