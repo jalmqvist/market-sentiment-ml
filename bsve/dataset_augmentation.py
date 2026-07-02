@@ -29,6 +29,19 @@ _REQUIRED_MANIFEST_KEYS = {
     "dataset_version",
 }
 
+# Required columns in the Behavioral Surface Parquet (full schema contract).
+_REQUIRED_SURFACE_COLUMNS = [
+    "timestamp",
+    "pair",
+    "surface_id",
+    "surface_version",
+    "state_id",
+    "episode_id",
+    "maturity_bars",
+    "crowd_side",
+    "transition_event",
+]
+
 # Canonical behavioral columns appended verbatim from the surface.
 BEHAVIORAL_COLUMNS = [
     "surface_id",
@@ -82,6 +95,19 @@ def load_behavioral_surface_manifest(surface_path: Path) -> dict[str, Any]:
 # Load
 # ---------------------------------------------------------------------------
 
+def validate_behavioral_surface_schema(surface: pd.DataFrame) -> None:
+    """Verify the Behavioral Surface contains all required columns.
+
+    Raises:
+        ValueError: if any required column is missing.
+    """
+    missing = [c for c in _REQUIRED_SURFACE_COLUMNS if c not in surface.columns]
+    if missing:
+        raise ValueError(
+            f"Behavioral Surface is missing required columns: {missing}"
+        )
+
+
 def load_behavioral_surface(surface_path: Path) -> pd.DataFrame:
     """Load the Behavioral Surface Parquet from *surface_path* (read-only)."""
     if not surface_path.exists():
@@ -89,9 +115,17 @@ def load_behavioral_surface(surface_path: Path) -> pd.DataFrame:
 
     surface = pd.read_parquet(surface_path)
 
+    # Validate full schema before any further processing.
+    validate_behavioral_surface_schema(surface)
+
     # Normalise timestamp dtype for reliable join.
-    if "timestamp" in surface.columns:
-        surface["timestamp"] = pd.to_datetime(surface["timestamp"], errors="coerce")
+    surface["timestamp"] = pd.to_datetime(surface["timestamp"], errors="coerce")
+    nat_count = int(surface["timestamp"].isna().sum())
+    if nat_count:
+        raise ValueError(
+            f"Behavioral Surface contains {nat_count} invalid timestamp(s) "
+            "that could not be parsed. All timestamps must be valid."
+        )
 
     return surface
 
@@ -132,6 +166,14 @@ def _prepare_dataset_timestamp(df: pd.DataFrame) -> pd.DataFrame:
         out["timestamp"] = pd.to_datetime(out["entry_time"], errors="coerce")
     else:
         out["timestamp"] = pd.to_datetime(out["timestamp"], errors="coerce")
+
+    nat_count = int(out["timestamp"].isna().sum())
+    if nat_count:
+        raise ValueError(
+            f"Dataset contains {nat_count} invalid timestamp(s) "
+            "that could not be parsed. All timestamps must be valid."
+        )
+
     return out
 
 
@@ -162,14 +204,8 @@ def augment_with_behavioral_surface(
     """
     original_len = len(dataset)
 
-    # Prepare dataset with a 'timestamp' column.
+    # Prepare dataset with a 'timestamp' column (validates timestamps).
     ds = _prepare_dataset_timestamp(dataset)
-
-    # Surface must have timestamp and pair.
-    if "timestamp" not in surface.columns or "pair" not in surface.columns:
-        raise ValueError(
-            "Behavioral Surface must contain 'timestamp' and 'pair' columns."
-        )
 
     # Check for duplicate join keys in the surface.
     surface_dups = surface.duplicated(subset=["timestamp", "pair"])
@@ -353,6 +389,7 @@ def write_behavioral_dataset_manifest(
         "behavioral_surface_schema_version": bsve_manifest[
             "behavioral_surface_schema_version"
         ],
+        "ontology_slug": slug,
     }
 
     manifest_path.write_text(

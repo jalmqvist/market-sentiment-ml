@@ -28,6 +28,7 @@ from bsve.dataset_augmentation import (
     load_behavioral_surface,
     load_behavioral_surface_manifest,
     run_behavioral_augmentation,
+    validate_behavioral_surface_schema,
     validate_dataset_version,
     write_behavioral_dataset_manifest,
 )
@@ -563,6 +564,87 @@ def test_run_behavioral_augmentation_writes_provenance_manifest(tmp_path: Path) 
     data = json.loads(provenance_manifest.read_text())
     assert "behavioral_surface" in data
     assert data["behavioral_surface"]["ontology_id"] == "reactive_jpy"
+
+
+# ---------------------------------------------------------------------------
+# Behavioral Surface schema validation
+# ---------------------------------------------------------------------------
+
+
+def test_missing_required_surface_column_raises(tmp_path: Path) -> None:
+    """A Behavioral Surface missing any required column must raise ValueError."""
+    surface = _make_surface()
+    # Drop a required behavioral column.
+    surface = surface.drop(columns=["state_id"])
+    with pytest.raises(ValueError, match="missing required columns"):
+        validate_behavioral_surface_schema(surface)
+
+
+def test_all_required_surface_columns_present_passes() -> None:
+    """A fully-specified Behavioral Surface must not raise on schema validation."""
+    surface = _make_surface()
+    validate_behavioral_surface_schema(surface)  # must not raise
+
+
+def test_load_behavioral_surface_missing_column_raises(tmp_path: Path) -> None:
+    """load_behavioral_surface must raise ValueError for an incomplete schema."""
+    surface = _make_surface().drop(columns=["crowd_side"])
+    surface_path = tmp_path / "surface.parquet"
+    surface.to_parquet(surface_path, index=False)
+    with pytest.raises(ValueError, match="missing required columns"):
+        load_behavioral_surface(surface_path)
+
+
+# ---------------------------------------------------------------------------
+# Invalid timestamp detection
+# ---------------------------------------------------------------------------
+
+
+def test_invalid_timestamps_in_surface_raise(tmp_path: Path) -> None:
+    """Invalid timestamps in the Behavioral Surface must raise ValueError."""
+    surface = _make_surface()
+    surface["timestamp"] = surface["timestamp"].astype(str)
+    surface.loc[0, "timestamp"] = "not-a-date"
+    surface_path = tmp_path / "surface.parquet"
+    surface.to_parquet(surface_path, index=False)
+    with pytest.raises(ValueError, match="Behavioral Surface contains .* invalid timestamp"):
+        load_behavioral_surface(surface_path)
+
+
+def test_invalid_timestamps_in_dataset_raise() -> None:
+    """Invalid timestamps in the dataset must raise ValueError during join."""
+    surface = _make_surface(n_rows_per_pair=3)
+    manifest = _make_manifest()
+    dataset = _make_dataset(n_rows_per_pair=3)
+    dataset["entry_time"] = dataset["entry_time"].astype(str)
+    dataset.loc[0, "entry_time"] = "not-a-date"
+    with pytest.raises(ValueError, match="Dataset contains .* invalid timestamp"):
+        augment_with_behavioral_surface(dataset, surface, manifest)
+
+
+# ---------------------------------------------------------------------------
+# Provenance manifest includes ontology_slug
+# ---------------------------------------------------------------------------
+
+
+def test_behavioral_manifest_includes_ontology_slug(tmp_path: Path) -> None:
+    """Behavioral provenance manifest must record the ontology_slug."""
+    surface = _make_surface()
+    manifest = _make_manifest()
+    surface_path, bsve_manifest_path = _write_surface_artifact(tmp_path, surface, manifest)
+
+    out = write_behavioral_dataset_manifest(
+        output_dir=tmp_path,
+        base_manifest={},
+        bsve_manifest=manifest,
+        surface_path=surface_path,
+        bsve_manifest_path=bsve_manifest_path,
+        ontology_id="reactive_jpy",
+        ontology_version="1.0.0",
+        variant_paths={},
+    )
+    written = json.loads(out.read_text())
+    assert written["behavioral_surface"]["ontology_slug"] == "reactive_jpy_v1"
 
 
 # ---------------------------------------------------------------------------
