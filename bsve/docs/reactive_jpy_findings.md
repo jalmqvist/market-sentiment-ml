@@ -1,9 +1,10 @@
 # Reactive-JPY Findings
 
-Research status: Exploratory
+Research status: Behavioral validation complete
 Dataset window: 2019–2026
-Hypothesis generation: Same dataset
-Independent validation: Not yet performed
+Ontology status: Frozen
+Independent behavioral validation: Complete
+Formal verdict: INCONCLUSIVE (directional effect replicated, effect size criterion missed by 0.58 pp)
 
 ---
 
@@ -63,15 +64,17 @@ Calibration performed on:
 | Mature boundary   | 24 bars |
 | Hazard crossover  | 13 bars |
 
-## Episode Statistics
+## Calibration Episode Statistics
 
-| Metric              | Value  |
-| ------------------- | ------ |
-| Total episodes      | 441    |
-| Median duration     | 4 bars |
-| Survival to 8 bars  | 113    |
-| Survival to 24 bars | 21     |
-| Survival to 48 bars | 3      |
+The following statistics refer to the **consensus episodes used during ontology calibration**. Calibration intentionally excludes one-bar consensus episodes (`min_episode_bars = 2`) before hazard estimation in order to suppress transient threshold crossings. These reconstructed calibration episodes therefore represent a filtered subset of the Behavioral Surface episode identifiers generated during deterministic state assignment and should not be compared directly.
+
+| Metric               | Value  |
+| -------------------- | ------ |
+| Calibration episodes | 441    |
+| Median duration      | 4 bars |
+| Survival to 8 bars   | 113    |
+| Survival to 24 bars  | 21     |
+| Survival to 48 bars  | 3      |
 
 Observations:
 
@@ -94,6 +97,8 @@ Observed state distribution:
 | JPY_CONSENSUS_YOUNG    | 2198         |
 | JPY_CONSENSUS_MATURING | 798          |
 | JPY_CONSENSUS_MATURE   | 209          |
+
+Behavioral Surface construction produced **1,337 deterministic behavioral segments**, of which **667** entered at least one consensus state. Unlike the calibration procedure, the Behavioral Surface records every consensus episode, including one-bar consensus events. The calibration process subsequently filters these to episodes of at least two bars (`min_episode_bars = 2`) before estimating hazard and survival functions, yielding **441 calibration episodes**. Survival statistics for longer-lived episodes (≥8, ≥24 and ≥48 bars) are identical between the two representations, confirming that they differ only by this intentional filtering step rather than by ontology behavior.
 
 Observations:
 
@@ -395,11 +400,11 @@ The outcome discovery studies suggest a different interpretation:
 
 This is consistent with the consensus formation → maturation → decay chain described in RESEARCH_STATE.md, but gives it a specific mechanistic interpretation: maturation may represent the point at which crowd positioning becomes overextended rather than merely persistent. 
 
-This interpretation is speculative and requires independent validation.
+This interpretation was treated as speculative at the time of writing. The independent validation results (July 2026) are consistent with it, although the formal verdict remains INCONCLUSIVE under the pre-registered protocol.
 
 ---
 
-# Frozen Findings (June 2026)
+# **Frozen Findings — Exploratory Phase (June 2026)**
 
 The following findings are considered stable enough to record and carry forward:
 
@@ -411,46 +416,63 @@ The following findings are considered stable enough to record and carry forward:
 
 Reactive-JPY outcome discovery is therefore considered provisionally complete.
 
-Future work should focus on validation and cross-family comparison rather than continued outcome searching.
+The independent validation study described below was conducted against these frozen findings without modification.
 
 ---
 
-# Next Research Priority
+# Research Status
 
-Reactive-CHF.
+Engineering status
 
-Primary question:
+- Calibration: Complete
+- Behavioral Surface generation: Complete
+- Behavioral validation pipeline: Complete
 
-> Does Reactive-CHF exhibit an analogous crowd-failure phenomenon, or is the Reactive-JPY result specific to JPY markets?
+Scientific status
 
-Reactive-JPY will remain frozen unless future validation work requires additional investigation.
-
----
-
-# Current Status
-
-Framework status:
-
-* Calibration: Complete
-* State assignment: Complete
-* Independent outcome labeling: Complete
-* Criterion 1 validation framework: Complete
-
-Scientific status:
-
-* Reactive-JPY outcome discovery: Complete
-* Reactive-JPY validation: Pending
-* Reactive-CHF investigation: Next
+- Outcome discovery: Complete
+- Independent behavioral validation: Complete (formal verdict: INCONCLUSIVE)
+- Ontology status: Frozen
+- Next research stage: MSML predictive validation
 
 ---
 
-## Ontology Structure
+## Outstanding Research Questions
 
-Open questions:
+The independent validation substantially reduced uncertainty regarding the behavioral representation, but several scientific questions remain open:
 
-* Does the elevated crowd-failure behavior observed in Maturing episodes persist under future independent validation?
-* Is the primary behavioral separation Young vs (Maturing + Mature), or do all maturity states contain distinct information?
-* Does Mature consensus contain unique behavioral information beyond Maturing, or is it primarily an extreme-duration subset?
+- Does the observed OOS effect size reflect the true population effect, or is the exploratory estimate inflated by in-sample selection? This question will be partially addressed by the second-broker replication and by MSML walk-forward evaluation.
+  
+- Does the Mature state contain information beyond the Maturing state, or is it principally an extreme-duration subset requiring larger datasets for reliable analysis?
+  
+- Does the Reactive-JPY behavioral representation improve predictive performance under repeated walk-forward evaluation within MSML?
+  
+- Do analogous behavioral structures emerge in other currency families (e.g. Reactive-CHF), or are the observed dynamics specific to JPY markets?
 
-These questions remain unresolved and will be revisited during future validation and cross-family studies.
+These questions concern downstream interpretation and generalization rather than ontology development. The Reactive-JPY ontology itself remains frozen.
 
+---
+
+## Independent Validation Results (July 2026)
+
+The Reactive-JPY crowd-failure hypothesis was evaluated on an independent out-of-sample window (2023-01-01 to 2024-08-22) using the frozen ontology calibration artifact (`reactive_jpy_v1_20260615`). No ontology parameters, calibration thresholds or state definitions were modified before or after the validation.
+
+Prior to statistical evaluation, the Behavioral Surface passed the predefined validation gate. Independent inspection confirmed plausible state frequencies, episode-duration distributions, maturity progression and one-to-one alignment with the master research dataset. No structural inconsistencies were detected, and all validation artifacts were generated deterministically from the frozen ontology without recalibration.
+
+During validation, the apparent discrepancy between the calibration episode count (441) and the Behavioral Surface episode count was investigated and reconciled. The difference was found to arise from the calibration pipeline's intentional exclusion of one-bar consensus episodes (`min_episode_bars = 2`) prior to hazard estimation. Longer-lived survival statistics matched exactly between the calibration artifact and the Behavioral Surface, confirming that both representations are internally consistent and differ only in their intended purpose.
+
+The pooled validation analysed 2,996 labeled observations across USDJPY, EURJPY and GBPJPY. The directional behavioral effect replicated on independent data: Maturing episodes exhibited a higher crowd-failure rate than Young episodes (59.65% vs. 55.23%, Δ = +4.42 percentage points, 95% CI [+0.43%, +8.41%], one-sided Fisher p = 0.017). The effect was present in all three currency pairs individually, with USDJPY showing the strongest individual signal (Δ = +7.93 percentage points, p = 0.019), while EURJPY and GBPJPY exhibited smaller effects in the same direction.
+
+Applying the frozen validation protocol produced the formal outcome **INCONCLUSIVE**, because the pooled effect size of 4.42 percentage points did not satisfy the pre-specified practical-effect criterion of 5 percentage points. This criterion was missed by 0.58 percentage points, while all remaining predefined validation criteria were satisfied. The **INCONCLUSIVE** label is therefore the outcome of the pre-registered decision protocol rather than a scientific conclusion that the behavioral relationship is absent.
+
+Relative to the exploratory study, the independent validation produced a smaller estimated effect size. This attenuation is consistent with several plausible explanations, including regression toward a smaller true effect size, limited statistical power within the OOS window, or genuine temporal variation in market behavior. The current data do not distinguish between these possibilities. Importantly, the confidence interval spans the pre-specified practical-effect threshold, indicating that the available evidence is insufficient to determine whether the true effect lies slightly below or slightly above that boundary.
+
+The 5 percentage point practical-effect criterion was specified conservatively before the OOS analysis, based on substantially larger differences observed during exploratory ontology development. Exploratory studies commonly overestimate effect sizes because of selection and sampling variability; consequently, a smaller effect in an independent validation is methodologically expected and does not, by itself, invalidate the underlying behavioral hypothesis.
+
+Taken together, the independent validation provides evidence consistent with the hypothesized behavioral relationship. The predicted directional effect replicated on unseen data, achieved statistical significance in the pooled analysis, and was observed consistently across all three JPY pairs. At the same time, the validation did not satisfy every requirement of the frozen decision protocol and therefore cannot be classified as a formal confirmation under the pre-registered specification.
+
+The ontology remains frozen. No recalibration or post-hoc modification will be performed on the basis of these results, and the reserved future holdout window (2025-05-10 onward) will remain untouched in order to preserve its independence for future studies.
+
+The behavioral phase of the research program is therefore considered complete. Subsequent work moves from behavioral validation to predictive validation, where the Behavioral Surface will be evaluated under full walk-forward validation within the MSML-MPML framework. The objective of that stage is no longer to re-test the behavioral hypothesis, but to determine whether the Reactive-JPY behavioral representation improves predictive performance relative to the existing LVTF/HVTF/LVR/HVR market-regime partition under repeated out-of-sample evaluation.
+
+A second independent replication remains planned using the separate broker sentiment dataset, collection of which began in July 2026. Because sufficient history will require substantial time to accumulate, this replication is treated as a future confirmatory study rather than a prerequisite for advancing the current research program.

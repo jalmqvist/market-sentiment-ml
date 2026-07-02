@@ -66,13 +66,29 @@ the resulting behavioral state surface must be reproducible.
 
 No learning occurs during assignment.
 
+---
+
+## Frozen Calibration
+
+Behavioral calibration artifacts are immutable during validation.
+
+Independent validation always operates using:
+
+- a frozen ontology specification,
+- a frozen calibration artifact,
+- a predefined validation protocol.
+
+No recalibration or ontology modification is permitted after validation begins.
+
+This separation ensures that behavioral validation measures generalization rather than calibration quality.
+
 ------
 
 ## Validation Before Deployment
 
-A calibrated ontology is not considered scientifically valid until it demonstrates behavioral differentiation using independent evidence.
+A calibrated ontology is not considered scientifically validated until it has passed a pre-specified independent validation protocol. BSVE therefore separates **ontology discovery** from **ontology validation**. Calibration and exploratory analysis are performed only on the development window; all behavioral conclusions are drawn from previously unseen data using frozen calibration artifacts and predefined validation criteria.
 
-The purpose of BSVE is not merely to generate states, but to determine whether those states correspond to meaningful behavioral regimes.
+This separation prevents iterative tuning on validation data and ensures that behavioral findings represent independent evidence rather than exploratory observations.
 
 ------
 
@@ -88,10 +104,12 @@ Question:
 
 Outputs:
 
-- calibrated ontology
-- behavioral surface
-- statistical validation
-- independent replication
+- frozen calibration artifact
+- Behavioral Surface
+- independent outcome labels
+- validation-gate diagnostics
+- statistical validation report
+- replication decision
 
 ### Stage 2 — Predictive Validation (MSML)
 
@@ -121,6 +139,25 @@ BSVE is responsible only for Stage 1.
 Prediction and trading evaluation belong to downstream systems.
 
 This separation avoids conflating behavioral validity with predictive or trading performance.
+
+---
+
+# Validation Gate
+
+Behavioral interpretation is preceded by an explicit validation gate.
+
+The gate verifies that:
+
+- Behavioral Surface generation completed successfully,
+- state frequencies are plausible,
+- maturity progression is internally consistent,
+- calibration drift is documented,
+- sentinel checks pass,
+- outcome labeling is causally aligned.
+
+Statistical interpretation proceeds only after the validation gate has passed.
+
+This separation distinguishes implementation correctness from hypothesis evaluation and prevents statistical conclusions from being drawn on invalid artifacts.
 
 ---
 
@@ -169,9 +206,11 @@ Status: Planned.
 
 ------
 
-## Criterion 5 — Temporal Stability
+## Criterion 5 — Generalization and Temporal Stability
 
-Behavioral relationships should remain stable across market environments.
+Behavioral relationships should generalize across independent time windows and remain interpretable under changing market conditions.
+
+Calibration drift is treated as contextual information for interpretation rather than as a validation criterion in itself.
 
 Status: Planned.
 
@@ -209,11 +248,13 @@ Implemented:
 
 Current status:
 
-Criterion 1 remains INCONCLUSIVE.
+Criterion 1 has completed its first independent validation.
 
-The framework successfully generates independent outcome labels and validation reports, but no statistically significant behavioral differentiation has yet been demonstrated between maturity states.
+The pre-registered validation protocol returned an INCONCLUSIVE outcome. The pooled analysis reproduced the expected behavioral direction on independent data and achieved statistical significance, but the observed effect size fell slightly below the predefined practical-effect threshold.
 
-Current research focuses on identifying outcome definitions capable of testing the ontology using genuinely independent behavioral evidence.
+The ontology therefore remains frozen. No recalibration has been performed.
+
+The research focus now shifts from behavioral validation toward predictive validation within MSML, while preserving the independent behavioral result as the scientific baseline.
 
 ------
 
@@ -257,15 +298,11 @@ Each stage answers a different scientific question and should remain methodologi
 
 # Current Research Focus
 
-Current Research Focus — Independent Behavioral Validation
+Current Research Focus — Predictive Behavioral Evaluation
 
-The primary scientific question is:
+Reactive-JPY has completed its first independent behavioral validation.
 
-> Which independently derived outcome variables, if any, demonstrate meaningful behavioral differentiation between Reactive-JPY maturity states?
-
-This work will determine whether Reactive-JPY satisfies Criterion 1.
-
-Findings and experimental results are documented separately from this concept document.
+Current work focuses on determining whether the validated Behavioral Surface improves predictive performance under walk-forward evaluation within MSML while preserving methodological separation between behavioral validity, predictive utility and trading performance.
 
 ------
 
@@ -273,8 +310,9 @@ Findings and experimental results are documented separately from this concept do
 
 ## Active
 
-1. Reactive-JPY Criterion 1 — Independent Validation (Week 27)
-2. Reactive-CHF calibration (pending JPY validation outcome)
+1. MSML predictive validation using the frozen Reactive-JPY ontology
+2. Reactive-CHF calibration
+3. Walk-forward behavioral evaluation
 
 ## Planned
 
@@ -282,12 +320,13 @@ Findings and experimental results are documented separately from this concept do
 2. Incremental explanatory power testing
 3. Internal coherence testing
 4. Temporal stability testing
+5. Multi-broker behavioral replication
 
 ## Future
 
 1. Cross-family transfer analysis
 2. Additional ontology families
-3. Integration with downstream MPML research
+3. Dynamic behavioral representation selection
 
 ## Long-Term Direction
 

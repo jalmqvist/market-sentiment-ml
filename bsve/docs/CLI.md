@@ -258,7 +258,13 @@ bsve.test/
 The inspection report includes:
 
 - total observations
-- total episodes
+
+- total Behavioral Surface segments
+
+- consensus Behavioral Surface segments
+
+  > **Note:** Behavioral Surface segment counts are expected to differ from the calibration artifact's `episode_count`. The calibration pipeline intentionally excludes one-bar consensus episodes (`min_episode_bars = 2`) before hazard estimation, whereas the Behavioral Surface records every deterministic consensus episode. Longer-lived survival counts should agree between the two representations.
+
 - pair frequencies
 - state frequencies
 - episode length statistics
