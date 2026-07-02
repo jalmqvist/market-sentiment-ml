@@ -30,7 +30,7 @@ from scipy.stats import fisher_exact, norm
 REQUIRED_COLUMNS = [
     "timestamp",
     "pair",
-    "state",
+    "state_id",
     "episode_id",
     "maturity_bars",
     "crowd_side",
@@ -97,7 +97,7 @@ def validate_surface(
         target_state,
     }
 
-    observed = set(surface["state"])
+    observed = set(surface["state_id"])
 
     missing_states = required_states - observed
 
@@ -339,7 +339,7 @@ def behavioral_validation(
     )
 
     analysis_df = surface[
-        surface["state"].isin(
+        surface["state_id"].isin(
             [
                 reference_state,
                 target_state,

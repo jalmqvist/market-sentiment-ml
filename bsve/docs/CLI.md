@@ -162,6 +162,11 @@ These checks should pass before any Behavioral Surface generation begins.
 
 Run the deterministic, causal Behavioral Surface Generator from a frozen calibration artifact.
 
+The Behavioral Surface Parquet is the canonical BSVE artifact intended for downstream
+integration. It provides a stable, deterministic and ontology-independent interface that
+can be joined onto compatible research datasets using `(timestamp, pair)` and subsequently
+consumed by MSML, MPML or future research pipelines.
+
 ```bash
 python -m bsve.state_machine.rule_based \
     --dataset-path data/output/1.5.1/master_research_dataset_core.csv \
@@ -194,20 +199,26 @@ bsve.test/
 ```
 timestamp
 pair
-state
+surface_id
+surface_version
+state_id
 episode_id
 maturity_bars
 crowd_side
+transition_event
 ```
 
-**Provenance fields**
+See [`bsve/docs/behavioral_surface_schema.md`](behavioral_surface_schema.md) for the full
+column definitions, transition event semantics, and joining instructions.
+
+**Provenance fields** (stored in Parquet schema metadata and manifest JSON, not as per-row columns)
 
 ```
 ontology_id
 ontology_version
 calibration_id
 calibration_hash
-schema_version
+behavioral_surface_schema_version
 dataset_version
 generated_timestamp
 ```
@@ -220,11 +231,60 @@ generated_timestamp
 - row count
 - pair counts
 - state counts
-- schema version
+- schema version / behavioral_surface_schema_version
 - generation timestamp
 
 The orchestration layer is intentionally thin: behavioral assignment logic lives in
 the Behavioral Surface Generator engine and ontology plugin.
+
+---
+
+## Quick Start
+
+Minimal end-to-end workflow to generate the canonical Behavioral Surface artifact
+from a clean checkout.
+
+### 1. Run calibration
+
+```bash
+python -m bsve.calibration.jpy_maturity_calibration \
+    --dataset-path data/output/1.5.1/master_research_dataset_core.csv \
+    --dataset-version 1.5.1 \
+    --output-dir bsve.test/
+```
+
+### 2. Generate Behavioral Surface
+
+```bash
+python -m bsve.state_machine.rule_based \
+    --dataset-path data/output/1.5.1/master_research_dataset_core.csv \
+    --output-dir bsve.test/ \
+    --calibration-artifact bsve/calibration_artifacts/reactive_jpy_calibration_v1.json \
+    --state-spec bsve/state_specs/reactive_jpy_v1.yaml \
+    --dataset-version 1.5.1
+```
+
+### 3. Inspect output
+
+```bash
+python -m bsve.validation.inspect_surface \
+    --surface bsve.test/behavioral_surface_reactive_jpy_1.0.0.parquet \
+    --calibration bsve/calibration_artifacts/reactive_jpy_calibration_v1.json \
+    --output-dir bsve.test/inspection
+```
+
+### 4. Join onto the master research dataset
+
+```python
+import pandas as pd
+
+surface = pd.read_parquet("bsve.test/behavioral_surface_reactive_jpy_1.0.0.parquet")
+dataset = pd.read_csv("data/output/1.5.1/master_research_dataset_core.csv")
+dataset["timestamp"] = pd.to_datetime(dataset["entry_time"])
+
+joined = surface.merge(dataset, on=["timestamp", "pair"], how="inner")
+print(joined[["timestamp", "pair", "state_id", "maturity_bars"]].head())
+```
 
 ---
 
