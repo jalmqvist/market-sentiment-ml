@@ -120,7 +120,7 @@ def load_behavioral_surface(surface_path: Path) -> pd.DataFrame:
 
     # Normalise timestamp dtype for reliable join.
     surface["timestamp"] = pd.to_datetime(surface["timestamp"], errors="coerce")
-    nat_count = int(surface["timestamp"].isna().sum())
+    nat_count = surface["timestamp"].isna().sum()
     if nat_count:
         raise ValueError(
             f"Behavioral Surface contains {nat_count} invalid timestamp(s) "
@@ -167,7 +167,7 @@ def _prepare_dataset_timestamp(df: pd.DataFrame) -> pd.DataFrame:
     else:
         out["timestamp"] = pd.to_datetime(out["timestamp"], errors="coerce")
 
-    nat_count = int(out["timestamp"].isna().sum())
+    nat_count = out["timestamp"].isna().sum()
     if nat_count:
         raise ValueError(
             f"Dataset contains {nat_count} invalid timestamp(s) "
