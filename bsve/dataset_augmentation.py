@@ -355,10 +355,8 @@ def write_behavioral_dataset_manifest(
         ],
     }
 
-    import json as _json
-
     manifest_path.write_text(
-        _json.dumps(behavioral_manifest, indent=2),
+        json.dumps(behavioral_manifest, indent=2),
         encoding="utf-8",
     )
     logger.info("Saved behavioral dataset manifest to: %s", manifest_path.resolve())
@@ -414,7 +412,9 @@ def run_behavioral_augmentation(
         base_df = pd.read_csv(base_path)
         augmented, stats = augment_with_behavioral_surface(base_df, surface, bsve_manifest)
 
-        # Determine tag: None for the "full" variant, else the label itself.
+        # Determine tag: None for the "full" variant (no suffix), else the label
+        # itself (e.g. "core" → "_core", "extended" → "_extended").
+        # Convention: the caller passes "full" as the label for the un-filtered dataset.
         tag = None if variant_label == "full" else variant_label
         out_filename = behavioral_variant_filename(base_stem, ontology_id, ontology_version, tag)
         out_path = output_dir / out_filename
@@ -432,9 +432,7 @@ def run_behavioral_augmentation(
     # Write behavioral provenance manifest.
     base_manifest: dict[str, Any] = {}
     if base_manifest_path and base_manifest_path.exists():
-        import json as _json
-
-        base_manifest = _json.loads(base_manifest_path.read_text(encoding="utf-8"))
+        base_manifest = json.loads(base_manifest_path.read_text(encoding="utf-8"))
 
     bsve_manifest_path = _locate_manifest(surface_path)
     version_prefix = f"data/output/{dataset_version}"

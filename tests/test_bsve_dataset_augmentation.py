@@ -230,7 +230,7 @@ def test_duplicate_keys_in_surface_raise(tmp_path: Path) -> None:
     surface = pd.concat([surface, dup], ignore_index=True)
     manifest = _make_manifest()
     dataset = _make_dataset(n_rows_per_pair=2)
-    with pytest.raises(ValueError, match="duplicate.*timestamp.*pair|Behavioral Surface contains"):
+    with pytest.raises(ValueError, match="Behavioral Surface contains"):
         augment_with_behavioral_surface(dataset, surface, manifest)
 
 
@@ -241,7 +241,7 @@ def test_duplicate_keys_in_dataset_raise(tmp_path: Path) -> None:
     # Introduce a duplicate row in the dataset.
     dup = dataset.iloc[[0]].copy()
     dataset = pd.concat([dataset, dup], ignore_index=True)
-    with pytest.raises(ValueError, match="duplicate.*timestamp.*pair|Dataset contains"):
+    with pytest.raises(ValueError, match="Dataset contains"):
         augment_with_behavioral_surface(dataset, surface, manifest)
 
 
