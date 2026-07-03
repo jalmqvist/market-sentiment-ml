@@ -1,776 +1,465 @@
-# RESEARCH_STATE.md
+# Research State
 
-Current research interpretation and working hypotheses for
-`market-sentiment-ml` (MSML).
+Last updated: July 2026
 
----
+This document is intentionally evidence-centric. Conclusions recorded here should summarize the
+current body of evidence rather than the history of how that evidence was obtained. Experimental
+details, statistical analyses and implementation notes belong in the corresponding research documents.
 
-# Current Research Position
+## Purpose
 
-The project has evolved substantially from its original framing.
+This document summarizes the current scientific state of the Market Sentiment ML (MSML) research program.
 
-Early versions of the research focused primarily on:
+Unlike the project documentation, which describes the repository architecture and implementation, this
+document focuses exclusively on research progress. It records the current evidence, established findings,
+open questions, and immediate research priorities.
 
-- directional sentiment prediction
-- additive predictive alpha
-- supervised forecasting performance
+The intended audience is researchers and contributors who wish to understand the present state of the
+project without reconstructing its history from commits or experimental logs.
 
-However, the accumulated experimental evidence increasingly suggests that:
+For implementation details, see:
 
-> retail sentiment behaves more like a conditional behavioral-state surface
-> than a universal directional predictor.
-
-The strongest current evidence supports:
-
-- conditional behavioral structure
-- volatility-conditioned organization
-- pair-family asymmetries
-- latent structural persistence
-- sparse downstream behavioral effects
-
-while weakening support for:
-
-- stable universal sentiment alpha
-- globally transferable directional prediction
-- purely additive sentiment models
-
-The project therefore increasingly studies:
-
-> how behavioral organization emerges under different market conditions,
-
-rather than:
-
-> whether sentiment directly predicts returns.
+- `README.md` — repository architecture and developer orientation.
+- `PROJECT_DESCRIPTION.md` — scientific motivation, research methodology and long-term vision.
+- `docs/` — subsystem-specific documentation.
 
 ---
 
-# Current State of Evidence
+## Executive Summary
 
-## Findings with Strongest Support
+The project has now completed the transition toward behavioral representation research.
 
-Current experiments most strongly support:
+Current work is centered on three scientific questions:
 
-- persistent/reactive pair-family differentiation
-- conditional regime dependence
-- volatility-conditioned structure
-- latent organization surviving architecture changes
-- partial transfer across pair families
-- survival of structure after sentiment ablation
-- downstream behavioral effects inside adaptive systems
-- partial alignment between DL findings and ABM dynamics
+- Which behavioral representations can be validated independently?
+- Do validated behavioral representations improve predictive learning?
+- Can behavioral organization ultimately be explained mechanistically?
 
----
+The first complete behavioral ontology (Reactive-JPY) has been frozen following independent validation and
+integrated into the MSML data pipeline. This document summarizes the current body of scientific knowledge
+and is updated as new evidence becomes available.
 
-## Findings with Weak or Mixed Support
-
-Current evidence is weaker or inconsistent for:
-
-- universal predictive alpha
-- stable directional forecasting
-- globally transferable sentiment behavior
-- additive predictive contribution over structural features
-- universal regime robustness
-- strong standalone trading performance
+Background on the scientific evolution of the project is provided in `PROJECT_DESCRIPTION.md`.
 
 ---
 
-# Current Interpretation
+## Current Phase Supporting Documents
 
-The project increasingly interprets retail sentiment not as a universal directional predictor, but as a behavioral state space whose transition dynamics vary across market environments.
+The following documents contain the primary evidence and implementation guidance supporting the current
+phase of the research programme.
 
-The strongest evidence currently supports:
+### Behavioral Representation
 
-- family-specific behavioral organization,
-- persistence-mediated state evolution,
-- conditional information compression,
-- localized downstream behavioral effects,
-- adaptive exploitation of latent structure.
+- `bsve/docs/reactive_jpy_findings.md` — Reactive-JPY ontology, validation methodology and results
+- `bsve/docs/reactive_chf_findings.md` — Reactive-CHF exploratory findings and ongoing investigations
+- `bsve/docs/persistent_findings.md` — Persistent behavioral family empirical evidence
+- `bsve/docs/synthesis_document.md` — complete BSVE methodology from ontology construction through validation
 
-Under this interpretation, sentiment is valuable primarily because it helps identify and organize behavioral states rather than because it provides stable directional alpha.
+### Integration
 
-Recent investigations further suggest that sentiment-state dynamics themselves may constitute an important object of study.
+- `docs/BSVE_MSML_integration_architecture.md` — behavioral surface integration into predictive pipeline
+- `docs/integration/dl_prediction_artifacts.md` — prediction artifact schema and downstream contracts
 
-In particular, JPY environments appear to exhibit consensus-formation and consensus-maturation processes that strongly influence reversal behavior.
+### Research Planning
 
-This shifts part of the research focus away from:
-
-sentiment
-→ returns
-
-and toward:
-
-sentiment-state evolution
-→ market behavior.
+- `docs/research/RESEARCH_STRATEGY.md` — research priorities and strategic direction
 
 ---
 
-# Layered Behavioral Interpretation
+## Current Project Status
 
-A layered interpretation has gradually emerged from the experiments.
+### Area Status
 
----
+| Area                            | Status                     |
+| ------------------------------- | -------------------------- |
+| Master research dataset         | ✓ Stable                   |
+| Dataset validation              | ✓ Complete                 |
+| Leakage auditing                | ✓ Complete                 |
+| Pair-family discovery           | ✓ Established              |
+| Persistent-family studies       | ✓ Complete (current phase) |
+| Reactive-JPY ontology           | ✓ Frozen                   |
+| Reactive-CHF ontology           | ◐ Exploratory              |
+| BSVE framework                  | ✓ Operational              |
+| Behavioral surface export       | ✓ Operational              |
+| Dataset behavioral augmentation | ✓ Operational              |
+| MSML behavioral integration     | ◐ In progress              |
+| MPML behavioral integration     | Planned                    |
+| Deep-learning evaluation        | Ongoing                    |
+| Agent-based modelling           | Ongoing                    |
 
-## Layer 1 — Structural Market Organization
+### Research Infrastructure
 
-Price, volatility, and trend structure appear to encode substantial
-persistent organization.
+The research infrastructure required for the current programme is considered operational. This includes:
 
-This structural layer survives:
+- validated dataset construction,
+- artifact versioning,
+- leakage auditing,
+- deterministic behavioral representation generation,
+- reproducible validation workflows.
 
-- sentiment ablation
-- architecture changes (MLP ↔ LSTM)
-- cross-family transfer
-- downstream MPML integration
-
-The current interpretation is that markets may contain:
-
-- endogenous structural persistence
-- volatility-conditioned geometry
-- adaptive liquidity organization
-- self-reinforcing behavioral clustering
-
-that exists independently of explicit sentiment signals.
-
----
-
-## Layer 2 — Sentiment Modulation
-
-Sentiment-derived features still appear to contribute:
-
-- conditional asymmetries
-- release/reversion dynamics
-- pair-family differentiation
-- localized behavioral transitions
-- downstream adaptive-routing effects
-
-The current working hypothesis is therefore:
-
-> sentiment modulates latent behavioral structure
-> rather than replacing it.
-
-## Consensus-State Dynamics
-
-Recent JPY investigations suggest that sentiment may be most useful when viewed as a dynamic state process rather than as a static explanatory variable.
-
-Several candidate external drivers of sentiment reversals were examined, including:
-
-- high-impact news,
-- session structure,
-- volatility-related effects.
-
-These variables provided comparatively little explanatory power once sentiment-state maturity was taken into account.
-
-Instead, reversal behavior appears strongly conditioned on the age and maturity of the underlying consensus state.
-
-Current evidence supports the following behavioral chain:
-
-Consensus Formation
-→ Consensus Maturation
-→ Exit Mechanism
-→ Reversal Probability
-
-This finding strengthens the interpretation that sentiment should be studied as a state-transition process rather than as a standalone predictive signal.
+The findings summarized below therefore concern scientific conclusions rather than implementation maturity.
 
 ---
 
-## Layer 3 — Adaptive Exploitation
+## Methodological Infrastructure
 
-Downstream experiments in MPML suggest that:
+Development of the Behavioral Surface Validation Engine (BSVE) represents an important methodological
+contribution of the project.
 
-- adaptive systems can preserve substantial behavior
-  even after sentiment ablation
-- local routing behavior changes more strongly
-  than aggregate downstream performance
-- structural organization may dominate final ensemble behavior
+The framework now provides:
 
-This suggests that:
+- deterministic behavioral ontology calibration,
+- explicit behavioral state assignment,
+- behavioral surface generation,
+- reproducible artifact contracts,
+- independent behavioral validation,
+- deterministic dataset augmentation.
 
-> adaptive downstream architectures may exploit multiple partially
-> overlapping behavioral channels simultaneously.
-
----
-
-# Pair-Family Findings
-
-One of the strongest and most persistent findings in the project is that different FX pair families exhibit meaningfully different behavioral organization.
-
-Importantly, the family distinction does not appear to originate from a single market statistic such as volatility, trend persistence, or sentiment persistence. Historical audits suggest that the family partition emerged empirically through repeated predictive-learning experiments and has subsequently survived multiple independent validation efforts.
-
-Current evidence suggests that pair families should be interpreted as distinct behavioral learning environments rather than simple collections of similar market statistics.
-
-## Persistent Families
-
-Pairs such as:
-
-- EURUSD
-- GBPUSD
-- NZDUSD
-- EURGBP
-- EURAUD
-
-consistently exhibit:
-
-- stronger information compression under phase partitioning,
-- greater internal cohesion,
-- greater benefits from explicit decomposition,
-- higher consensus-state maturation rates,
-- more stable downstream integration.
-
-These environments increasingly resemble persistent behavioral systems whose predictive structure is comparatively well organized.
-
-## Reactive Families
-
-Pairs such as:
-
-- USDJPY
-- EURJPY
-- GBPJPY
-- USDCHF
-- EURCHF
-
-remain meaningfully distinct from Persistent families.
-
-However, recent evidence suggests that Reactive itself is unlikely to be a fully coherent family.
-
-Instead, the Reactive family increasingly appears to contain at least two partially distinct behavioral environments.
-
-## CHF-Reactive Environments
-
-CHF pairs exhibit:
-
-- coherent volatility geometry,
-- elevated information gain under persistence-conditioned decomposition,
-- volatility-mediated persistence effects,
-- strong agreement between EURCHF and USDCHF.
-
-The current working interpretation is:
-
-Volatility Context
-→ Crowd-State Persistence
-→ Predictive Structure
-
-rather than volatility acting as a direct predictive signal.
-
-## JPY-Reactive Environments
-
-JPY pairs exhibit a different structure.
-
-Recent investigations found that:
-
-- sentiment extremes are overwhelmingly crowd-short,
-- reversal probability depends strongly on consensus maturity,
-- young consensus states frequently terminate via reversal,
-- mature consensus states predominantly decay through threshold exits.
-
-Unlike CHF environments, the strongest explanatory variables appear to arise from the sentiment process itself rather than from external timing variables.
-
-Current evidence therefore supports the provisional interpretation:
-
-Consensus Formation
-→ Consensus Maturation
-→ Consensus Decay
-
-as the primary organizing geometry of JPY-reactive environments.
-
-The strongest open question is no longer whether JPY environments contain structure, but rather what governs the evolution of their consensus states.
+Importantly, BSVE separates behavioral validation from predictive modelling. Behavioral representations are
+therefore evaluated as independent scientific hypotheses before being incorporated into machine-learning
+experiments. This separation has become one of the defining methodological characteristics of the repository.
 
 ---
 
-# Sentiment Ablation Findings
+## Established Scientific Findings
 
-One of the most important recent findings is that substantial behavioral
-structure survives after removing sentiment-derived features.
+The findings summarized below represent the current body of scientific knowledge rather than the complete
+experimental history of the project.
 
-The `trend_vol_only` feature surface preserves:
+As evidence accumulates, hypotheses are promoted from active research questions to established findings.
+Conversely, hypotheses that fail independent validation are removed from the active research programme
+and retained only within the archived research documentation.
 
-- trend features
-- volatility features
+This document therefore records the current state of knowledge rather than every experiment performed
+during the evolution of the project.
 
-while removing:
+### Retail Sentiment
 
-- sentiment-derived inputs
+Early research investigated retail positioning as a direct predictive signal.
 
-Current results suggest that:
+Current evidence indicates that this interpretation is inadequate.
 
-- structure does not collapse completely
-- downstream MPML behavior often remains surprisingly stable
-- adaptive systems continue functioning coherently
-- local routing behavior still changes meaningfully
+Established findings include:
 
-This increasingly suggests that:
+- Raw retail positioning exhibits little standalone predictive power.
+- Simple linear combinations of price and sentiment do not improve predictive performance.
+- Sentiment contributes little additional information when treated as a conventional predictive feature.
+- Predictive value appears highly conditional rather than universal.
 
-- volatility/trend organization itself encodes latent behavioral geometry
-- sentiment acts as a conditional modulation layer
-- structural persistence dominates much downstream behavior
+These negative findings were scientifically important because they motivated the transition from sentiment
+prediction toward behavioral representation learning. The project therefore no longer regards retail sentiment
+as the primary scientific object. Instead, it is treated as a behavioral observation from which latent market
+organization may be inferred.
 
----
+### Behavioral Organization
 
-# Cross-Family Transfer Findings
+One of the principal discoveries of the project is that foreign exchange markets exhibit reproducible behavioral
+organization.
 
-Cross-family transfer experiments increasingly suggest:
+Multiple independent analyses indicate that currency pairs cannot be adequately described using a single
+behavioral model.
 
-- asymmetric transfer behavior
-- partial universality
-- family-specific organization
-- incomplete generalization
+Instead:
 
-The strongest current interpretation is that:
+- distinct behavioral families emerge repeatedly across independent analyses,
+- behavioral differences remain stable across multiple validation approaches,
+- behavioral organization appears substantially more informative than raw sentiment values,
+- behavioral representations provide a more useful abstraction than individual sentiment observations.
 
-> markets contain partially shared behavioral structure,
-> but organized differently across pair families.
+These findings motivated the development of explicit behavioral ontologies and the Behavioral Surface
+Validation Engine (BSVE). Behavioral organization is therefore regarded as the central scientific object of
+the current research programme.
 
-This weakens both extremes:
+### Persistent Behavioral Family
 
-- purely universal structure
-- purely isolated pair behavior
+Research into Persistent currency pairs has produced one of the strongest bodies of evidence within the
+project.
 
-and instead supports:
+Current evidence supports the following conclusions:
 
-> partially overlapping latent manifolds.
+- Persistent pairs exhibit long-lived behavioral organization rather than isolated predictive effects.
+- Behavioral persistence appears to evolve through identifiable stages rather than remaining stationary.
+- Transition structure carries substantially more information than raw positioning alone.
+- Behavioral evolution is closely coupled to changes in underlying market conditions rather than instantaneous sentiment values.
+- Persistent-family behavior is sufficiently reproducible to motivate ontology construction.
 
----
+The Persistent family therefore represents a validated behavioral phenomenon rather than an isolated
+empirical observation. Research emphasis has consequently shifted from establishing its existence toward
+understanding the mechanisms responsible for its behavior.
 
-# Architecture Robustness
+Supporting documentation: `bsve/docs/persistent_findings.md`
 
-Observed structure survives across:
+### Reactive JPY
 
-- MLP models
-- LSTM models
-- cross-family transfer
-- downstream MPML integration
-
-This weakens the hypothesis that findings are merely:
-
-- architecture artifacts
-- optimization artifacts
-- isolated modeling effects
-
-while strengthening the interpretation that:
-
-> some form of latent organization genuinely exists in the data.
-
----
-
-# MPML Integration Findings
-
-Recent full-pipeline experiments integrating MSML DL surfaces into MPML
-produced several important observations.
-
----
-
-## Important Separation
-
-MSML and MPML answer different questions.
-
-### MSML studies:
-
-- behavioral structure
-- latent organization
-- sentiment-conditioned dynamics
-- transfer geometry
-
-### MPML studies:
-
-- adaptive exploitation
-- policy routing
-- regime-aware downstream behavior
-- ensemble robustness
-
-This distinction is extremely important.
-
-MPML findings should therefore NOT be interpreted as direct evidence
-for or against the intrinsic importance of sentiment itself.
-
----
-
-## Current MPML Interpretation
-
-Recent FP experiments suggest that:
-
-- DL signals genuinely propagate through MPML
-- walk-forward adaptive systems react to sentiment ablation
-- selector behavior changes materially
-- fold-level dynamics change materially
-
-However:
-
-- final downstream ensemble behavior often remains surprisingly stable
-
-This increasingly suggests that:
-
-> MPML exploits multiple partially overlapping behavioral channels.
-
-Possible channels include:
-
-- sentiment structure
-- volatility structure
-- trend persistence
-- phase memory
-- adaptive routing
-- regime geometry
-
----
-
-# ABM Relationship
-
-Several findings increasingly resemble dynamics observed in ABM work.
-
-Observed parallels include:
-
-- persistence/release cycles
-- asymmetric volatility response
-- clustered behavioral organization
-- reactive regime transitions
-- family-dependent behavior
-
-This does NOT validate ABM directly.
-
-However, the alignment increasingly suggests that:
-
-> DL and ABM may be observing different manifestations
-> of the same underlying behavioral organization.
-
----
-
-# Current Scientific Risks
-
-Several important risks remain unresolved.
-
----
-
-## Leakage Risk
-
-Potential temporal leakage remains one of the most important unresolved
-scientific concerns.
-
-This includes:
-
-- rolling normalization leakage
-- timestamp alignment leakage
-- walk-forward contamination
-- export boundary leakage
-- future-state contamination
-
-Leakage audits remain a major priority.
-
----
-
-## Sparse DL Overlap
-
-Current DL surfaces overlap only a subset of the full historical timeline.
-
-This creates several risks:
-
-- sparse-feature dominance
-- presence-mask artifacts
-- instability in downstream adaptive systems
-- misleading aggregate performance stability
-
-DL-era-only experiments remain important.
-
----
-
-## Ontology Mismatch
-
-MSML and MPML currently use different regime ontologies.
-
-This creates ambiguity when interpreting:
-
-- regime-conditioned behavior
-- DL coverage behavior
-- downstream routing effects
-
-Regime interpretation therefore requires care.
-
----
-
-# Immediate Research Priorities
-
-Current priorities include:
-
----
-
-## Behavioral Research
-
-- CHF vs JPY decomposition
-- latent manifold analysis
-- transition geometry
-- release dynamics
-- volatility-conditioned organization
-
----
-
-## Validation Research
-
-- leakage audits
-- randomized DL controls
-- shuffled-signal experiments
-- sparse-overlap controls
-- DL-era-only evaluation
-
----
-
-## MPML Integration Research
-
-- adaptive routing analysis
-- selector sensitivity
-- fold-level behavioral dynamics
-- multi-surface integration
-- downstream robustness analysis
-
----
-
-## ABM Research
-
-- endogenous regime emergence
-- agent coordination
-- calibration stability
-- persistence/release simulation
-- behavioral phase transitions
-
----
-
-# Current Working Hypothesis
-
-The strongest current working hypothesis is that FX markets contain partially persistent behavioral-state structures organized through multiple interacting mechanisms.
+Reactive-JPY represents the first complete behavioral ontology developed within the project.
 
 Current evidence supports:
 
-- latent structural persistence,
-- family-specific information geometry,
-- persistence-mediated behavioral organization,
-- conditional sentiment-state evolution,
-- adaptive downstream exploitation.
+- reproducible consensus lifecycle structure,
+- deterministic identification of consensus episodes,
+- empirically calibrated maturity boundaries,
+- reproducible hazard-rate evolution throughout consensus lifecycles,
+- deterministic Behavioral Surface generation,
+- successful independent behavioral validation under the BSVE framework.
 
-Within this framework:
+Behavioral validation produced results that were close to satisfying predefined confirmation criteria but
+ultimately remained formally inconclusive under the preregistered evaluation protocol.
 
-- sentiment acts as a behavioral-state descriptor,
-- trend and volatility influence state evolution,
-- pair families organize information differently,
-- adaptive systems exploit multiple overlapping behavioral channels.
+This distinction is important. The ontology is considered scientifically useful and operationally mature, while
+acknowledging that the current evidence does not yet justify treating every behavioral interpretation as
+conclusively established.
 
-The strongest emerging interpretation is that sentiment contributes less through direct directional prediction and more through its ability to reveal the structure and evolution of behavioral states.
+Reactive-JPY nevertheless provides the first complete demonstration of the full BSVE methodology from
+behavioral hypothesis through deterministic state assignment and behavioral surface generation.
 
-The project therefore increasingly studies:
+Supporting documentation: `bsve/docs/reactive_jpy_findings.md`
 
-behavioral geometry,
-state-transition dynamics,
-consensus formation,
-and adaptive interaction,
+### Reactive CHF
 
-rather than simple return forecasting.
+Reactive-CHF remains under active investigation.
 
----
+Current exploratory studies indicate that:
 
-# Status
+- volatility appears to organize behavior more strongly than consensus maturity,
+- behavioral transitions appear continuous rather than discretely separated,
+- volatility-derived behavioral representations remain promising,
+- deterministic ontology construction appears feasible.
 
-Active exploratory research project.
+However, the ontology has not yet reached the validation maturity achieved for Reactive-JPY.
+Consequently, Reactive-CHF should currently be regarded as an active research programme rather than an
+established behavioral representation.
 
-The current direction increasingly focuses on:
-
-- latent behavioral organization
-- structural persistence
-- conditional modulation
-- adaptive downstream exploitation
-- and reconciliation between:
-  - DL,
-  - ABM,
-  - and adaptive policy systems.
+Supporting documentation: `bsve/docs/reactive_chf_findings.md`
 
 ---
 
-# Pair-Family Research Audit (2026-06-12)
+## Current Confidence Assessment
 
-This section summarizes the major investigations that contributed to the current pair-family interpretation.
+Validated as of: July 2026
 
-The goal is not to document every experiment, but to preserve the key reasoning steps that motivated the current research state.
+Scientific progress depends not only on identifying promising hypotheses, but also on understanding the
+strength of the available evidence.
 
-------
+The following table summarizes the current confidence associated with the principal components of the
+research programme. Confidence assessments should be interpreted as summaries of the current body of
+evidence rather than permanent classifications. They are expected to evolve as additional behavioral
+representations are developed and independently validated.
 
-## Summary Table
-
-| Investigation                       | Main Question                                                | Result                                                       | Confidence  | Implication                                                  |
-| ----------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------ | ----------- | ------------------------------------------------------------ |
-| Phase decomposition experiments     | Do pairs benefit from explicit regime decomposition?         | Persistent pairs consistently benefited more than Reactive pairs. | High        | First evidence that pair families reflect genuine behavioral differences. |
-| Cross-family transfer studies       | Does learned structure transfer between families?            | Transfer was asymmetric and incomplete.                      | High        | Supports partially distinct latent manifolds rather than universal structure. |
-| Sentiment ablation experiments      | Does family structure survive sentiment removal?             | Significant structure remained after sentiment removal.      | High        | Family differences are not purely sentiment-driven.          |
-| Trend/Volatility-only surfaces      | Can structure survive on price-derived behavioral proxies?   | Significant organization survived.                           | High        | Supports latent behavioral organization beyond sentiment.    |
-| MPML integration experiments        | Do family differences survive downstream adaptive exploitation? | Yes. Routing behavior and fold dynamics remained family-dependent. | High        | Family structure propagates into adaptive systems.           |
-| CHF decomposition studies           | Why do CHF pairs behave differently?                         | Volatility-conditioned persistence effects repeatedly emerged. | Medium-High | Supports CHF as a volatility-mediated behavioral environment. |
-| JPY reversal studies                | Why do JPY pairs exhibit elevated reversal behavior?         | Reversal probability strongly linked to consensus maturity.  | High        | Supports JPY as a consensus-state system.                    |
-| JPY news-event analysis             | Are reversals primarily news-driven?                         | Little explanatory power observed.                           | Medium      | Weakens external-event explanations.                         |
-| JPY session-dependence analysis     | Are reversals concentrated in specific trading sessions?     | Little explanatory power observed.                           | Medium      | Weakens session-structure explanations.                      |
-| JPY state-transition analysis       | How do extreme sentiment states evolve?                      | Young states frequently failed; mature states persisted.     | High        | Consensus maturity emerged as a key state variable.          |
-| JPY lifecycle analysis              | What determines reversal vs threshold exits?                 | Immature states died via reversal; mature states via threshold exits. | High        | Reversal risk appears governed by state maturity.            |
-| JPY sentiment-reset analysis        | What characterizes reversal events?                          | Reversals frequently associated with large sentiment resets. | High        | Suggests abrupt consensus failure rather than gradual decay. |
-| JPY directional asymmetry analysis  | Are all extremes equivalent?                                 | Extremes were overwhelmingly crowd-short.                    | High        | Revealed strong directional asymmetry in JPY sentiment geometry. |
-| CHF directional asymmetry analysis  | Are CHF extremes symmetric?                                  | Extremes were overwhelmingly crowd-long.                     | High        | Revealed mirror-image asymmetry relative to JPY.             |
-| Trend-strength vs maturity analysis | Does price persistence affect consensus evolution?           | Stronger trends increased maturation probability.            | Medium      | Suggests trend persistence may influence state evolution.    |
-
-------
-
-## Major Conclusions
-
-### Conclusion 1: Pair Families Are Real
-
-The original Persistent vs Reactive distinction was not based on a single metric.
-
-Instead, it emerged repeatedly across:
-
-- decomposition experiments,
-- transfer experiments,
-- sentiment-ablation experiments,
-- downstream MPML integration.
-
-The family structure has survived multiple independent validation attempts and is therefore considered one of the strongest findings in the project.
-
-------
-
-### Conclusion 2: Reactive Is Not a Single Family
-
-Subsequent investigation suggests that the original Reactive family contains at least two distinct behavioral environments:
-
-Reactive-CHF
-and
-Reactive-JPY.
-
-The distinction emerged independently from:
-
-- volatility studies,
-- sentiment-state studies,
-- directional crowding studies,
-- transition-geometry analysis.
-
-------
-
-### Conclusion 3: CHF and JPY Appear Organized by Different Mechanisms
-
-Current evidence suggests:
-
-CHF:
-Volatility Context
-→ Persistence Dynamics
-→ Predictive Structure
-
-JPY:
-Consensus Formation
-→ Consensus Maturation
-→ Consensus Decay
-
-Both families are reactive, but appear reactive for different reasons.
-
-------
-
-### Conclusion 4: Consensus Maturity Is a Core State Variable
-
-The strongest result from the JPY investigation was the discovery that reversal probability depends heavily on consensus maturity.
-
-Observed pattern:
-
-Young Consensus
-→ Reversal-Dominated
-
-Mature Consensus
-→ Threshold-Dominated
-
-This result survived multiple independent analyses:
-
-- hazard analysis,
-- state-transition analysis,
-- lifecycle analysis,
-- directional decomposition.
-
-Consensus maturity is therefore currently considered one of the most important state variables identified in the project.
-
-------
-
-### Conclusion 5: External Timing Variables Were Less Important Than Expected
-
-Several candidate explanations for JPY reversals were investigated:
-
-- high-impact news,
-- medium-impact news,
-- session structure,
-- event timing.
-
-None produced explanatory power comparable to consensus maturity.
-
-This shifted the interpretation from:
-
-External Event
-→ Reversal
-
-toward:
-
-State Evolution
-→ Reversal
-
-------
-
-### Conclusion 6: Trend Persistence May Influence State Evolution
-
-Recent exploratory work found that stronger price-persistence environments were associated with higher consensus-maturation probabilities.
-
-This effect was observed using both:
-
-- 12-bar trend-strength measures,
-- 48-bar trend-strength measures.
-
-The finding is currently considered preliminary.
-
-However, it represents one of the few external variables that exhibited a meaningful relationship with sentiment-state evolution.
-
-Current interpretation:
-
-Trend Persistence
-→ Consensus Maturation
-→ Exit Mechanism
-→ Reversal Probability
-
-Further validation remains necessary.
-
-------
-
-## Current Confidence Ranking
-
-Highest Confidence Findings:
-
-1. Pair families are real.
-2. Persistent and Reactive environments differ meaningfully.
-3. CHF and JPY should not be treated as a single Reactive family.
-4. Consensus maturity governs reversal risk.
-5. JPY extremes are overwhelmingly crowd-short.
-6. CHF extremes are overwhelmingly crowd-long.
-
-Moderate Confidence Findings:
-
-1. CHF organization is volatility-mediated.
-2. Trend persistence influences consensus maturation.
-3. Consensus-state analysis provides a useful description of JPY behavior.
-
-Exploratory Findings:
-
-1. Trend alignment effects.
-2. Hidden-state (HMM) representations of sentiment processes.
-3. Cross-broker validation of directional crowding asymmetries.
-4. Consensus-state generative modeling.
+| Research Area                          | Current Confidence | Comments                                                     |
+| -------------------------------------- | ------------------ | ------------------------------------------------------------ |
+| Master Research Dataset                | Very High          | Construction pipeline validated, leakage audits complete, stable artifact contracts. |
+| Dataset methodology                    | Very High          | Reproducible dataset generation and causal alignment considered mature. |
+| Retail sentiment as a direct predictor | High               | Multiple independent studies consistently show limited standalone predictive value. |
+| Behavioral organization                | High               | Strong evidence that behavioral structure exists beyond raw sentiment observations. |
+| Currency pair families                 | High               | Reproduced across several independent analyses and experimental methodologies. |
+| Persistent behavioral family           | High               | Mature empirical findings with consistent behavioral characteristics. |
+| Reactive-JPY ontology                  | Moderate–High      | Deterministic ontology complete; behavioral validation narrowly inconclusive under preregistered criteria. |
+| Reactive-CHF ontology                  | Moderate           | Promising exploratory evidence; ontology construction and validation ongoing. |
+| BSVE methodology                       | High               | Framework operational and successfully applied to Reactive-JPY. |
+| Behavioral dataset augmentation        | High               | Deterministic augmentation pipeline implemented and validated. |
+| Behavioral ML integration              | Moderate           | Infrastructure largely complete; predictive evaluation now underway. |
+| Dynamic behavioral representations     | Low                | Conceptual direction supported by current findings but not yet investigated experimentally. |
+| Mechanistic interpretation (ABM)       | Low                | Active exploratory research with no definitive conclusions at present. |
 
 ---
 
-## Supporting Artifacts
+## Open Scientific Questions
 
-The conclusions summarized in this section are supported by a collection of standalone analysis scripts, logs, exploratory studies, and intermediate research artifacts that may not be tracked directly within the main repository.
+The project has successfully answered several important questions regarding behavioral organization in
+foreign exchange markets. At the same time, each completed research programme has generated new
+scientific questions.
 
-These artifacts were retained because many of the conclusions emerged through iterative investigation rather than through a single experiment.
+The following questions currently define the next phase of the project.
 
-The purpose of this audit is therefore not to replace the underlying analyses, but to preserve the reasoning chain that led to the current research interpretation.
+### Behavioral Representation
 
-Future revisions of the research state should update both:
+Several questions concern the nature of behavioral representations themselves. Current questions include:
 
-- the current interpretation,
-- and the supporting audit trail,
+- How many distinct behavioral representations exist within foreign exchange markets?
+- Which market observations best reveal latent behavioral organization?
+- How should deterministic behavioral ontologies be constructed?
+- Which behavioral phenomena are universal, and which are market-specific?
+- Can behavioral representations be generalized across different financial instruments?
 
-so that major conclusions remain traceable even as the project evolves.
+### Behavioral Dynamics
+
+Current findings suggest that behavioral organization is dynamic rather than stationary. Important open
+questions include:
+
+- Are observed currency pair families permanent or transient?
+- Can markets transition between different behavioral representations?
+- What mechanisms govern these transitions?
+- How stable are behavioral representations across changing macroeconomic environments?
+
+Understanding behavioral evolution is expected to become one of the major themes of future research.
+
+### Predictive Learning
+
+Behavioral representations are ultimately valuable only if they simplify predictive learning. Current questions
+include:
+
+- Which predictive architectures benefit most from behavioral specialization?
+- How should behavioral representations be encoded for machine learning?
+- Do behavioral representations improve generalization more than raw predictive accuracy?
+- Which behavioral representations provide the greatest downstream value?
+
+These questions now represent the primary focus of ongoing MSML development. Related implementation
+guidance is available in `docs/BSVE_MSML_integration_architecture.md` and `docs/research/RESEARCH_STRATEGY.md`.
+
+### Adaptive Decision Making
+
+Predictive improvements must ultimately demonstrate practical utility. Current research therefore investigates:
+
+- Which behavioral representations produce the largest improvements in adaptive strategy selection?
+- Should predictive models specialize within behavioral representations?
+- How should multiple behavioral representations be combined?
+- Can representation selection itself become adaptive?
+
+These questions motivate ongoing integration with the MPML framework. See `docs/integration/dl_prediction_artifacts.md`
+for the current prediction artifact contract and downstream integration schema.
+
+### Mechanistic Understanding
+
+Empirical observations naturally motivate questions regarding the underlying mechanisms responsible for
+observed behavioral organization. Current questions include:
+
+- Why do Persistent and Reactive behavioral families emerge?
+- Which interacting-agent mechanisms reproduce observed behavioral dynamics?
+- Can synthetic markets generate similar behavioral ontologies?
+- Which empirical findings remain unexplained by existing behavioral models?
+
+Addressing these questions represents the long-term objective of the Agent-Based Modeling programme.
 
 ---
 
+## Current Research Priorities
+
+The immediate objective of the project is no longer the discovery of additional behavioral phenomena in
+isolation. Instead, the focus has shifted toward determining whether validated behavioral representations
+improve predictive modelling and downstream adaptive decision-making.
+
+Several complementary research programmes are therefore progressing in parallel.
+
+### Priority 1 — Behavioral Predictive Validation
+
+The highest current priority is evaluating whether validated behavioral representations simplify predictive
+learning.
+
+This work focuses on integrating Behavioral Surfaces into the MSML training pipeline and comparing
+behavioral representations against traditional volatility/trend partitioning under identical walk-forward
+evaluation protocols.
+
+The principal scientific question is: **Do validated behavioral representations improve predictive learning?**
+
+This represents the first complete evaluation of the Behavioral Surface methodology using predictive machine
+learning.
+
+### Priority 2 — Behavioral Surface Expansion
+
+Reactive-JPY represents the first complete Behavioral Surface produced by the BSVE framework. Current
+work focuses on extending the methodology to additional behavioral phenomena while preserving
+deterministic ontology construction and independent validation.
+
+Important objectives include:
+
+- completion of the Reactive-CHF ontology,
+- comparison between alternative behavioral representations,
+- generalization of BSVE to support multiple concurrent behavioral surfaces,
+- continued refinement of behavioral validation methodology.
+
+The long-term objective is a library of independently validated behavioral representations rather than a
+single ontology.
+
+### Priority 3 — MPML Integration
+
+Behavioral representations have now entered the predictive modelling pipeline. The next stage is evaluating
+whether those representations improve adaptive strategy selection within the downstream MPML framework.
+
+Current work includes:
+
+- behavioral-state model specialization,
+- behavioral routing,
+- walk-forward adaptive evaluation,
+- comparison against traditional market-state partitioning.
+
+The principal scientific question is no longer whether Behavioral Surfaces can be constructed, but whether
+they improve adaptive decision-making under realistic deployment conditions.
+
+### Priority 4 — Mechanistic Understanding
+
+Empirical behavioral organization has now been demonstrated sufficiently to motivate renewed emphasis on
+mechanistic explanation.
+
+Agent-Based Modelling (ABM) therefore enters a new phase. Rather than generating synthetic market
+behaviour in isolation, future work will increasingly investigate whether observed behavioral representations
+can emerge naturally from interacting market participants.
+
+Long-term success will therefore require connecting three independent forms of evidence:
+
+- empirical behavioral observations,
+- predictive validation,
+- mechanistic simulation.
+
+Achieving agreement between these three perspectives represents one of the most ambitious objectives of
+the project.
+
+---
+
+## Immediate Development Roadmap
+
+The current implementation roadmap follows directly from the scientific priorities identified above.
+
+### 1. Behavioral integration within MSML
+
+Complete integration of Behavioral Surface dataset variants into the predictive training pipeline.
+
+Relevant documentation:
+- `docs/BSVE_MSML_integration_architecture.md`
+
+### 2. Predictive evaluation of Reactive-JPY
+
+Perform the first walk-forward predictive evaluation using the frozen Reactive-JPY Behavioral Surface.
+
+Relevant documentation:
+- `bsve/docs/reactive_jpy_findings.md`
+- `bsve/docs/synthesis_document.md`
+- `docs/BSVE_MSML_integration_architecture.md`
+
+### 3. Behavioral routing in MPML
+
+Evaluate Behavioral Surface specialization within the downstream adaptive framework.
+
+Relevant documentation:
+- `docs/BSVE_MSML_integration_architecture.md`
+- `docs/integration/dl_prediction_artifacts.md`
+
+### 4. Reactive-CHF
+
+Continue ontology construction and independent validation for volatility-derived behavioral representations.
+
+Relevant documentation:
+- `bsve/docs/reactive_chf_findings.md`
+- `bsve/docs/synthesis_document.md`
+
+### 5. Multi-representation comparison
+
+Compare multiple validated behavioral representations within a common predictive framework.
+
+Relevant documentation:
+- `docs/research/RESEARCH_STRATEGY.md`
+
+### 6. Mechanistic investigation
+
+Continue Agent-Based Modelling research aimed at explaining observed behavioral organization.
+
+Relevant documentation:
+- `docs/abm/`
+- `docs/research/RESEARCH_STRATEGY.md`
+
+---
+
+## Closing Remarks
+
+The project has completed its transition from sentiment prediction toward behavioral representation research.
+For background on this evolution, see `PROJECT_DESCRIPTION.md`. This document records where that
+programme currently stands.
