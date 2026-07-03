@@ -180,7 +180,6 @@ def _prepare_dataset_timestamp(df: pd.DataFrame) -> pd.DataFrame:
 def augment_with_behavioral_surface(
     dataset: pd.DataFrame,
     surface: pd.DataFrame,
-    manifest: dict[str, Any],
 ) -> tuple[pd.DataFrame, dict[str, int]]:
     """Left-join *surface* behavioral columns onto *dataset* on (timestamp, pair).
 
@@ -225,16 +224,25 @@ def augment_with_behavioral_surface(
             "Cannot perform unambiguous behavioral surface join."
         )
 
-    # Select only the columns we need from the surface for the join.
+    # Select only the public Behavioral Surface contract columns.
+    # Schema validation has already guaranteed that every required column exists.
     surface_join_cols = ["timestamp", "pair"] + BEHAVIORAL_COLUMNS
-    surface_subset = surface[[c for c in surface_join_cols if c in surface.columns]].copy()
+    surface_subset = surface[surface_join_cols].copy()
 
-    # Strict left join — preserves all dataset rows and ordering.
-    augmented = ds.merge(
-        surface_subset,
-        on=["timestamp", "pair"],
-        how="left",
-        validate="1:1",
+    # Preserve original ordering explicitly rather than relying on pandas'
+    # current merge implementation.
+    ds["_row_order"] = range(len(ds))
+
+    augmented = (
+        ds.merge(
+            surface_subset,
+            on=["timestamp", "pair"],
+            how="left",
+            validate="1:1",
+        )
+        .sort_values("_row_order")
+        .drop(columns="_row_order")
+        .reset_index(drop=True)
     )
 
     # Enforce strict row-count preservation.
@@ -258,7 +266,8 @@ def augment_with_behavioral_surface(
     )
 
     stats = {
-        "rows_loaded": len(surface),
+        "dataset_rows": original_len,
+        "surface_rows": len(surface),
         "rows_matched": rows_matched,
         "rows_unmatched": rows_unmatched,
         "behavioral_columns_added": behavioral_columns_added,
@@ -323,7 +332,9 @@ def log_bsve_summary(
         "    %s v%s\n\n"
         "Calibration:\n"
         "    %s\n\n"
-        "Rows loaded:\n"
+        "Dataset Rows:\n"
+        "    %d\n\n"
+        "Behavioral Surface rows:\n"
         "    %d\n\n"
         "Rows matched:\n"
         "    %d\n\n"
@@ -334,7 +345,8 @@ def log_bsve_summary(
         ontology_id,
         ontology_version,
         calibration_id,
-        stats["rows_loaded"],
+        stats["dataset_rows"],
+        stats["surface_rows"],
         stats["rows_matched"],
         stats["rows_unmatched"],
         stats["behavioral_columns_added"],
@@ -447,7 +459,7 @@ def run_behavioral_augmentation(
             continue
 
         base_df = pd.read_csv(base_path)
-        augmented, stats = augment_with_behavioral_surface(base_df, surface, bsve_manifest)
+        augmented, stats = augment_with_behavioral_surface(base_df, surface)
 
         # Determine tag: None for the "full" variant (no suffix), else the label
         # itself (e.g. "core" → "_core", "extended" → "_extended").

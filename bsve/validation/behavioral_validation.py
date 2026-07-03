@@ -128,13 +128,13 @@ def contingency_table(
     table = np.array([
 
         [
-            ((df["state"] == reference_state) & failed).sum(),
-            ((df["state"] == reference_state) & ~failed).sum(),
+            ((df["state_id"] == reference_state) & failed).sum(),
+            ((df["state_id"] == reference_state) & ~failed).sum(),
         ],
 
         [
-            ((df["state"] == target_state) & failed).sum(),
-            ((df["state"] == target_state) & ~failed).sum(),
+            ((df["state_id"] == target_state) & failed).sum(),
+            ((df["state_id"] == target_state) & ~failed).sum(),
         ],
 
     ])

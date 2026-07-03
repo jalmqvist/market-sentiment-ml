@@ -232,7 +232,7 @@ def test_duplicate_keys_in_surface_raise(tmp_path: Path) -> None:
     manifest = _make_manifest()
     dataset = _make_dataset(n_rows_per_pair=2)
     with pytest.raises(ValueError, match="Behavioral Surface contains"):
-        augment_with_behavioral_surface(dataset, surface, manifest)
+        augment_with_behavioral_surface(dataset, surface)
 
 
 def test_duplicate_keys_in_dataset_raise(tmp_path: Path) -> None:
@@ -243,7 +243,7 @@ def test_duplicate_keys_in_dataset_raise(tmp_path: Path) -> None:
     dup = dataset.iloc[[0]].copy()
     dataset = pd.concat([dataset, dup], ignore_index=True)
     with pytest.raises(ValueError, match="Dataset contains"):
-        augment_with_behavioral_surface(dataset, surface, manifest)
+        augment_with_behavioral_surface(dataset, surface)
 
 
 # ---------------------------------------------------------------------------
@@ -256,7 +256,7 @@ def test_row_count_preserved_after_join() -> None:
     surface = _make_surface(n_rows_per_pair=n)
     manifest = _make_manifest()
     dataset = _make_dataset(n_rows_per_pair=n)
-    augmented, stats = augment_with_behavioral_surface(dataset, surface, manifest)
+    augmented, stats = augment_with_behavioral_surface(dataset, surface)
     assert len(augmented) == len(dataset)
 
 
@@ -264,7 +264,7 @@ def test_all_behavioral_columns_present_after_join() -> None:
     surface = _make_surface(n_rows_per_pair=3)
     manifest = _make_manifest()
     dataset = _make_dataset(n_rows_per_pair=3)
-    augmented, _ = augment_with_behavioral_surface(dataset, surface, manifest)
+    augmented, _ = augment_with_behavioral_surface(dataset, surface)
     for col in BEHAVIORAL_COLUMNS:
         assert col in augmented.columns, f"Missing behavioral column: {col}"
 
@@ -282,7 +282,7 @@ def test_null_values_for_pairs_outside_ontology() -> None:
     # Dataset includes 'eur-usd' which is NOT in the surface.
     dataset = _make_dataset(pairs=["usd-jpy", "eur-usd"], n_rows_per_pair=3)
 
-    augmented, stats = augment_with_behavioral_surface(dataset, surface, manifest)
+    augmented, stats = augment_with_behavioral_surface(dataset, surface)
 
     assert len(augmented) == len(dataset)
 
@@ -307,7 +307,7 @@ def test_successful_join_values_copied_verbatim() -> None:
     manifest = _make_manifest()
     dataset = _make_dataset(n_rows_per_pair=3)
 
-    augmented, stats = augment_with_behavioral_surface(dataset, surface, manifest)
+    augmented, stats = augment_with_behavioral_surface(dataset, surface)
 
     for col in BEHAVIORAL_COLUMNS:
         expected = surface.set_index(["timestamp", "pair"])[col]
@@ -325,7 +325,7 @@ def test_join_stats_rows_loaded() -> None:
     surface = _make_surface(n_rows_per_pair=n)
     manifest = _make_manifest()
     dataset = _make_dataset(n_rows_per_pair=n)
-    _, stats = augment_with_behavioral_surface(dataset, surface, manifest)
+    _, stats = augment_with_behavioral_surface(dataset, surface)
     assert stats["rows_loaded"] == n
 
 
@@ -334,7 +334,7 @@ def test_join_stats_rows_matched_and_unmatched() -> None:
     surface = _make_surface(pairs=["usd-jpy"], n_rows_per_pair=3)
     manifest = _make_manifest()
     dataset = _make_dataset(pairs=["usd-jpy", "eur-usd"], n_rows_per_pair=3)
-    _, stats = augment_with_behavioral_surface(dataset, surface, manifest)
+    _, stats = augment_with_behavioral_surface(dataset, surface)
     assert stats["rows_matched"] == 3
     assert stats["rows_unmatched"] == 3  # eur-usd rows have no surface match
 
@@ -343,7 +343,7 @@ def test_join_stats_behavioral_columns_added() -> None:
     surface = _make_surface()
     manifest = _make_manifest()
     dataset = _make_dataset()
-    _, stats = augment_with_behavioral_surface(dataset, surface, manifest)
+    _, stats = augment_with_behavioral_surface(dataset, surface)
     assert stats["behavioral_columns_added"] == len(BEHAVIORAL_COLUMNS)
 
 
@@ -358,7 +358,7 @@ def test_row_ordering_preserved_after_join() -> None:
     manifest = _make_manifest()
     # Dataset intentionally in a different order than the surface.
     dataset = _make_dataset(pairs=["eur-jpy", "usd-jpy"], n_rows_per_pair=3)
-    augmented, _ = augment_with_behavioral_surface(dataset, surface, manifest)
+    augmented, _ = augment_with_behavioral_surface(dataset, surface)
     # The first rows should still be eur-jpy (original ordering preserved).
     assert augmented.iloc[0]["pair"] == "eur-jpy"
 
@@ -619,7 +619,7 @@ def test_invalid_timestamps_in_dataset_raise() -> None:
     dataset["entry_time"] = dataset["entry_time"].astype(str)
     dataset.loc[0, "entry_time"] = "not-a-date"
     with pytest.raises(ValueError, match="Dataset contains .* invalid timestamp"):
-        augment_with_behavioral_surface(dataset, surface, manifest)
+        augment_with_behavioral_surface(dataset, surface)
 
 
 # ---------------------------------------------------------------------------

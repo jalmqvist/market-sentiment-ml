@@ -39,7 +39,7 @@ def inspect_surface(
     ----------
     surface:
         DataFrame produced by :func:`bsve.state_machine.engine.generate_behavioral_surface`.
-        Must contain at minimum the columns ``pair``, ``state``, ``episode_id``,
+        Must contain at minimum the columns ``pair``, ``state_id``, ``episode_id``,
         and ``maturity_bars``.
     calibration_artifact:
         Optional calibration artifact dict.  When provided its thresholds are
