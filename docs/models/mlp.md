@@ -222,6 +222,19 @@ python research/deep_learning/train.py \
   --target-horizon 24
 ```
 
+Behavioral Surface partitioning is also supported:
+
+```bash
+python research/deep_learning/train.py \
+  --dataset-version 1.3.2 \
+  --feature-set price_trend \
+  --surface reactive_jpy \
+  --state JPY_CONSENSUS_YOUNG \
+  --target-horizon 24
+```
+
+`--regime` is mutually exclusive with `--surface/--state`.
+
 ------
 
 ## Current Status

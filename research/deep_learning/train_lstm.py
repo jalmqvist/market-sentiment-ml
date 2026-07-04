@@ -15,6 +15,12 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 import config as cfg
 from research.deep_learning.dataset_loader import load_dataset
+from research.deep_learning.partitioning import (
+    apply_partition_filter,
+    resolve_behavioral_provenance,
+    resolve_partition,
+    validate_partition_args,
+)
 
 FEATURE_SETS = {
     "price_trend": [
@@ -148,6 +154,8 @@ def main():
         ),
     )
     parser.add_argument("--regime", type=str)
+    parser.add_argument("--surface", type=str)
+    parser.add_argument("--state", type=str)
     parser.add_argument("--target-horizon", type=int, default=24)
     parser.add_argument("--label-quantile", type=float, default=0.5)
     parser.add_argument("--seq-len", type=int, default=24)
@@ -185,6 +193,8 @@ def main():
     )
 
     args = parser.parse_args()
+    validate_partition_args(args.regime, args.surface, args.state)
+    partition = resolve_partition(args.regime, args.surface, args.state)
 
     Path("logs").mkdir(exist_ok=True)
 
@@ -199,7 +209,7 @@ def main():
     )
 
     pair_str = train_pairs_arg.strip().lower().replace(",", "-") if train_pairs_arg else "all"
-    regime_str = args.regime.strip().lower() if args.regime else "all"
+    regime_str = partition["log_tag"]
     ts = pd.Timestamp.now(tz="UTC").strftime("%Y%m%dT%H%M%SZ")
 
     log_file = f"logs/lstm_{pair_str}_{regime_str}_h{args.target_horizon}_q{args.label_quantile}_{ts}.log"
@@ -214,16 +224,26 @@ def main():
     logging.info(
         f"CONFIG | model=lstm pair={args.pairs} train_pairs={train_pairs_arg} "
         f"predict_pairs={predict_pairs_arg} regime={args.regime} "
+        f"surface={args.surface} state={args.state} "
         f"horizon={args.target_horizon} quantile={args.label_quantile}"
     )
+
+    if partition["mode"] == "regime":
+        logging.info("partition_type: regime | regime=%s", partition["regime"])
+    elif partition["mode"] == "behavioral":
+        logging.info(
+            "partition_type: behavioral | surface_id=%s | state_id=%s",
+            partition["surface"],
+            partition["state"],
+        )
+    else:
+        logging.info("partition_type: none | full dataset")
 
     df_base = load_dataset(args.dataset_version, variant="core")
     df = df_base.copy()
     infer_df = df_base.copy()
-
-    if args.regime:
-        df = df[df["regime"] == args.regime]
-        infer_df = infer_df[infer_df["regime"] == args.regime]
+    df = apply_partition_filter(df, partition)
+    infer_df = apply_partition_filter(infer_df, partition)
 
     if train_pairs:
         logging.info(f"normalized_train_pairs: {train_pairs}")
@@ -382,6 +402,7 @@ def main():
                 raise ValueError(
                     "Predict universe produced 0 valid LSTM sequences. "
                     f"predict_pairs={predict_pairs_arg!r}, regime={args.regime!r}, "
+                    f"surface={args.surface!r}, state={args.state!r}, "
                     f"seq_len={args.seq_len}."
                 )
             X_infer_norm = (X_infer.astype("float32") - mean) / std
@@ -428,7 +449,8 @@ def main():
         raise ValueError(
             "Export produced 0 rows for selected predict universe. "
             f"train_pairs={train_pairs_arg!r}, "
-            f"predict_pairs={predict_pairs_arg!r}, regime={args.regime!r}."
+            f"predict_pairs={predict_pairs_arg!r}, regime={args.regime!r}, "
+            f"surface={args.surface!r}, state={args.state!r}."
         )
     if len(export_meta_df) != len(export_pred_prob_up):
         raise ValueError(
@@ -450,10 +472,17 @@ def main():
     prediction_timestamp = pd.Timestamp.now("UTC").tz_localize(None)
     signal_strength = (2.0 * export_pred_prob_up) - 1.0
 
-    dl_regime = args.regime if args.regime else "MIXED"
+    dl_regime = partition["dl_regime"]
     model_name = "lstm"
     target_horizon = int(args.target_horizon)
     feature_set = str(args.feature_set)
+    logging.info(
+        "resolved_artifact_identity: model=%s dl_regime=%s target_horizon=%s feature_set=%s",
+        model_name,
+        dl_regime,
+        target_horizon,
+        feature_set,
+    )
 
     pred_df = pd.DataFrame({
         "pair": export_pairs,
@@ -549,6 +578,7 @@ def main():
     }
     provenance = {
         "dataset_version": args.dataset_version,
+        "dataset_variant": "core",
         "training_pairs": training_pairs_provenance,
         "inference_pairs": inference_pairs_provenance,
         "export_split": args.export_split,
@@ -560,6 +590,16 @@ def main():
         "dl_imputation_value": cfg.DL_IMPUTATION_VALUE,
         "availability_shuffle_seed": cfg.DL_AVAILABILITY_SHUFFLE_SEED,
     }
+    if partition["mode"] == "behavioral":
+        provenance.update(
+            resolve_behavioral_provenance(
+                df=df,
+                dataset_version=args.dataset_version,
+                dataset_variant="core",
+                selected_surface_id=partition["surface"],
+                selected_state_id=partition["state"],
+            )
+        )
 
     if (args.export_after_year is not None) or (args.export_before_year is not None):
         pred_df["entry_time"] = pd.to_datetime(pred_df["entry_time"])
