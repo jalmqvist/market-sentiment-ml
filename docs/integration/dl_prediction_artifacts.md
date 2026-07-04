@@ -104,6 +104,18 @@ python -m research.deep_learning.train \
   --target-horizon 24
 ```
 
+Behavioral Surface partition mode (mutually exclusive with `--regime`):
+
+```bash
+python -m research.deep_learning.train \
+  --dataset-version 1.3.2 \
+  --surface reactive_jpy \
+  --state JPY_CONSENSUS_YOUNG \
+  --target-horizon 24
+```
+
+`--surface` and `--state` must be provided together.
+
 Expected output:
 
 ```text
@@ -142,11 +154,23 @@ A DL signal surface is identified by:
 
 These fields define the operational signal stream.
 
+In Behavioral Surface mode, `dl_regime` is disambiguated as
+`<surface_id>:<state_id>` (for example `reactive_jpy:JPY_CONSENSUS_YOUNG`) to
+guarantee unique artifact identity per behavioral state.
+
 They are distinct from:
 
 * training provenance
 * hyperparameters
 * experiment metadata
+
+Behavioral-mode manifests also include:
+
+* `surface_id`
+* `state_id`
+* `dataset_variant`
+* `dataset_version`
+* `ontology_version` (null when unavailable)
 
 ---
 
