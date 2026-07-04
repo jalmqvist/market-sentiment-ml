@@ -16,7 +16,11 @@ data/output/
     ├── master_research_dataset.csv           # full dataset
     ├── master_research_dataset_core.csv      # high-coverage pairs only (≥ 95%)
     ├── master_research_dataset_extended.csv  # broader coverage (≥ 90%)
+    ├── master_research_dataset_reactive_jpy_v1.csv
+    ├── master_research_dataset_reactive_jpy_v1_core.csv
+    ├── master_research_dataset_reactive_jpy_v1_extended.csv
     ├── DATASET_MANIFEST.json                 # build metadata
+    ├── DATASET_MANIFEST_reactive_jpy_v1.json # behavioral augmentation provenance
     └── dl/                                   # deep learning outputs
         ├── predictions_<feature_set>.csv
         └── metrics_<feature_set>.json
@@ -64,12 +68,29 @@ Every build writes a `DATASET_MANIFEST.json` alongside the CSV files so that any
 
 ## How to Rebuild the Dataset
 
-```bash
-# Build dataset version 1.1.0
-python scripts/build_dataset.py --version 1.1.0
+Dataset generation and Behavioral Surface integration are a **two-stage workflow**:
 
-# Build with a custom variant
-python scripts/build_dataset.py --version 1.1.0 --variant core
+1. Build canonical datasets.
+2. Generate Behavioral Surface (BSVE).
+3. Augment existing canonical datasets.
+
+Canonical datasets are never modified during augmentation.
+
+```bash
+# 1) Build canonical datasets (fails fast if canonical files already exist).
+python scripts/build_dataset.py --version 1.5.1
+
+# If canonical files already exist and you explicitly want to rebuild them:
+python scripts/build_dataset.py --version 1.5.1 --force
+
+# 2) Generate Behavioral Surface with BSVE (example command in bsve/docs/CLI.md)
+#    Produces a frozen parquet artifact + behavioral_surface_manifest.json.
+
+# 3) Augment existing canonical datasets only (never rebuilds canonical files).
+python scripts/build_dataset.py \
+  --version 1.5.1 \
+  --behavioral-surface bsve.test/behavioral_surface_reactive_jpy_1.0.0.parquet \
+  --augment-only
 ```
 
 The build script reads raw data from `data/input/` and writes versioned outputs to `data/output/<version>/`.
@@ -112,5 +133,6 @@ All features are **causal** (backward-looking only). Forward-return columns are 
 To reproduce any experiment exactly:
 
 1. Note the `dataset_version` from the experiment log or metrics JSON.
-2. Rebuild the dataset: `python scripts/build_dataset.py --version <version>`.
-3. Re-run the experiment script with the same `--dataset-version` argument.
+2. Build canonical datasets: `python scripts/build_dataset.py --version <version>`.
+3. Generate Behavioral Surface and augment with `--augment-only` if the experiment uses behavioral variants.
+4. Re-run the experiment script with the same `--dataset-version` argument.

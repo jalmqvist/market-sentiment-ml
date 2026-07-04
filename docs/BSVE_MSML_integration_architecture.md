@@ -136,6 +136,18 @@ Behavioral attributes become ordinary dataset features through deterministic
 augmentation performed by the dataset builder. BSVE remains the sole owner of
 behavioral state assignment.
 
+Operational workflow:
+
+1. Build canonical master research datasets.
+2. Generate a frozen Behavioral Surface artifact in BSVE.
+3. Run dataset augmentation against existing canonical datasets.
+
+Canonical datasets are immutable during augmentation. The augmentation stage
+writes behavioral variants alongside canonical outputs and never rewrites
+`master_research_dataset.csv`, `master_research_dataset_core.csv`, or
+`master_research_dataset_extended.csv` unless an explicit force rebuild is
+requested during canonical dataset construction.
+
 Implementation details are specified in the corresponding PR.
 
 ---
