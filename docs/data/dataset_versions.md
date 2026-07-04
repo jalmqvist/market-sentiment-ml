@@ -1,5 +1,25 @@
 # Dataset Version History
 
+## 1.5.2 — Behavioral augmentation hardening
+
+Date:
+2026-07-04
+
+Changes:
+- add augmentation-only execution mode: `python scripts/build_dataset.py --behavioral-surface <path> --augment-only`
+- augmentation-only mode requires all canonical dataset variants to exist and fails fast if any are missing
+- canonical datasets (`master_research_dataset.csv`, `_core`, `_extended`) are protected from overwrite unless `--force` is explicitly supplied
+- Behavioral Surface augmentation continues writing only behavioral variants (`master_research_dataset_reactive_jpy_v1*.csv`) plus behavioral provenance manifest
+
+Workflow:
+1. Build canonical datasets.
+2. Generate Behavioral Surface (BSVE).
+3. Augment existing canonical datasets.
+
+Canonical datasets are never modified during augmentation.
+
+---
+
 ## 1.5.1 — Entry-bar deduplication correction
 
 Date:

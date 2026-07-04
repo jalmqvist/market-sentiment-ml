@@ -273,18 +273,26 @@ python -m bsve.validation.inspect_surface \
     --output-dir bsve.test/inspection
 ```
 
-### 4. Join onto the master research dataset
+### 4. Augment the existing master research dataset
 
-```python
-import pandas as pd
+```bash
+# Build canonical datasets first (if not already present)
+python scripts/build_dataset.py --version 1.5.1
 
-surface = pd.read_parquet("bsve.test/behavioral_surface_reactive_jpy_1.0.0.parquet")
-dataset = pd.read_csv("data/output/1.5.1/master_research_dataset_core.csv")
-dataset["timestamp"] = pd.to_datetime(dataset["entry_time"])
-
-joined = surface.merge(dataset, on=["timestamp", "pair"], how="inner")
-print(joined[["timestamp", "pair", "state_id", "maturity_bars"]].head())
+# Augment-only mode loads canonical datasets and writes only behavioral variants
+python scripts/build_dataset.py \
+    --version 1.5.1 \
+    --behavioral-surface bsve.test/behavioral_surface_reactive_jpy_1.0.0.parquet \
+    --augment-only
 ```
+
+The augmentation stage writes:
+
+- `master_research_dataset_reactive_jpy_v1.csv`
+- `master_research_dataset_reactive_jpy_v1_core.csv`
+- `master_research_dataset_reactive_jpy_v1_extended.csv`
+
+Canonical datasets are not modified during augmentation.
 
 ---
 
