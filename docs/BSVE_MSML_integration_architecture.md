@@ -24,16 +24,17 @@ The Behavioral Surface integration is intentionally delivered as a sequence of
 small architectural steps. Each PR introduces a single capability while
 preserving backwards compatibility.
 
-| PR    | Capability                                                   |
-| ----- | ------------------------------------------------------------ |
-| PR1   | Behavioral Surface contract (BSVE → artifact)                |
-| PR2   | Dataset augmentation (artifact → dataset variant)            |
-| PR3   | Behavioral training support (dataset variant → prediction artifacts) |
-| PR3.1 | Dataset variant identity and provenance                      |
-| PR4   | Behavioral Experiment Framework                              |
-| PR5   | MPML behavioral prediction routing                           |
-| PR6   | Walk-forward scientific evaluation                           |
-| PR7   | Generalized SurfaceProvider abstraction (only if justified by results) |
+| PR    | Capability                                                  |
+| ----- | ----------------------------------------------------------- |
+| PR1   | Behavioral Surface contract                                 |
+| PR2   | Dataset augmentation                                        |
+| PR3   | Behavioral training                                         |
+| PR3.1 | Dataset variants                                            |
+| PR4   | Behavioral Experiment Framework                             |
+| PR5   | Behavioral Evaluation Framework                             |
+| PR6   | MPML behavioral prediction routing                          |
+| PR7   | Walk-forward scientific evaluation                          |
+| PR8   | Generalized SurfaceProvider abstraction (only if justified) |
 
 Each stage validates the previous stage before introducing additional
 architectural complexity.
@@ -538,7 +539,162 @@ results rather than managing training runs and artifacts.
 
 ---
 
-# PR5: Behavioral Prediction Routing
+# PR5 — Behavioral Evaluation Framework
+
+## Objective
+
+Transform the Behavioral Experiment Framework from an engineering orchestration
+ tool into a scientific evaluation framework capable of producing informative,
+ reproducible summaries of Behavioral Surface experiments.
+
+This PR introduces no new predictive models.
+
+Its purpose is to improve experiment robustness and the scientific value of the
+ generated reports.
+
+------
+
+## Engineering Improvements
+
+The framework shall
+
+- replace filesystem-difference artifact discovery with trainer-reported artifact identities
+- report percentage-based coverage metrics
+- report overlap percentages in addition to raw overlap counts
+- summarize discovered Behavioral Surface states in every report
+- classify informational messages, warnings and errors separately
+- improve experiment provenance where appropriate
+
+These changes improve robustness without changing experimental results.
+
+------
+
+## Scientific Metrics
+
+Reports shall include metrics describing prediction behavior independently of trading performance. The objective is not to maximize the number of reported metrics, but to increase the scientific interpretability of Behavioral Surface experiments.
+
+At minimum:
+
+- behavioral coverage fraction
+- per-state occupancy fraction
+- prediction probability distribution
+- signal-strength distribution
+- prediction entropy
+- prediction confidence distribution
+- effective prediction coverage
+- pair balance
+- timestamp coverage
+- calibration metrics (e.g. probability calibration or reliability summaries, where practical)
+
+These metrics describe model behavior rather than trading performance.
+
+---
+
+## Statistical Estimates
+
+Where practical, reported metrics should include simple uncertainty estimates.
+
+Preferred methods include
+
+- bootstrap confidence intervals
+- sampling variability
+- effect size estimates
+
+Formal hypothesis testing is intentionally deferred.
+
+The goal is to quantify confidence in observed effects rather than to establish
+statistical significance.
+
+------
+
+## Controls
+
+The framework shall support comparison against baseline controls.
+
+Initial controls include
+
+- full dataset
+- behavioral partition
+- regime partition
+- randomly sampled partitions matched for sample size
+
+Controls exist to distinguish genuine behavioral effects from effects caused by
+ dataset size or partitioning alone.
+
+Random partitions shall be matched for sample size and temporal coverage
+whenever possible to avoid confounding coverage effects with predictive effects.
+
+------
+
+## Scientific Interpretation
+
+Generated reports should contain a concise rule-based interpretation section.
+
+Interpretations summarize the experimental observations without drawing
+ scientific conclusions.
+
+Examples include
+
+- Behavioral coverage represents 6.7% of the canonical dataset.
+- MLP/LSTM agreement is substantially lower in JPY_CONSENSUS_YOUNG than in
+   JPY_NON_EXTREME.
+- Behavioral state occupancy is strongly imbalanced.
+
+Interpretations shall explain
+
+- what was observed
+- why it matters
+- what follow-up investigation it suggests
+
+without making unsupported scientific claims.
+
+Interpretations should explain why observations matter rather than merely
+ repeating numeric values.
+
+------
+
+## Experiment Comparison
+
+Introduce
+
+```
+analysis/behavioral/compare_experiments.py
+```
+
+capable of comparing two or more completed experiment directories without requiring prediction regeneration or retraining.
+
+Comparisons include
+
+- coverage
+- prediction distributions
+- state occupancy
+- prediction agreement
+- experiment metadata
+- provenance
+
+------
+
+## Out of Scope
+
+No MPML integration.
+
+No walk-forward evaluation.
+
+No trading metrics.
+
+Those remain the responsibility of subsequent PRs.
+
+------
+
+## Result
+
+The Behavioral Experiment Framework evolves from an execution framework into a
+ scientific evaluation framework, allowing researchers to focus primarily on
+ interpreting behavioral experiments rather than assembling metrics manually.
+
+---
+
+# PR6: Behavioral Prediction Routing
 
 Objective
 
@@ -564,7 +720,7 @@ MPML can consume Behavioral Surface prediction artifacts.
 
 ---
 
-# PR6 — Behavioral Walk-forward Evaluation
+# PR7 — Behavioral Walk-forward Evaluation
 
 Objective
 
@@ -609,7 +765,7 @@ validation.
 
 ---
 
-PR7 — Surface Generalization
+# PR8 — Surface Generalization
 
 Replace the current surface-specific interfaces with a generic SurfaceProvider abstraction capable of supporting multiple behavioral or market surfaces simultaneously.
 
@@ -668,7 +824,10 @@ Prediction Artifacts
 Behavioral Experiment Framework
         │
         ▼
-Experiment Analysis
+Behavioral Evaluation Framework
+        │
+        ▼
+Experiment Comparison
         │
         ▼
 MPML Evaluation
