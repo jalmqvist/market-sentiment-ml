@@ -212,6 +212,15 @@ cat logs/mlp_price_trend_20260502T121500Z.json \
 
 Then run the printed command.
 
+For Behavioral Surface experiments spanning all discovered states, use the
+framework entrypoint instead of manually invoking `train.py` repeatedly:
+
+```bash
+python analysis/behavioral/run_behavioral_suite.py \
+  --dataset-version 1.5.1 \
+  --dataset-variant reactive_jpy_v1_core
+```
+
 Example:
 
 ```

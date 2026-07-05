@@ -168,6 +168,19 @@ Additional key documents include:
 Predictive modelling is documented under `docs/models/` and `docs/integration/`. These documents
 describe predictive model architectures, artifact contracts and downstream integration.
 
+Behavioral prediction experiments should be orchestrated through:
+
+```bash
+python analysis/behavioral/run_behavioral_suite.py \
+  --dataset-version 1.5.1 \
+  --dataset-variant reactive_jpy_v1_core
+```
+
+This framework discovers `(surface_id, state_id)` combinations from the selected dataset variant,
+runs both `research/deep_learning/train.py` and `research/deep_learning/train_lstm.py` per state,
+collects manifests/prediction artifacts, and writes a reproducible experiment bundle under
+`analysis/output/<experiment_id>/`.
+
 ### Behavioral Research Documentation
 
 Behavioral analyses are documented under `docs/behavioral/`, including:

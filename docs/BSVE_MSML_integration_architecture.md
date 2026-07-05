@@ -505,6 +505,26 @@ The preferred user workflow becomes
 
 rather than manually executing multiple training commands.
 
+Reference entrypoint:
+
+    python analysis/behavioral/run_behavioral_suite.py \
+        --dataset-version 1.5.1 \
+        --dataset-variant reactive_jpy_v1_core
+
+The suite discovers available `(surface_id, state_id)` pairs from the selected
+dataset variant, launches MLP/LSTM training runs through shared subprocess
+helpers, and materializes a reproducible experiment directory:
+
+    analysis/output/<experiment_id>/
+        experiment_manifest.json
+        report.md
+        summary.csv
+        metrics.csv
+        manifests/
+        prediction_artifacts/
+        plots/
+        logs/
+
 Future Behavioral Surfaces (Reactive CHF, Persistent, etc.) should require no
 changes to the framework beyond selecting a different dataset variant.
 

@@ -239,6 +239,15 @@ cat logs/lstm_price_trend_20260502T123000Z.json \
 
 Then run the printed command.
 
+For Behavioral Surface experiments across all discovered states, prefer the
+suite orchestrator over manual repeated `train_lstm.py` invocations:
+
+```bash
+python analysis/behavioral/run_behavioral_suite.py \
+  --dataset-version 1.5.1 \
+  --dataset-variant reactive_jpy_v1_core
+```
+
 Example:
 
 ```
