@@ -395,12 +395,12 @@ def test_lstm_manifest_records_actual_variant(monkeypatch, tmp_path):
 
 def test_mlp_lstm_parity_default_variant(monkeypatch, tmp_path):
     """MLP and LSTM record identical dataset_variant provenance for default 'core' variant."""
+    (tmp_path / "mlp").mkdir()
     mlp_cap = _run_mlp(
         monkeypatch,
         tmp_path / "mlp",
         ["--dataset-version", "1.5.1", "--regime", "LVTF", "--epochs", "1"],
     )
-    (tmp_path / "mlp").mkdir(exist_ok=True)
     lstm_cap = _run_lstm(
         monkeypatch,
         tmp_path / "lstm",
@@ -460,9 +460,9 @@ def test_dataset_loader_accepts_behavioral_variant(tmp_path):
     from research.deep_learning.dataset_loader import load_dataset
     import config as cfg
 
-    version = "test_variant_v"
+    test_version = "0.0.1-test"
     variant = "reactive_jpy_v1_core"
-    out_dir = Path(cfg.OUTPUT_DIR) / version
+    out_dir = Path(cfg.OUTPUT_DIR) / test_version
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Build a minimal CSV that satisfies loader requirements
@@ -474,5 +474,5 @@ def test_dataset_loader_accepts_behavioral_variant(tmp_path):
     csv_path = out_dir / f"master_research_dataset_{variant}.csv"
     df.to_csv(csv_path, index=False)
 
-    loaded = load_dataset(version, variant=variant)
+    loaded = load_dataset(test_version, variant=variant)
     assert len(loaded) == 5
