@@ -18,6 +18,28 @@ testable pull requests.
 
 ---
 
+## Integration Roadmap
+
+The Behavioral Surface integration is intentionally delivered as a sequence of
+small architectural steps. Each PR introduces a single capability while
+preserving backwards compatibility.
+
+| PR    | Capability                                                   |
+| ----- | ------------------------------------------------------------ |
+| PR1   | Behavioral Surface contract (BSVE → artifact)                |
+| PR2   | Dataset augmentation (artifact → dataset variant)            |
+| PR3   | Behavioral training support (dataset variant → prediction artifacts) |
+| PR3.1 | Dataset variant identity and provenance                      |
+| PR4   | Behavioral Experiment Framework                              |
+| PR5   | MPML behavioral prediction routing                           |
+| PR6   | Walk-forward scientific evaluation                           |
+| PR7   | Generalized SurfaceProvider abstraction (only if justified by results) |
+
+Each stage validates the previous stage before introducing additional
+architectural complexity.
+
+---
+
 # Overall Architecture
 
 Current pipeline:
@@ -354,27 +376,120 @@ backwards-compatible.
 
 ---
 
-# PR4 — Behavioral Surface Experiment Runner
+# PR4 — Behavioral Experiment Framework
 
-Objective
+## Objective
 
-Automate predictive validation experiments.
+Introduce a reproducible experiment framework that automates Behavioral Surface
+training, artifact collection and comparative analysis.
 
-Behavioral Surface experiment manifests should mirror the existing regime experiment manifests so that predictive validation is fully reproducible.
+The framework exists above the individual training pipelines. Rather than
+requiring users to invoke `train.py` or `train_lstm.py` directly, it orchestrates
+complete behavioral experiments from a single command.
 
-Deliverables
+This layer is responsible for experiment orchestration only. It does not modify
+the underlying training pipelines.
 
-- experiment runner analogous to existing regime experiments
-- iterate over Behavioral Surface states
-- export artifacts
-- generate manifests
-- maintain reproducibility
+---
 
-No architectural changes.
+## Responsibilities
 
-Result
+The framework shall
 
-Entire Behavioral Surface can be trained in one command.
+- discover available Behavioral Surface states from the selected dataset
+- launch the required MLP and LSTM training runs
+- collect prediction artifacts and manifests
+- verify artifact provenance
+- compare prediction coverage
+- compare prediction distributions
+- generate reproducible experiment reports
+- archive experiment outputs under a dedicated experiment directory
+
+---
+
+## Experiment Inputs
+
+At minimum
+
+- dataset_version
+- dataset_variant
+
+Optional
+
+- surface_id
+- feature_set
+- target_horizon
+- train_pairs
+- predict_pairs
+- selected models
+
+Behavioral states are discovered automatically from the dataset whenever
+possible.
+
+---
+
+## Experiment Outputs
+
+Each experiment produces
+
+analysis/output/<experiment_id>/
+
+    report.md
+    
+    summary.csv
+    
+    metrics.csv
+    
+    manifests/
+    
+    prediction_artifacts/
+    
+    plots/
+    
+    logs/
+
+No manual artifact collection should be required.
+
+---
+
+## Initial Analyses
+
+The initial framework shall compare
+
+- behavioral state occupancy
+- prediction coverage
+- timestamp overlap
+- pair coverage
+- prediction distributions
+- signal-strength distributions
+- MLP vs LSTM agreement
+- prediction correlations
+
+No trading evaluation is performed at this stage.
+
+---
+
+## Design Principles
+
+The framework should expose the scientific question rather than the
+implementation.
+
+The preferred user workflow becomes
+
+    run_behavioral_suite.py
+
+rather than manually executing multiple training commands.
+
+Future Behavioral Surfaces (Reactive CHF, Persistent, etc.) should require no
+changes to the framework beyond selecting a different dataset variant.
+
+---
+
+## Result
+
+Behavioral predictive validation becomes fully reproducible and largely
+independent of manual scripting, allowing researchers to focus on interpreting
+results rather than managing training runs and artifacts.
 
 ---
 
@@ -479,6 +594,42 @@ demonstrated.
 
 The current implementation prioritizes answering the scientific question over
 architectural elegance.
+
+---
+
+# Layered Architecture
+
+The integration intentionally separates behavioral discovery from predictive
+modelling and experiment execution.
+
+BSVE
+        │
+        ▼
+Behavioral Surface Artifact
+        │
+        ▼
+Dataset Builder
+        │
+        ▼
+Augmented Dataset
+        │
+        ▼
+MSML Training Pipelines
+        │
+        ▼
+Prediction Artifacts
+        │
+        ▼
+Behavioral Experiment Framework
+        │
+        ▼
+Scientific Analysis
+        │
+        ▼
+MPML Evaluation
+
+Each layer consumes only the published artifacts of the previous layer and
+never depends upon internal implementation details.
 
 ---
 
