@@ -154,39 +154,124 @@ Implementation details are specified in the corresponding PR.
 
 # PR3 — Behavioral Surface Training
 
-Objective
+## Objective
 
-Teach MSML to train on Behavioral Surface partitions **in addition to** existing market-regime partitions.
+Teach both MSML training pipelines (`train.py` and `train_lstm.py`) to train
+on Behavioral Surface partitions in addition to existing market-regime
+partitions.
 
-This PR changes only how the training data are partitioned.
+Behavioral partitioning is implemented purely as an alternative dataset
+selection mechanism. Once the training rows have been selected, the remainder
+of each training pipeline executes unchanged.
 
-Model architectures, optimization, normalization, loss functions and prediction artifacts remain unchanged.
+Behavioral semantics remain entirely the responsibility of BSVE. MSML consumes
+only dataset columns.
 
-Deliverables
+---
 
-- add optional
+## Dataset Selection
 
-    --surface
+Behavioral dataset augmentation (PR2) introduced versioned dataset variants.
 
-    --state
+Training datasets are therefore identified by two independent dimensions:
 
-CLI arguments
+- dataset_version
+- dataset_variant
 
-- filter training rows by Behavioral Surface
-- update manifests
-- update artifact provenance
-- preserve existing normalization
-- preserve model architectures
-- preserve artifact schema
+Examples:
 
-Out of scope
+Canonical dataset
 
-- prediction routing
-- MPML
+    dataset_version = 1.5.1
+    dataset_variant = core
 
-Result
+Behavioral dataset
 
-MSML can train a model on any behavioral state.
+    dataset_version = 1.5.1
+    dataset_variant = reactive_jpy_v1_core
+
+The dataset loader is responsible for resolving these identifiers to the
+appropriate dataset files.
+
+Training pipelines must never construct dataset filenames directly.
+
+---
+
+## Partitioning
+
+Exactly one partitioning mechanism is active during any training run.
+
+Regime mode
+
+    --regime HVTF
+
+Behavioral mode
+
+    --surface reactive_jpy
+    --state JPY_CONSENSUS_YOUNG
+
+Behavioral mode filters
+
+    surface_id == reactive_jpy
+
+and
+
+    state_id == JPY_CONSENSUS_YOUNG
+
+Once the dataset has been filtered, preprocessing, normalization, optimization,
+evaluation and prediction export proceed identically.
+
+---
+
+## Dataset Provenance
+
+Prediction artifacts shall preserve complete dataset provenance.
+
+At minimum:
+
+- dataset_version
+- dataset_variant
+
+Behavioral-trained artifacts additionally record
+
+- surface_id
+- state_id
+- ontology_version (when available)
+
+The dataset variant recorded in prediction artifacts shall always match the
+dataset variant supplied to the training pipeline.
+
+Hard-coded dataset variants are not permitted.
+
+---
+
+## Deliverables
+
+- identical CLI support in `train.py` and `train_lstm.py`
+- Behavioral Surface filtering
+- dataset variant selection
+- updated artifact provenance
+- updated manifests
+- updated logging
+
+No changes to
+
+- preprocessing
+- feature engineering
+- normalization
+- train/test splitting
+- optimization
+- model architectures
+- evaluation
+- prediction export
+
+---
+
+## Result
+
+MSML becomes capable of training predictive models from arbitrary Behavioral
+Surface dataset variants while preserving complete backwards compatibility with
+the existing regime-based workflow.
 
 ---
 
