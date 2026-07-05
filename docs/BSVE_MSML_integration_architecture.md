@@ -397,6 +397,8 @@ the underlying training pipelines.
 The framework shall
 
 - discover available Behavioral Surface states from the selected dataset
+  using the (surface_id, state_id) pairs actually present in the dataset
+  rather than from hard-coded ontologies.
 - launch the required MLP and LSTM training runs
 - collect prediction artifacts and manifests
 - verify artifact provenance
@@ -434,6 +436,8 @@ Each experiment produces
 
 analysis/output/<experiment_id>/
 
+    experiment_manifest.json
+    
     report.md
     
     summary.csv
@@ -447,6 +451,16 @@ analysis/output/<experiment_id>/
     plots/
     
     logs/
+
+where experiment_manifest.json contains
+
+- CLI arguments
+- trainer versions
+- discovered states
+- models executed
+- git commit
+- timestamps
+- success/failure
 
 No manual artifact collection should be required.
 
@@ -466,6 +480,17 @@ The initial framework shall compare
 - prediction correlations
 
 No trading evaluation is performed at this stage.
+
+Coverage is considered a first-class experimental quantity.
+
+Every analysis shall distinguish between
+
+- canonical dataset coverage
+- behavioral coverage
+- per-state coverage
+
+to avoid diluting behavioral effects across timestamps where no behavioral
+information exists.
 
 ---
 
@@ -623,7 +648,7 @@ Prediction Artifacts
 Behavioral Experiment Framework
         │
         ▼
-Scientific Analysis
+Experiment Analysis
         │
         ▼
 MPML Evaluation
