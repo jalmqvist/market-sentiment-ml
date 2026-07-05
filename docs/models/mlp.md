@@ -217,6 +217,7 @@ Example:
 ```
 python research/deep_learning/train.py \
   --dataset-version 1.3.2 \
+  --dataset-variant core \
   --feature-set price_trend \
   --regime HVTF \
   --target-horizon 24
@@ -226,7 +227,8 @@ Behavioral Surface partitioning is also supported:
 
 ```bash
 python research/deep_learning/train.py \
-  --dataset-version 1.3.2 \
+  --dataset-version 1.5.1 \
+  --dataset-variant reactive_jpy_v1_core \
   --feature-set price_trend \
   --surface reactive_jpy \
   --state JPY_CONSENSUS_YOUNG \
@@ -234,6 +236,23 @@ python research/deep_learning/train.py \
 ```
 
 `--regime` is mutually exclusive with `--surface/--state`.
+
+`--dataset-variant` defaults to `core`.  Existing commands without
+`--dataset-variant` continue loading `master_research_dataset_core.csv`
+unchanged.
+
+### Dataset identity
+
+Training datasets are identified by two independent dimensions:
+
+| Argument            | Description                                          |
+|---------------------|------------------------------------------------------|
+| `--dataset-version` | Semantic version string, e.g. `"1.5.1"` (required)  |
+| `--dataset-variant` | Variant identifier, e.g. `"core"` (default: `"core"`) |
+
+Filename resolution is delegated to the dataset loader
+(`research/deep_learning/dataset_loader.py`).  The training script never
+constructs filenames directly.
 
 ------
 
