@@ -55,4 +55,26 @@ def build_coverage_table(df: pd.DataFrame, states: list[dict[str, str]]) -> pd.D
     for col in ["surface_id", "state_id"]:
         if col not in table.columns:
             table[col] = None
+
+    # Add percentage-based coverage metrics
+    total_rows = int(table.loc[table["scope"] == "full_dataset", "row_count"].iloc[0]) if not table.empty else 0
+    behavioral_rows = int(table.loc[table["scope"] == "behavioral_coverage", "row_count"].iloc[0]) if not table.empty else 0
+
+    fractions: list[float | None] = []
+    state_fractions: list[float | None] = []
+    for _, row in table.iterrows():
+        scope = row["scope"]
+        count = int(row["row_count"])
+        if scope == "full_dataset":
+            fractions.append(1.0)
+            state_fractions.append(None)
+        elif scope == "behavioral_coverage":
+            fractions.append(count / total_rows if total_rows > 0 else None)
+            state_fractions.append(None)
+        else:
+            fractions.append(count / total_rows if total_rows > 0 else None)
+            state_fractions.append(count / behavioral_rows if behavioral_rows > 0 else None)
+
+    table["coverage_fraction"] = fractions
+    table["state_fraction_of_behavioral"] = state_fractions
     return table

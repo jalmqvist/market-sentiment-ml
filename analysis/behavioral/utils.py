@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
@@ -20,6 +21,10 @@ class RunResult:
     finished_at: str
     duration_seconds: float
     log_path: Path
+    # Trainer-reported artifact paths (populated when the trainer emits
+    # "artifact_parquet: <path>" / "artifact_manifest: <path>" log lines).
+    reported_parquet_path: Path | None = field(default=None)
+    reported_manifest_path: Path | None = field(default=None)
 
 
 def utc_now_iso() -> str:
@@ -158,6 +163,39 @@ def build_training_command(
     return command
 
 
+_ARTIFACT_PARQUET_RE = re.compile(r"artifact_parquet:\s*(\S+)")
+_ARTIFACT_MANIFEST_RE = re.compile(r"artifact_manifest:\s*(\S+)")
+
+
+def parse_reported_artifact_paths(
+    output: str,
+) -> tuple[Path | None, Path | None]:
+    """Extract trainer-reported artifact paths from combined stdout/stderr.
+
+    Trainers emit::
+
+        logging.info("artifact_parquet: %s", pq_path)
+        logging.info("artifact_manifest: %s", mf_path)
+
+    This parser finds those lines and returns resolved ``Path`` objects when
+    the reported files exist on disk.
+    """
+    parquet_path: Path | None = None
+    manifest_path: Path | None = None
+    for line in output.splitlines():
+        m = _ARTIFACT_PARQUET_RE.search(line)
+        if m and parquet_path is None:
+            candidate = Path(m.group(1))
+            if candidate.exists():
+                parquet_path = candidate.resolve()
+        m = _ARTIFACT_MANIFEST_RE.search(line)
+        if m and manifest_path is None:
+            candidate = Path(m.group(1))
+            if candidate.exists():
+                manifest_path = candidate.resolve()
+    return parquet_path, manifest_path
+
+
 def run_training_command(
     *,
     command: list[str],
@@ -186,6 +224,8 @@ def run_training_command(
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text(combined_output, encoding="utf-8")
 
+    reported_parquet, reported_manifest = parse_reported_artifact_paths(combined_output)
+
     return RunResult(
         command=command,
         returncode=completed.returncode,
@@ -193,6 +233,8 @@ def run_training_command(
         finished_at=finished.isoformat(),
         duration_seconds=(finished - started).total_seconds(),
         log_path=log_path,
+        reported_parquet_path=reported_parquet,
+        reported_manifest_path=reported_manifest,
     )
 
 

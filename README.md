@@ -178,8 +178,44 @@ python analysis/behavioral/run_behavioral_suite.py \
 
 This framework discovers `(surface_id, state_id)` combinations from the selected dataset variant,
 runs both `research/deep_learning/train.py` and `research/deep_learning/train_lstm.py` per state,
-collects manifests/prediction artifacts, and writes a reproducible experiment bundle under
+collects manifests/prediction artifacts, and writes a self-contained experiment bundle under
 `analysis/output/<experiment_id>/`.
+
+Each experiment bundle includes:
+
+- `report.md` — human-readable report with Discovered States, Coverage, Scientific Prediction Metrics,
+  Baseline Controls, Key Observations and MLP/LSTM comparison
+- `experiment_manifest.json` — machine-readable provenance (CLI args, git commit, discovered states, run outcomes)
+- `metrics.csv` — all metrics in a flat tabular format
+- `summary.csv` — per-run outcomes with artifact discovery provenance
+- `manifests/` — collected trainer manifests (warnings, errors and notes classified separately)
+- `prediction_artifacts/` — collected prediction parquet files
+
+To compare two or more completed experiments:
+
+```bash
+python analysis/behavioral/compare_experiments.py \
+  analysis/output/<experiment_id_1> \
+  analysis/output/<experiment_id_2> \
+  --output comparison_report.md
+```
+
+The comparison tool operates on existing outputs without rerunning training and tolerates
+experiments with different Behavioral Surfaces and state ontologies.
+
+The behavioral evaluation framework is documented in `docs/BSVE_MSML_integration_architecture.md`
+under the PR5 section, and implemented across the following modules:
+
+| Module | Purpose |
+|---|---|
+| `analysis/behavioral/run_behavioral_suite.py` | Experiment orchestration entry point |
+| `analysis/behavioral/coverage.py` | Coverage and occupancy fraction calculations |
+| `analysis/behavioral/metrics.py` | Scientific prediction metrics (entropy, confidence, effective coverage, pair balance) |
+| `analysis/behavioral/controls.py` | Baseline controls for partitioning comparisons |
+| `analysis/behavioral/interpretation.py` | Rule-based Key Observations generator |
+| `analysis/behavioral/compare_experiments.py` | Multi-experiment comparison CLI |
+| `analysis/behavioral/compare_predictions.py` | MLP/LSTM prediction comparison with overlap percentages |
+| `analysis/behavioral/analyze_manifests.py` | Manifest parsing with note/warning/error classification |
 
 ### Behavioral Research Documentation
 

@@ -692,6 +692,24 @@ The Behavioral Experiment Framework evolves from an execution framework into a
  scientific evaluation framework, allowing researchers to focus primarily on
  interpreting behavioral experiments rather than assembling metrics manually.
 
+### Delivered modules
+
+| Module | Purpose |
+|---|---|
+| `analysis/behavioral/metrics.py` | Scientific prediction metrics (entropy, confidence, effective coverage, pair balance, etc.) |
+| `analysis/behavioral/controls.py` | Baseline controls (full dataset, behavioral partition, regime partition, random matched) |
+| `analysis/behavioral/interpretation.py` | Rule-based Key Observations interpreter |
+| `analysis/behavioral/compare_experiments.py` | CLI for comparing two or more completed experiment directories |
+
+### Delivered engineering improvements
+
+- `utils.py`: `RunResult` carries `reported_parquet_path` / `reported_manifest_path`; `parse_reported_artifact_paths()` extracts trainer-reported paths from combined stdout/stderr.
+- `run_behavioral_suite.py`: prefers trainer-reported artifact paths over filesystem-diff, with fallback; `artifact_discovery` provenance field in `summary.csv`; wires scientific metrics, controls, and Key Observations into every run.
+- `coverage.py`: adds `coverage_fraction` and `state_fraction_of_behavioral` columns.
+- `compare_predictions.py`: adds `overlap_pct_of_mlp` and `overlap_pct_of_lstm` columns.
+- `analyze_manifests.py`: classifies manifest messages into `notes`, `warnings`, and `errors`; legacy `extract_manifest_warnings()` preserved for backwards compatibility.
+- `reporting.py`: includes Discovered States section, Scientific Prediction Metrics, Baseline Controls, Key Observations, and severity-classified manifest issues.
+
 ---
 
 # PR6: Behavioral Prediction Routing
