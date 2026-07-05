@@ -97,14 +97,27 @@ data/output/dl_predictions/mlp__HVR__24__price_trend__20260510T204302Z.manifest.
 From repository root:
 
 ```bash
+# Canonical variant (default: core)
 python -m research.deep_learning.train \
   --dataset-version 1.3.2 \
+  --dataset-variant core \
   --pairs EURUSD \
   --regime HVR \
   --target-horizon 24
+
+# Behavioral Surface variant
+python -m research.deep_learning.train \
+  --dataset-version 1.5.1 \
+  --dataset-variant reactive_jpy_v1_core \
+  --surface reactive_jpy \
+  --state JPY_CONSENSUS_YOUNG \
+  --target-horizon 24
 ```
 
-Behavioral Surface partition mode (mutually exclusive with `--regime`):
+`--dataset-variant` defaults to `core`.  Existing commands that omit it
+continue to load `master_research_dataset_core.csv` unchanged.
+
+Behavioral Surface partition mode is mutually exclusive with `--regime`:
 
 ```bash
 python -m research.deep_learning.train \
@@ -164,13 +177,31 @@ They are distinct from:
 * hyperparameters
 * experiment metadata
 
-Behavioral-mode manifests also include:
+---
 
-* `surface_id`
-* `state_id`
-* `dataset_variant`
-* `dataset_version`
-* `ontology_version` (null when unavailable)
+# Training provenance
+
+All prediction artifacts record training provenance in the manifest.  The
+following fields are always present:
+
+| field               | description                                              |
+| ------------------- | -------------------------------------------------------- |
+| `dataset_version`   | Semantic version of the dataset used for training        |
+| `dataset_variant`   | Variant identifier (e.g. `"core"`, `"reactive_jpy_v1_core"`) |
+| `training_pairs`    | FX pairs used for model training                         |
+| `inference_pairs`   | FX pairs used for prediction export                      |
+| `export_split`      | Which split was exported (`"test"` or `"all"`)           |
+
+Behavioral-mode manifests additionally record:
+
+| field              | description                                               |
+| ------------------ | --------------------------------------------------------- |
+| `surface_id`       | Behavioral Surface identifier                             |
+| `state_id`         | Behavioral state identifier                               |
+| `ontology_version` | Ontology version (null when unavailable)                  |
+
+The `dataset_variant` field always reflects the value supplied via
+`--dataset-variant` at training time.  It is never hard-coded.
 
 ---
 

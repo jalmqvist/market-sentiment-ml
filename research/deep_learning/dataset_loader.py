@@ -5,10 +5,21 @@ PyTorch-ready dataset loader for the versioned master research dataset.
 
 Responsibilities
 ----------------
-- Load a dataset variant by version:   ``load_dataset(version)``
-- Select features by group:            ``get_features(df, feature_set)``
-- Chronological train/test split:      ``train_test_split(df, test_ratio)``
-- Return numpy arrays or torch tensors: ``to_tensors(X, y)``
+- Load a dataset by version and variant: ``load_dataset(version, variant)``
+- Select features by group:              ``get_features(df, feature_set)``
+- Chronological train/test split:        ``train_test_split(df, test_ratio)``
+- Return numpy arrays or torch tensors:  ``to_tensors(X, y)``
+
+Dataset identity
+----------------
+Training datasets are identified by two independent dimensions:
+
+- ``version``  — semantic version string, e.g. ``"1.5.1"``
+- ``variant``  — variant identifier, e.g. ``"core"`` or
+  ``"reactive_jpy_v1_core"``
+
+The loader is the sole owner of filename resolution.  Training scripts
+must never construct dataset filenames directly.
 
 Usage::
 
@@ -19,7 +30,11 @@ Usage::
         to_tensors,
     )
 
+    # Canonical dataset
     df = load_dataset("1.1.0")
+    # Behavioral Surface dataset
+    df = load_dataset("1.5.1", variant="reactive_jpy_v1_core")
+
     X, y, df_clean = get_features(df, "price_sentiment")
     (X_train, y_train), (X_test, y_test) = train_test_split(X, y, df_clean)
     X_train_t, y_train_t = to_tensors(X_train, y_train)
@@ -54,8 +69,16 @@ def load_dataset(
 
     Args:
         version: Dataset version string, e.g. ``"1.1.0"``.
-        variant: One of ``"full"``, ``"core"``, or ``"extended"``.
-                 Defaults to ``"core"`` (highest coverage quality).
+        variant: Dataset variant identifier.  The canonical variants are
+                 ``"full"``, ``"core"``, and ``"extended"``.  Behavioral
+                 Surface variants such as ``"reactive_jpy_v1_core"`` are
+                 also accepted.  Defaults to ``"core"`` (highest coverage
+                 quality).
+
+                 Filename resolution:
+
+                 * ``"full"``  → ``master_research_dataset.csv``
+                 * any other  → ``master_research_dataset_<variant>.csv``
 
     Returns:
         DataFrame sorted by ``snapshot_time`` with rows missing the
@@ -63,12 +86,7 @@ def load_dataset(
 
     Raises:
         FileNotFoundError: If the requested file does not exist.
-        ValueError: If ``variant`` is not recognised.
     """
-    _valid_variants = {"full", "core", "extended"}
-    if variant not in _valid_variants:
-        raise ValueError(f"variant must be one of {_valid_variants}, got {variant!r}")
-
     suffix = "" if variant == "full" else f"_{variant}"
     filename = f"master_research_dataset{suffix}.csv"
     path = cfg.OUTPUT_DIR / version / filename

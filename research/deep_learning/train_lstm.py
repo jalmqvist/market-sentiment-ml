@@ -130,6 +130,15 @@ def compute_metrics(y_true, y_pred):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset-version", required=True)
+    parser.add_argument(
+        "--dataset-variant",
+        default="core",
+        help=(
+            "Dataset variant to load, e.g. 'core' (default) or a Behavioral "
+            "Surface variant such as 'reactive_jpy_v1_core'. "
+            "Filename resolution is delegated to the dataset loader."
+        ),
+    )
     parser.add_argument("--feature-set", default="price_trend")
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--hidden-dim", type=int, default=32)
@@ -239,7 +248,7 @@ def main():
     else:
         logging.info("partition_type: none | full dataset")
 
-    df_base = load_dataset(args.dataset_version, variant="core")
+    df_base = load_dataset(args.dataset_version, variant=args.dataset_variant)
     df = df_base.copy()
     infer_df = df_base.copy()
     df = apply_partition_filter(df, partition)
@@ -578,7 +587,7 @@ def main():
     }
     provenance = {
         "dataset_version": args.dataset_version,
-        "dataset_variant": "core",
+        "dataset_variant": args.dataset_variant,
         "training_pairs": training_pairs_provenance,
         "inference_pairs": inference_pairs_provenance,
         "export_split": args.export_split,
@@ -595,7 +604,7 @@ def main():
             resolve_behavioral_provenance(
                 df=df,
                 dataset_version=args.dataset_version,
-                dataset_variant="core",
+                dataset_variant=args.dataset_variant,
                 selected_surface_id=partition["surface"],
                 selected_state_id=partition["state"],
             )

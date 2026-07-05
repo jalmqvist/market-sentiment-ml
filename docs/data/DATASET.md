@@ -99,6 +99,17 @@ The build script reads raw data from `data/input/` and writes versioned outputs 
 
 ## Using the Dataset in ML Experiments
 
+Training datasets are identified by two independent dimensions:
+
+| Dimension         | Description                                                   |
+|-------------------|---------------------------------------------------------------|
+| `dataset_version` | Semantic version string, e.g. `"1.5.1"`                       |
+| `dataset_variant` | Variant identifier, e.g. `"core"` or `"reactive_jpy_v1_core"` |
+
+The dataset loader (`research/deep_learning/dataset_loader.py`) is the sole
+owner of filename resolution.  Training scripts must never construct dataset
+filenames directly.
+
 ```python
 from research.deep_learning.dataset_loader import (
     load_dataset,
@@ -107,11 +118,38 @@ from research.deep_learning.dataset_loader import (
     to_tensors,
 )
 
-df = load_dataset("1.1.0")                         # load versioned dataset
-X, y = get_features(df, "price_sentiment")         # select feature set
-(X_train, y_train), (X_test, y_test) = train_test_split(X, y, df)
+# Canonical dataset (core variant — default)
+df = load_dataset("1.5.1")
+
+# Behavioral Surface dataset variant
+df = load_dataset("1.5.1", variant="reactive_jpy_v1_core")
+
+X, y, df_clean = get_features(df, "price_sentiment")
+(X_train, y_train), (X_test, y_test) = train_test_split(X, y, df_clean)
 X_train_t, y_train_t = to_tensors(X_train, y_train)
 ```
+
+### CLI usage
+
+Both training pipelines accept `--dataset-variant` (default: `core`):
+
+```bash
+# Canonical training
+python research/deep_learning/train.py \
+  --dataset-version 1.5.1 \
+  --dataset-variant core \
+  --regime LVTF
+
+# Behavioral Surface training
+python research/deep_learning/train.py \
+  --dataset-version 1.5.1 \
+  --dataset-variant reactive_jpy_v1_core \
+  --surface reactive_jpy \
+  --state JPY_CONSENSUS_YOUNG
+```
+
+Existing commands that omit `--dataset-variant` continue loading
+`master_research_dataset_core.csv` unchanged.
 
 ---
 
@@ -132,7 +170,7 @@ All features are **causal** (backward-looking only). Forward-return columns are 
 
 To reproduce any experiment exactly:
 
-1. Note the `dataset_version` from the experiment log or metrics JSON.
+1. Note the `dataset_version` **and** `dataset_variant` from the experiment log, artifact manifest, or metrics JSON.
 2. Build canonical datasets: `python scripts/build_dataset.py --version <version>`.
 3. Generate Behavioral Surface and augment with `--augment-only` if the experiment uses behavioral variants.
-4. Re-run the experiment script with the same `--dataset-version` argument.
+4. Re-run the experiment script with the same `--dataset-version` and `--dataset-variant` arguments.

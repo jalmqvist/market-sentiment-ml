@@ -275,6 +275,85 @@ the existing regime-based workflow.
 
 ---
 
+# PR3.1 — Dataset Variant Support
+
+## Objective
+
+Teach both MSML training pipelines to load arbitrary dataset variants while
+preserving complete backwards compatibility.
+
+Dataset variants become a first-class concept alongside dataset versions.
+
+---
+
+## CLI
+
+Both `research/deep_learning/train.py` and `research/deep_learning/train_lstm.py`
+accept a new argument:
+
+    --dataset-variant
+
+Default: `core`
+
+Examples:
+
+Canonical
+
+    --dataset-version 1.5.1
+    --dataset-variant core
+
+Behavioral
+
+    --dataset-version 1.5.1
+    --dataset-variant reactive_jpy_v1_core
+
+Existing commands that omit `--dataset-variant` continue loading
+`master_research_dataset_core.csv` unchanged.
+
+---
+
+## Dataset Loader
+
+`research/deep_learning/dataset_loader.py` resolves datasets using
+`dataset_version` and `dataset_variant`.
+
+The loader owns filename resolution.  Training scripts must never construct
+filenames directly.
+
+Filename resolution:
+
+| variant      | filename                                            |
+|--------------|-----------------------------------------------------|
+| `full`       | `master_research_dataset.csv`                       |
+| `core`       | `master_research_dataset_core.csv`                  |
+| `extended`   | `master_research_dataset_extended.csv`              |
+| `<other>`    | `master_research_dataset_<other>.csv`               |
+
+The variant parameter accepts any string, enabling arbitrary Behavioral Surface
+variants without modifying the loader.
+
+---
+
+## Provenance
+
+Prediction artifacts and manifests record the actual dataset variant used for
+training.  Hard-coded `dataset_variant = "core"` values have been removed from
+both training pipelines.
+
+Behavioral provenance receives the selected dataset variant rather than a
+hard-coded value.
+
+---
+
+## Result
+
+Both training pipelines can load any dataset variant by passing
+`--dataset-variant` on the CLI.  All provenance fields reflect the actual
+variant used.  Existing commands without `--dataset-variant` are fully
+backwards-compatible.
+
+---
+
 # PR4 — Behavioral Surface Experiment Runner
 
 Objective
