@@ -57,6 +57,8 @@ def compare_mlp_lstm_predictions(
         "surface_id": surface_id,
         "state_id": state_id,
         "agreement_common_rows": 0,
+        "overlap_pct_of_mlp": np.nan,
+        "overlap_pct_of_lstm": np.nan,
         "agreement_rate": np.nan,
         "pred_prob_correlation": np.nan,
         "signal_strength_correlation": np.nan,
@@ -78,8 +80,12 @@ def compare_mlp_lstm_predictions(
         how="inner",
         suffixes=("_mlp", "_lstm"),
     )
-    row["agreement_common_rows"] = int(len(merged))
-    if len(merged) == 0:
+    common = int(len(merged))
+    row["agreement_common_rows"] = common
+    row["overlap_pct_of_mlp"] = round(common / len(mlp) * 100, 2) if len(mlp) > 0 else np.nan
+    row["overlap_pct_of_lstm"] = round(common / len(lstm) * 100, 2) if len(lstm) > 0 else np.nan
+
+    if common == 0:
         return row
 
     pred_prob_cols = ["pred_prob_up_mlp", "pred_prob_up_lstm"]

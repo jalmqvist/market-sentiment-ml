@@ -18,7 +18,9 @@ from analysis.behavioral.compare_predictions import (
     compare_mlp_lstm_predictions,
     summarize_prediction_artifact,
 )
+from analysis.behavioral.controls import generate_controls
 from analysis.behavioral.coverage import build_coverage_table
+from analysis.behavioral.metrics import compute_prediction_metrics_from_path
 from analysis.behavioral.reporting import (
     write_markdown_report,
     write_metrics_csv,
@@ -125,6 +127,8 @@ def run_suite(args: argparse.Namespace) -> dict[str, object]:
 
     for state in states:
         for model in models:
+            # Filesystem snapshots serve as fallback when trainer does not
+            # report artifact paths directly via log lines.
             before_parquet = snapshot_files(predictions_dir, "*.parquet")
             before_manifest = snapshot_files(predictions_dir, "*.manifest.json")
             before_logs = snapshot_files(logs_dir, "*.log")
@@ -155,12 +159,20 @@ def run_suite(args: argparse.Namespace) -> dict[str, object]:
                 log_path=run_log_path,
             )
 
-            after_parquet = snapshot_files(predictions_dir, "*.parquet")
-            after_manifest = snapshot_files(predictions_dir, "*.manifest.json")
-            after_logs = snapshot_files(logs_dir, "*.log")
+            # Prefer trainer-reported artifact paths; fall back to filesystem diff.
+            if result.reported_parquet_path is not None:
+                new_parquet = [result.reported_parquet_path]
+            else:
+                after_parquet = snapshot_files(predictions_dir, "*.parquet")
+                new_parquet = diff_new_files(before_parquet, after_parquet)
 
-            new_parquet = diff_new_files(before_parquet, after_parquet)
-            new_manifest = diff_new_files(before_manifest, after_manifest)
+            if result.reported_manifest_path is not None:
+                new_manifest = [result.reported_manifest_path]
+            else:
+                after_manifest = snapshot_files(predictions_dir, "*.manifest.json")
+                new_manifest = diff_new_files(before_manifest, after_manifest)
+
+            after_logs = snapshot_files(logs_dir, "*.log")
             new_logs = diff_new_files(before_logs, after_logs)
 
             copied_parquet = copy_files(new_parquet, experiment_dir / "prediction_artifacts")
@@ -186,6 +198,11 @@ def run_suite(args: argparse.Namespace) -> dict[str, object]:
                     "manifest_file": copied_manifest[0].name if copied_manifest else None,
                     "artifact_file": copied_parquet[0].name if copied_parquet else None,
                     "log_file": _relative_to(run_log_path, args.repo_root),
+                    "artifact_discovery": (
+                        "trainer_reported"
+                        if result.reported_parquet_path is not None
+                        else "filesystem_diff"
+                    ),
                 }
             )
 
@@ -193,7 +210,27 @@ def run_suite(args: argparse.Namespace) -> dict[str, object]:
     coverage_df = build_coverage_table(dataset_df, states)
     manifest_df = summarize_manifests(manifest_paths) if manifest_paths else pd.DataFrame()
 
-    prediction_metric_rows = [
+    # Scientific metrics per prediction artifact
+    prediction_metric_rows: list[dict[str, object]] = []
+    for run_row in run_rows:
+        if run_row.get("artifact_file") is None:
+            continue
+        artifact_path = experiment_dir / "prediction_artifacts" / str(run_row["artifact_file"])
+        if not artifact_path.exists():
+            continue
+        try:
+            pm = compute_prediction_metrics_from_path(
+                artifact_path,
+                surface_id=str(run_row["surface_id"]),
+                state_id=str(run_row["state_id"]),
+            )
+            pm["model"] = run_row["model"]
+            prediction_metric_rows.append({"metric_group": "prediction_metrics", **pm})
+        except Exception:
+            pass
+
+    # Legacy artifact summary (kept for backwards compatibility)
+    legacy_summary_rows = [
         {"metric_group": "prediction_artifact", **summarize_prediction_artifact(path)}
         for path in prediction_paths
     ]
@@ -227,6 +264,9 @@ def run_suite(args: argparse.Namespace) -> dict[str, object]:
         )
     compare_df = pd.DataFrame(compare_rows)
 
+    # Baseline controls
+    controls_df = generate_controls(dataset_df, states)
+
     metric_rows: list[dict[str, object]] = []
     metric_rows.extend(
         {"metric_group": "coverage", **row}
@@ -237,7 +277,15 @@ def run_suite(args: argparse.Namespace) -> dict[str, object]:
         for row in compare_df.to_dict(orient="records")
     )
     metric_rows.extend(prediction_metric_rows)
+    metric_rows.extend(legacy_summary_rows)
     metrics_df = write_metrics_csv(metric_rows, experiment_dir / "metrics.csv")
+
+    # Build the scientific metrics DataFrame for report display
+    sci_metrics_df = pd.DataFrame(
+        [r for r in prediction_metric_rows if r.get("metric_group") == "prediction_metrics"]
+    )
+    if not sci_metrics_df.empty and "metric_group" in sci_metrics_df.columns:
+        sci_metrics_df = sci_metrics_df.drop(columns=["metric_group"])
 
     finished_at = utc_now_iso()
     config_payload = {
@@ -263,6 +311,9 @@ def run_suite(args: argparse.Namespace) -> dict[str, object]:
         coverage_df=coverage_df,
         manifest_df=manifest_df,
         compare_df=compare_df,
+        discovered_states=states,
+        metrics_df=sci_metrics_df if not sci_metrics_df.empty else None,
+        controls_df=controls_df,
     )
 
     experiment_manifest = {
