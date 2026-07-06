@@ -168,28 +168,62 @@ Additional key documents include:
 Predictive modelling is documented under `docs/models/` and `docs/integration/`. These documents
 describe predictive model architectures, artifact contracts and downstream integration.
 
-Behavioral prediction experiments should be orchestrated through:
+Behavioral prediction experiments are orchestrated through the **Behavioral Characterization
+Framework**:
 
 ```bash
+# Standard characterization (10 epochs, default)
 python analysis/behavioral/run_behavioral_suite.py \
   --dataset-version 1.5.1 \
   --dataset-variant reactive_jpy_v1_core
+
+# Named profiles express training intent explicitly
+python analysis/behavioral/run_behavioral_suite.py \
+  --dataset-version 1.5.1 \
+  --dataset-variant reactive_jpy_v1_core \
+  --profile standard      # 10 epochs — initial characterization (default)
+
+python analysis/behavioral/run_behavioral_suite.py \
+  --dataset-version 1.5.1 \
+  --dataset-variant reactive_jpy_v1_core \
+  --profile smoke         # 2 epochs — pipeline smoke-test only
+
+python analysis/behavioral/run_behavioral_suite.py \
+  --dataset-version 1.5.1 \
+  --dataset-variant reactive_jpy_v1_core \
+  --profile publication   # 50 epochs — publication-quality results
 ```
 
-This framework discovers `(surface_id, state_id)` combinations from the selected dataset variant,
+The framework discovers `(surface_id, state_id)` combinations from the selected dataset variant,
 runs both `research/deep_learning/train.py` and `research/deep_learning/train_lstm.py` per state,
 collects manifests/prediction artifacts, and writes a self-contained experiment bundle under
 `analysis/output/<experiment_id>/`.
 
 Each experiment bundle includes:
 
-- `report.md` — human-readable report with Discovered States, Coverage, Scientific Prediction Metrics,
-  Baseline Controls, Key Observations and MLP/LSTM comparison
-- `experiment_manifest.json` — machine-readable provenance (CLI args, git commit, discovered states, run outcomes)
+- `report.md` — Behavioral Characterization Report with Executive Summary, Scientific Findings,
+  Research Recommendation, and an Appendix containing engineering diagnostics
+- `experiment_manifest.json` — machine-readable provenance (CLI args, profile, git commit,
+  discovered states, run outcomes)
 - `metrics.csv` — all metrics in a flat tabular format
 - `summary.csv` — per-run outcomes with artifact discovery provenance
 - `manifests/` — collected trainer manifests (warnings, errors and notes classified separately)
 - `prediction_artifacts/` — collected prediction parquet files
+
+Each `report.md` answers the question **"What have we learned about this Behavioral Surface?"**
+rather than merely reporting what happened during the experiment. The report structure is:
+
+1. **Executive Summary** — one-page overview: experiment status, Behavioral Surface, coverage,
+   ≤ 5 key findings, and a single Research Recommendation.
+2. **Scientific Findings** — aggregated, noise-suppressed findings. Each finding includes a
+   description, supporting evidence per state/model, Scientific Interest rating,
+   Scientific Confidence rating, and a recommended follow-up.
+3. **Appendix** — engineering diagnostics: coverage tables, prediction metrics, baseline controls,
+   manifest issues, Key Observations (legacy), and reproducibility metadata.
+
+**Scientific Interest** measures how important or novel a finding would be if confirmed.
+**Scientific Confidence** measures how strongly the finding is currently supported by evidence.
+These are independent: high-interest findings may have low confidence early in a research programme.
 
 To compare two or more completed experiments:
 
@@ -203,16 +237,18 @@ python analysis/behavioral/compare_experiments.py \
 The comparison tool operates on existing outputs without rerunning training and tolerates
 experiments with different Behavioral Surfaces and state ontologies.
 
-The behavioral evaluation framework is documented in `docs/BSVE_MSML_integration_architecture.md`
-under the PR5 section, and implemented across the following modules:
+The Behavioral Characterization Framework is documented in
+`docs/BSVE_MSML_integration_architecture.md` under the PR5 and PR5.1 sections, and implemented
+across the following modules:
 
 | Module | Purpose |
 |---|---|
-| `analysis/behavioral/run_behavioral_suite.py` | Experiment orchestration entry point |
+| `analysis/behavioral/run_behavioral_suite.py` | Experiment orchestration entry point; named profiles |
+| `analysis/behavioral/interpretation.py` | Scientific findings synthesis; noise suppression; executive summary; research recommendation |
+| `analysis/behavioral/reporting.py` | Characterization report structure (Executive Summary → Findings → Appendix) |
 | `analysis/behavioral/coverage.py` | Coverage and occupancy fraction calculations |
 | `analysis/behavioral/metrics.py` | Scientific prediction metrics (entropy, confidence, effective coverage, pair balance) |
 | `analysis/behavioral/controls.py` | Baseline controls for partitioning comparisons |
-| `analysis/behavioral/interpretation.py` | Rule-based Key Observations generator |
 | `analysis/behavioral/compare_experiments.py` | Multi-experiment comparison CLI |
 | `analysis/behavioral/compare_predictions.py` | MLP/LSTM prediction comparison with overlap percentages |
 | `analysis/behavioral/analyze_manifests.py` | Manifest parsing with note/warning/error classification |

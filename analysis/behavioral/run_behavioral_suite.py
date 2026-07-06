@@ -51,9 +51,78 @@ OUTPUT_LAYOUT_DIRS = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# Named training profiles
+# ---------------------------------------------------------------------------
+
+#: Named experiment profiles.  Each profile defines default hyperparameters
+#: that are appropriate for the stated research intent.  Profiles can be
+#: selected with ``--profile <name>``; individual hyperparameters can still
+#: be overridden via explicit CLI flags.
+PROFILES: dict[str, dict[str, object]] = {
+    "smoke": {
+        "epochs": 2,
+        "hidden_dim": 16,
+        "description": (
+            "Minimal smoke-test profile (2 epochs, small model). "
+            "Verifies the pipeline runs end-to-end; results are not scientifically meaningful."
+        ),
+    },
+    "standard": {
+        "epochs": 10,
+        "hidden_dim": 32,
+        "description": (
+            "Standard characterization profile (10 epochs). "
+            "Produces scientifically meaningful initial results for a Behavioral Surface."
+        ),
+    },
+    "publication": {
+        "epochs": 50,
+        "hidden_dim": 64,
+        "description": (
+            "Publication-quality profile (50 epochs, larger model). "
+            "Use when preparing findings for external reporting or comparison."
+        ),
+    },
+}
+
+_DEFAULT_PROFILE = "standard"
+
+
+def _apply_profile(args: argparse.Namespace) -> argparse.Namespace:
+    """Apply profile defaults to *args*, respecting explicit CLI overrides.
+
+    The profile sets default values for ``epochs`` and ``hidden_dim`` if and
+    only if those flags were not explicitly supplied on the command line.
+    """
+    profile_name = getattr(args, "profile", _DEFAULT_PROFILE) or _DEFAULT_PROFILE
+    profile = PROFILES.get(profile_name)
+    if profile is None:
+        known = ", ".join(PROFILES)
+        raise ValueError(f"Unknown profile '{profile_name}'. Known profiles: {known}.")
+
+    # Only apply profile defaults when the user did not supply the flag.
+    # The sentinel approach: argparse stores the default value when no flag is
+    # given; we compare against _PROFILE_SENTINEL to detect "not supplied".
+    for key in ("epochs", "hidden_dim"):
+        if getattr(args, f"_{key}_explicit", False) is False:
+            setattr(args, key, profile[key])
+
+    args.profile_name = profile_name
+    args.profile_description = profile["description"]
+    return args
+
+
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run the behavioral experiment suite across discovered states.",
+        description=(
+            "Run the Behavioral Characterization Suite across discovered Behavioral Surface states.\n\n"
+            "Named profiles control the default training intensity:\n"
+            "  smoke       — 2 epochs, pipeline smoke-test only\n"
+            "  standard    — 10 epochs, initial scientific characterization (default)\n"
+            "  publication — 50 epochs, publication-quality results"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--dataset-version", required=True)
     parser.add_argument("--dataset-variant", required=True)
@@ -61,8 +130,20 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--models", default="both", help="mlp, lstm, or both")
     parser.add_argument("--feature-set", default="price_trend")
     parser.add_argument("--target-horizon", type=int, default=24)
-    parser.add_argument("--epochs", type=int, default=1)
-    parser.add_argument("--hidden-dim", type=int, default=32)
+    parser.add_argument(
+        "--profile",
+        default=_DEFAULT_PROFILE,
+        choices=list(PROFILES),
+        help=(
+            "Named training profile (default: standard). "
+            "Sets default epoch count and model size. "
+            "Override individual hyperparameters with --epochs / --hidden-dim."
+        ),
+    )
+    parser.add_argument("--epochs", type=int, default=None,
+                        help="Training epochs (overrides --profile default).")
+    parser.add_argument("--hidden-dim", type=int, default=None,
+                        help="Hidden layer dimension (overrides --profile default).")
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--label-quantile", type=float, default=0.5)
     parser.add_argument("--seq-len", type=int, default=24)
@@ -74,7 +155,15 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--predictions-dir", type=Path, default=Path("data/output/dl_predictions"))
     parser.add_argument("--logs-dir", type=Path, default=Path("logs"))
     parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+
+    # Track which flags were explicitly provided so profile application can
+    # respect user overrides.
+    provided = {a.lstrip("-").replace("-", "_") for a in (argv or []) if a.startswith("--")}
+    args._epochs_explicit = "epochs" in provided
+    args._hidden_dim_explicit = "hidden_dim" in provided
+
+    return _apply_profile(args)
 
 
 def _build_experiment_id(args: argparse.Namespace) -> str:
@@ -298,6 +387,7 @@ def run_suite(args: argparse.Namespace) -> dict[str, object]:
         "target_horizon": args.target_horizon,
         "train_pairs": args.train_pairs,
         "predict_pairs": args.predict_pairs,
+        "profile": getattr(args, "profile_name", "custom"),
         "started_at": started_at,
         "finished_at": finished_at,
         "git_commit": get_git_commit(args.repo_root),
