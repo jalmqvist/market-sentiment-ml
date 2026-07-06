@@ -2,7 +2,7 @@
 
 This module synthesizes experimental evidence into concise scientific findings.
 
-Public API (Behavioral Characterization Framework — PR5.1/PR5.4):
+Public API (Behavioral Characterization Framework — PR5.1, updated PR5.4):
     Finding                     — aggregated scientific finding with Interest/Confidence,
                                   separate observation/interpretation fields, and
                                   machine-readable evidence_strength summary.

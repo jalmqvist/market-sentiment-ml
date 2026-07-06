@@ -56,8 +56,6 @@ def load_all_surfaces(registry_root: Path) -> list[dict]:
     yaml_files = sorted(registry_root.glob("*.yaml"))
     surfaces: list[dict] = []
     for path in yaml_files:
-        if path.name == "README.md":
-            continue
         try:
             with path.open("r", encoding="utf-8") as fh:
                 data = yaml.safe_load(fh)
