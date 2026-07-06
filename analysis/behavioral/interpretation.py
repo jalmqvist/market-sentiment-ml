@@ -591,6 +591,43 @@ def _render_interest_confidence(interest: str, confidence: str) -> str:
     )
 
 
+def _render_confidence_rationale(evidence_strength: dict) -> str:
+    """Return a brief 'Because:' rationale block derived from evidence_strength.
+
+    Uses only information already present in the Finding pipeline — no new
+    scoring rules are introduced.  Returns an empty string when no bullets
+    can be generated.
+    """
+    bullets: list[str] = []
+
+    agreement = evidence_strength.get("agreement", "")
+    if agreement == "full":
+        bullets.append("observed across all architectures and states")
+    elif agreement == "partial":
+        bullets.append("observed in a subset of architectures or states")
+    elif agreement == "single":
+        bullets.append("observed in one architecture only")
+
+    sample_size = evidence_strength.get("sample_size", "")
+    if sample_size:
+        bullets.append(sample_size)
+
+    controls = evidence_strength.get("controls", "")
+    if controls == "available":
+        bullets.append("controls available for comparison")
+
+    repeatability = evidence_strength.get("repeatability", "")
+    if repeatability == "multi_run":
+        bullets.append("reproduced across multiple training runs")
+    elif repeatability == "single_run":
+        bullets.append("based on a single training run")
+
+    if not bullets:
+        return ""
+    bullet_lines = "\n".join(f"• {b}" for b in bullets)
+    return f"\n*Because:*\n{bullet_lines}"
+
+
 def format_executive_summary(
     *,
     experiment_id: str,
@@ -628,9 +665,9 @@ def format_executive_summary(
             n = int(beh_row.iloc[0]["row_count"])
             cov_line = f"Behavioral states cover {_pct(frac)} of the canonical dataset ({n:,} rows)."
 
-    # Key findings bullets
+    # Key findings bullets — titles only; full detail appears in Scientific Findings
     if findings:
-        bullets = "\n".join(f"- **{f.title}** — {f.description}" for f in findings)
+        bullets = "\n".join(f"- **{f.title}**" for f in findings)
     else:
         bullets = "- No significant findings generated."
 
@@ -655,7 +692,15 @@ def format_executive_summary(
 
 
 def format_findings(findings: list[Finding]) -> str:
-    """Render a list of Finding objects as a markdown **Scientific Findings** section."""
+    """Render a list of Finding objects as a markdown **Scientific Findings** section.
+
+    Section order per finding:
+        1. Evidence      — measured values (entropy, agreement, coverage, …)
+        2. Observation   — factual statement derived from those values
+        3. Interpretation — what the observation may imply
+        4. Interest / Confidence (with rationale when evidence_strength is set)
+        5. Follow-up     — recommended next experiment
+    """
     if not findings:
         return "## Scientific Findings\n\nNo significant findings generated.\n"
 
@@ -663,22 +708,35 @@ def format_findings(findings: list[Finding]) -> str:
     for i, f in enumerate(findings, start=1):
         lines.append(f"### Finding {i}: {f.title}")
         lines.append("")
-        # Prefer observation + interpretation when both are set; fall back to description
+
+        # 1. Evidence — measured values
+        if f.evidence:
+            lines.append("**Evidence:**")
+            lines.extend(f.evidence)
+            lines.append("")
+
+        # 2. Observation — factual statement
+        # 3. Interpretation — scientific meaning
         if f.observation:
             lines.append(f"**Observation:** {f.observation}")
             lines.append("")
         if f.interpretation:
             lines.append(f"**Interpretation:** {f.interpretation}")
             lines.append("")
+        # Fallback: use description when neither field is populated
         if not f.observation and not f.interpretation:
             lines.append(f.description)
             lines.append("")
-        if f.evidence:
-            lines.append("**Supporting evidence:**")
-            lines.extend(f.evidence)
-            lines.append("")
+
+        # 4. Interest / Confidence + optional rationale
         lines.append(_render_interest_confidence(f.interest, f.confidence))
+        if f.evidence_strength:
+            rationale = _render_confidence_rationale(f.evidence_strength)
+            if rationale:
+                lines.append(rationale)
         lines.append("")
+
+        # 5. Follow-up — recommended next experiment
         if f.follow_up:
             lines.append(f"**Recommended follow-up:** {f.follow_up}")
             lines.append("")
@@ -751,8 +809,8 @@ def derive_research_recommendation(
         return (
             "**Repeat characterization with additional training** — prediction entropy is "
             "high and/or effective coverage is low, suggesting training has not yet converged "
-            "to a discriminative solution. "
-            "Increase epochs (e.g. `--profile standard` or `--profile publication`) and re-run."
+            "to a discriminative solution. Repeat characterization after adjusting training "
+            "parameters (see Finding follow-up for guidance)."
         )
 
     if high_agreement:

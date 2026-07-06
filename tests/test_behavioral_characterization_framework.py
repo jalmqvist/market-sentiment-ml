@@ -811,3 +811,179 @@ class TestBackwardsCompatibility:
         )
         assert isinstance(rec, str) and len(rec) > 0
 
+
+# ===========================================================================
+# PR5.3 — Review-polish regression tests
+# ===========================================================================
+
+class TestFindingRenderingOrder:
+    """Evidence must appear before Observation/Interpretation in rendered findings."""
+
+    def test_evidence_rendered_before_observation(self):
+        f = Finding(
+            title="T",
+            description="D",
+            observation="OBS TEXT",
+            interpretation="INTERP TEXT",
+            evidence=["- STATE_A: 0.95 bits"],
+        )
+        md = format_findings([f])
+        evidence_pos = md.index("STATE_A")
+        obs_pos = md.index("OBS TEXT")
+        assert evidence_pos < obs_pos, "Evidence must appear before Observation"
+
+    def test_observation_rendered_before_interpretation(self):
+        f = Finding(
+            title="T",
+            description="D",
+            observation="OBS TEXT",
+            interpretation="INTERP TEXT",
+        )
+        md = format_findings([f])
+        obs_pos = md.index("OBS TEXT")
+        interp_pos = md.index("INTERP TEXT")
+        assert obs_pos < interp_pos, "Observation must appear before Interpretation"
+
+    def test_interpretation_rendered_before_follow_up(self):
+        f = Finding(
+            title="T",
+            description="D",
+            interpretation="INTERP TEXT",
+            follow_up="FOLLOW UP TEXT",
+        )
+        md = format_findings([f])
+        interp_pos = md.index("INTERP TEXT")
+        follow_pos = md.index("FOLLOW UP TEXT")
+        assert interp_pos < follow_pos, "Interpretation must appear before Follow-up"
+
+
+class TestConfidenceRationale:
+    """Scientific Confidence rationale should appear when evidence_strength is populated."""
+
+    def test_rationale_appears_when_evidence_strength_set(self):
+        f = Finding(
+            title="T",
+            description="D",
+            confidence="high",
+            evidence_strength={
+                "sample_size": "2 states",
+                "agreement": "full",
+                "controls": "none",
+                "repeatability": "single_run",
+            },
+        )
+        md = format_findings([f])
+        assert "Because" in md
+
+    def test_rationale_absent_when_evidence_strength_empty(self):
+        f = Finding(title="T", description="D", confidence="high")
+        # evidence_strength defaults to {} — no rationale expected
+        md = format_findings([f])
+        assert "Because" not in md
+
+    def test_rationale_full_agreement_wording(self):
+        f = Finding(
+            title="T",
+            description="D",
+            evidence_strength={"agreement": "full"},
+        )
+        md = format_findings([f])
+        assert "all architectures" in md
+
+    def test_rationale_single_run_wording(self):
+        f = Finding(
+            title="T",
+            description="D",
+            evidence_strength={"repeatability": "single_run"},
+        )
+        md = format_findings([f])
+        assert "single training run" in md
+
+    def test_generated_entropy_finding_has_rationale(self):
+        """Synthesized entropy findings carry evidence_strength → rationale in output."""
+        metrics_df = _make_metrics_df(entropy=0.96)
+        findings = generate_findings(pd.DataFrame(), pd.DataFrame(), metrics_df)
+        md = format_findings(findings)
+        assert "Because" in md
+
+
+class TestExecutiveSummaryConciseness:
+    """Executive Summary bullets should use finding titles, not full descriptions."""
+
+    def _make_run_df(self, n_success: int = 2) -> pd.DataFrame:
+        return pd.DataFrame([{"status": "success"} for _ in range(n_success)])
+
+    def test_executive_summary_bullets_use_titles(self):
+        findings = [Finding(
+            title="High entropy",
+            description="LONG DESCRIPTION THAT SHOULD NOT APPEAR IN SUMMARY",
+            observation="HIGH ENTROPY OBSERVATION TEXT",
+        )]
+        md = format_executive_summary(
+            experiment_id="x",
+            run_df=self._make_run_df(),
+            coverage_df=pd.DataFrame(),
+            discovered_states=[],
+            findings=findings,
+            recommendation="Repeat.",
+        )
+        assert "High entropy" in md
+        # Full description and observation should not clutter the summary
+        assert "LONG DESCRIPTION THAT SHOULD NOT APPEAR IN SUMMARY" not in md
+        assert "HIGH ENTROPY OBSERVATION TEXT" not in md
+
+    def test_executive_summary_finding_detail_in_scientific_section(self):
+        """Full observation/interpretation should appear in Scientific Findings, not Executive Summary."""
+        findings = [Finding(
+            title="High entropy",
+            description="D",
+            observation="FULL OBS TEXT",
+            interpretation="FULL INTERP TEXT",
+        )]
+        findings_md = format_findings(findings)
+        summary_md = format_executive_summary(
+            experiment_id="x",
+            run_df=self._make_run_df(),
+            coverage_df=pd.DataFrame(),
+            discovered_states=[],
+            findings=findings,
+            recommendation="Repeat.",
+        )
+        # Full text is in the scientific section
+        assert "FULL OBS TEXT" in findings_md
+        # But not duplicated in the executive summary
+        assert "FULL OBS TEXT" not in summary_md
+
+
+class TestRecommendationResearchDecisions:
+    """Research recommendations should describe the next research step, not implementation details."""
+
+    def test_repeat_recommendation_does_not_contain_raw_epoch_cli(self):
+        """Main recommendation should not prescribe CLI flags."""
+        findings = [Finding(
+            title="High prediction entropy across states",
+            description="...",
+            interest="medium",
+            confidence="high",
+        )]
+        run_df = pd.DataFrame([{"status": "success"}])
+        rec = derive_research_recommendation(
+            run_df=run_df, findings=findings, coverage_df=pd.DataFrame()
+        )
+        # Should describe a research step, not prescribe CLI parameters
+        assert "--profile" not in rec
+        assert "--epochs" not in rec
+
+    def test_repeat_recommendation_is_research_action(self):
+        findings = [Finding(
+            title="High prediction entropy across states",
+            description="...",
+            interest="medium",
+            confidence="high",
+        )]
+        run_df = pd.DataFrame([{"status": "success"}])
+        rec = derive_research_recommendation(
+            run_df=run_df, findings=findings, coverage_df=pd.DataFrame()
+        )
+        assert "repeat" in rec.lower() or "characterization" in rec.lower()
+
