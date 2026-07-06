@@ -66,6 +66,15 @@ _VALID_STAGES = frozenset({
     "Retired",
 })
 
+# Maps a requested lifecycle_stage to the prerequisite (stage_key, required_status) that
+# must hold in the current registry entry before the transition is permitted.
+# Promotions within the same stage, or to "Retired", have no hard prerequisite here.
+_STAGE_PREREQUISITES: dict[str, tuple[str, str]] = {
+    "Predictive Validation": ("stage1", "complete"),
+    "Trading Validation": ("stage2", "complete"),
+    "Integrated": ("stage3", "complete"),
+}
+
 
 def _registry_root(repo_root: Path) -> Path:
     return repo_root / "registry" / "surfaces"
@@ -169,6 +178,7 @@ def promote(
     lifecycle_stage: str | None = None,
     repo_root: Path | None = None,
     dry_run: bool = False,
+    force: bool = False,
 ) -> dict:
     """Promote experiment evidence into the Behavioral Surface Registry.
 
@@ -196,6 +206,9 @@ def promote(
         file, resolved relative to the script location.
     dry_run:
         If ``True``, validate and print the updated entry without writing to disk.
+    force:
+        If ``True``, bypass the lifecycle-stage consistency check.  Use only when
+        you have deliberately set stage statuses out of the normal sequence.
 
     Returns
     -------
@@ -207,7 +220,7 @@ def promote(
     ValueError
         If any argument is invalid or the registry entry fails validation.
     FileNotFoundError
-        If the registry entry does not exist.
+        If the registry entry or an experiment directory does not exist.
     """
     if scientific_interest not in _VALID_INTEREST:
         raise ValueError(
@@ -230,6 +243,19 @@ def promote(
         raise ValueError("author must not be empty.")
 
     resolved_root = repo_root or (Path(__file__).parent.parent.parent)
+
+    # Check that every experiment directory exists before touching the registry.
+    for exp_dir in experiment_dirs:
+        exp_path = Path(exp_dir)
+        if not exp_path.is_absolute():
+            exp_path = resolved_root / exp_dir
+        if not exp_path.exists():
+            raise FileNotFoundError(
+                f"Experiment directory not found: {exp_dir!r}\n"
+                "Ensure the experiment has completed and the path is correct "
+                "before promoting it into the registry."
+            )
+
     registry_root = _registry_root(resolved_root)
     path = _surface_path(registry_root, surface_id)
 
@@ -242,6 +268,18 @@ def promote(
             f"Registry entry at {path} is malformed:\n"
             + "\n".join(f"  - {e}" for e in errors)
         )
+
+    # Check lifecycle_stage consistency against stage statuses unless --force.
+    if lifecycle_stage is not None and not force and lifecycle_stage in _STAGE_PREREQUISITES:
+        stage_key, required_status = _STAGE_PREREQUISITES[lifecycle_stage]
+        current_stage_status = (data.get(stage_key) or {}).get("status")
+        if current_stage_status != required_status:
+            raise ValueError(
+                f"Cannot promote to lifecycle_stage={lifecycle_stage!r}: "
+                f"{stage_key}.status is {current_stage_status!r}, expected {required_status!r}. "
+                f"Complete {stage_key} work before advancing the lifecycle stage, "
+                f"or pass force=True (--force on the CLI) to override."
+            )
 
     promoted_at = datetime.now(timezone.utc).isoformat()
 
@@ -391,6 +429,15 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=False,
         help="Validate and print the updated entry without writing to disk.",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        default=False,
+        help=(
+            "Bypass the lifecycle-stage consistency check.  "
+            "Use only when stage statuses have been set out of the normal sequence."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -409,6 +456,7 @@ def main(argv: list[str] | None = None) -> int:
             lifecycle_stage=args.lifecycle_stage,
             repo_root=repo_root,
             dry_run=args.dry_run,
+            force=args.force,
         )
     except (FileNotFoundError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

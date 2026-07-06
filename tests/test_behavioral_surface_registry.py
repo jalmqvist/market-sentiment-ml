@@ -69,6 +69,16 @@ def repo_root(tmp_path: Path, registry_root: Path) -> Path:
     return tmp_path
 
 
+@pytest.fixture()
+def make_exp_dir(repo_root: Path):
+    """Factory: create an experiment directory under repo_root and return its name."""
+    def _make(name: str) -> str:
+        d = repo_root / name
+        d.mkdir(parents=True, exist_ok=True)
+        return name
+    return _make
+
+
 def _minimal_entry(surface_id: str = "test_surface") -> dict:
     """Return a minimal valid registry entry dict."""
     return {
@@ -220,11 +230,11 @@ class TestStagePlaceholders:
 # ===========================================================================
 
 class TestPromoteSingle:
-    def test_promote_appends_supporting_experiment(self, registry_root, repo_root):
+    def test_promote_appends_supporting_experiment(self, registry_root, repo_root, make_exp_dir):
         _write_entry(registry_root, "surface_a")
         result = promote(
             surface_id="surface_a",
-            experiment_dirs=["analysis/output/exp_001"],
+            experiment_dirs=[make_exp_dir("analysis/output/exp_001")],
             author="test.author",
             recommendation="Repeat characterization.",
             scientific_interest="medium",
@@ -235,11 +245,11 @@ class TestPromoteSingle:
         assert len(result["supporting_experiments"]) == 1
         assert result["supporting_experiments"][0]["experiment_dir"] == "analysis/output/exp_001"
 
-    def test_promote_records_author(self, registry_root, repo_root):
+    def test_promote_records_author(self, registry_root, repo_root, make_exp_dir):
         _write_entry(registry_root, "surface_a")
         result = promote(
             surface_id="surface_a",
-            experiment_dirs=["exp_001"],
+            experiment_dirs=[make_exp_dir("exp_001")],
             author="researcher.one",
             recommendation="Repeat.",
             scientific_interest="low",
@@ -249,11 +259,11 @@ class TestPromoteSingle:
         )
         assert result["supporting_experiments"][0]["promoted_by"] == "researcher.one"
 
-    def test_promote_records_timestamp(self, registry_root, repo_root):
+    def test_promote_records_timestamp(self, registry_root, repo_root, make_exp_dir):
         _write_entry(registry_root, "surface_a")
         result = promote(
             surface_id="surface_a",
-            experiment_dirs=["exp_001"],
+            experiment_dirs=[make_exp_dir("exp_001")],
             author="researcher.one",
             recommendation="Repeat.",
             scientific_interest="low",
@@ -265,11 +275,11 @@ class TestPromoteSingle:
         assert isinstance(promoted_at, str)
         assert "T" in promoted_at  # ISO 8601
 
-    def test_promote_updates_scientific_interest(self, registry_root, repo_root):
+    def test_promote_updates_scientific_interest(self, registry_root, repo_root, make_exp_dir):
         _write_entry(registry_root, "surface_a")
         result = promote(
             surface_id="surface_a",
-            experiment_dirs=["exp_001"],
+            experiment_dirs=[make_exp_dir("exp_001")],
             author="a",
             recommendation="Proceed.",
             scientific_interest="high",
@@ -279,11 +289,11 @@ class TestPromoteSingle:
         )
         assert result["scientific_interest"] == "high"
 
-    def test_promote_updates_scientific_confidence(self, registry_root, repo_root):
+    def test_promote_updates_scientific_confidence(self, registry_root, repo_root, make_exp_dir):
         _write_entry(registry_root, "surface_a")
         result = promote(
             surface_id="surface_a",
-            experiment_dirs=["exp_001"],
+            experiment_dirs=[make_exp_dir("exp_001")],
             author="a",
             recommendation="Proceed.",
             scientific_interest="medium",
@@ -293,11 +303,11 @@ class TestPromoteSingle:
         )
         assert result["scientific_confidence"] == "high"
 
-    def test_promote_updates_recommendation(self, registry_root, repo_root):
+    def test_promote_updates_recommendation(self, registry_root, repo_root, make_exp_dir):
         _write_entry(registry_root, "surface_a")
         result = promote(
             surface_id="surface_a",
-            experiment_dirs=["exp_001"],
+            experiment_dirs=[make_exp_dir("exp_001")],
             author="a",
             recommendation="Proceed to walk-forward validation.",
             scientific_interest="high",
@@ -307,11 +317,11 @@ class TestPromoteSingle:
         )
         assert "walk-forward" in result["current_recommendation"]
 
-    def test_promote_appends_promotion_history(self, registry_root, repo_root):
+    def test_promote_appends_promotion_history(self, registry_root, repo_root, make_exp_dir):
         _write_entry(registry_root, "surface_a")
         result = promote(
             surface_id="surface_a",
-            experiment_dirs=["exp_001"],
+            experiment_dirs=[make_exp_dir("exp_001")],
             author="a",
             recommendation="R.",
             scientific_interest="low",
@@ -321,11 +331,11 @@ class TestPromoteSingle:
         )
         assert len(result["promotion_history"]) == 1
 
-    def test_promote_writes_to_disk(self, registry_root, repo_root):
+    def test_promote_writes_to_disk(self, registry_root, repo_root, make_exp_dir):
         path = _write_entry(registry_root, "surface_a")
         promote(
             surface_id="surface_a",
-            experiment_dirs=["exp_001"],
+            experiment_dirs=[make_exp_dir("exp_001")],
             author="a",
             recommendation="R.",
             scientific_interest="low",
@@ -337,11 +347,11 @@ class TestPromoteSingle:
             reloaded = yaml.safe_load(fh)
         assert len(reloaded["supporting_experiments"]) == 1
 
-    def test_promote_multiple_experiments_in_one_call(self, registry_root, repo_root):
+    def test_promote_multiple_experiments_in_one_call(self, registry_root, repo_root, make_exp_dir):
         _write_entry(registry_root, "surface_a")
         result = promote(
             surface_id="surface_a",
-            experiment_dirs=["exp_001", "exp_002"],
+            experiment_dirs=[make_exp_dir("exp_001"), make_exp_dir("exp_002")],
             author="a",
             recommendation="R.",
             scientific_interest="medium",
@@ -351,11 +361,11 @@ class TestPromoteSingle:
         )
         assert len(result["supporting_experiments"]) == 2
 
-    def test_promote_dry_run_does_not_write(self, registry_root, repo_root):
+    def test_promote_dry_run_does_not_write(self, registry_root, repo_root, make_exp_dir):
         path = _write_entry(registry_root, "surface_a")
         promote(
             surface_id="surface_a",
-            experiment_dirs=["exp_001"],
+            experiment_dirs=[make_exp_dir("exp_001")],
             author="a",
             recommendation="R.",
             scientific_interest="low",
@@ -369,11 +379,13 @@ class TestPromoteSingle:
         # Original entry unchanged
         assert len(reloaded["supporting_experiments"]) == 0
 
-    def test_promote_updates_lifecycle_stage_when_provided(self, registry_root, repo_root):
-        _write_entry(registry_root, "surface_a")
+    def test_promote_updates_lifecycle_stage_when_provided(self, registry_root, repo_root, make_exp_dir):
+        entry = _minimal_entry("surface_a")
+        entry["stage1"]["status"] = "complete"
+        _write_entry(registry_root, "surface_a", entry)
         result = promote(
             surface_id="surface_a",
-            experiment_dirs=["exp_001"],
+            experiment_dirs=[make_exp_dir("exp_001")],
             author="a",
             recommendation="R.",
             scientific_interest="high",
@@ -384,11 +396,11 @@ class TestPromoteSingle:
         )
         assert result["lifecycle_stage"] == "Predictive Validation"
 
-    def test_promote_preserves_lifecycle_stage_when_not_provided(self, registry_root, repo_root):
+    def test_promote_preserves_lifecycle_stage_when_not_provided(self, registry_root, repo_root, make_exp_dir):
         _write_entry(registry_root, "surface_a")
         result = promote(
             surface_id="surface_a",
-            experiment_dirs=["exp_001"],
+            experiment_dirs=[make_exp_dir("exp_001")],
             author="a",
             recommendation="R.",
             scientific_interest="medium",
@@ -405,11 +417,11 @@ class TestPromoteSingle:
 # ===========================================================================
 
 class TestMultiplePromotions:
-    def test_second_promotion_appends_to_history(self, registry_root, repo_root):
+    def test_second_promotion_appends_to_history(self, registry_root, repo_root, make_exp_dir):
         _write_entry(registry_root, "surface_a")
         promote(
             surface_id="surface_a",
-            experiment_dirs=["exp_001"],
+            experiment_dirs=[make_exp_dir("exp_001")],
             author="a",
             recommendation="Repeat characterization.",
             scientific_interest="low",
@@ -419,7 +431,7 @@ class TestMultiplePromotions:
         )
         result = promote(
             surface_id="surface_a",
-            experiment_dirs=["exp_002"],
+            experiment_dirs=[make_exp_dir("exp_002")],
             author="b",
             recommendation="Proceed to walk-forward validation.",
             scientific_interest="high",
@@ -430,11 +442,11 @@ class TestMultiplePromotions:
         assert len(result["promotion_history"]) == 2
         assert len(result["supporting_experiments"]) == 2
 
-    def test_second_promotion_updates_interest_and_confidence(self, registry_root, repo_root):
+    def test_second_promotion_updates_interest_and_confidence(self, registry_root, repo_root, make_exp_dir):
         _write_entry(registry_root, "surface_a")
         promote(
             surface_id="surface_a",
-            experiment_dirs=["exp_001"],
+            experiment_dirs=[make_exp_dir("exp_001")],
             author="a",
             recommendation="R.",
             scientific_interest="low",
@@ -444,7 +456,7 @@ class TestMultiplePromotions:
         )
         result = promote(
             surface_id="surface_a",
-            experiment_dirs=["exp_002"],
+            experiment_dirs=[make_exp_dir("exp_002")],
             author="b",
             recommendation="Proceed.",
             scientific_interest="high",
@@ -455,11 +467,11 @@ class TestMultiplePromotions:
         assert result["scientific_interest"] == "high"
         assert result["scientific_confidence"] == "high"
 
-    def test_version_history_preserves_previous_interest(self, registry_root, repo_root):
+    def test_version_history_preserves_previous_interest(self, registry_root, repo_root, make_exp_dir):
         _write_entry(registry_root, "surface_a")
         promote(
             surface_id="surface_a",
-            experiment_dirs=["exp_001"],
+            experiment_dirs=[make_exp_dir("exp_001")],
             author="a",
             recommendation="R.",
             scientific_interest="low",
@@ -469,7 +481,7 @@ class TestMultiplePromotions:
         )
         result = promote(
             surface_id="surface_a",
-            experiment_dirs=["exp_002"],
+            experiment_dirs=[make_exp_dir("exp_002")],
             author="b",
             recommendation="R2.",
             scientific_interest="high",
@@ -481,11 +493,11 @@ class TestMultiplePromotions:
         assert result["promotion_history"][0]["scientific_interest"] == "low"
         assert result["promotion_history"][1]["scientific_interest"] == "high"
 
-    def test_promotion_history_records_experiments_added(self, registry_root, repo_root):
+    def test_promotion_history_records_experiments_added(self, registry_root, repo_root, make_exp_dir):
         _write_entry(registry_root, "surface_a")
         promote(
             surface_id="surface_a",
-            experiment_dirs=["exp_A", "exp_B"],
+            experiment_dirs=[make_exp_dir("exp_A"), make_exp_dir("exp_B")],
             author="a",
             recommendation="R.",
             scientific_interest="medium",
@@ -498,12 +510,12 @@ class TestMultiplePromotions:
             data = yaml.safe_load(fh)
         assert data["promotion_history"][0]["experiments_added"] == ["exp_A", "exp_B"]
 
-    def test_three_promotions_accumulate_correctly(self, registry_root, repo_root):
+    def test_three_promotions_accumulate_correctly(self, registry_root, repo_root, make_exp_dir):
         _write_entry(registry_root, "surface_a")
         for i in range(3):
             promote(
                 surface_id="surface_a",
-                experiment_dirs=[f"exp_{i:03d}"],
+                experiment_dirs=[make_exp_dir(f"exp_{i:03d}")],
                 author="researcher",
                 recommendation=f"Step {i + 1}.",
                 scientific_interest="medium",
@@ -523,11 +535,11 @@ class TestMultiplePromotions:
 # ===========================================================================
 
 class TestRegistryErrors:
-    def test_promote_raises_on_missing_registry_entry(self, registry_root, repo_root):
+    def test_promote_raises_on_missing_registry_entry(self, registry_root, repo_root, make_exp_dir):
         with pytest.raises(FileNotFoundError):
             promote(
                 surface_id="nonexistent_surface",
-                experiment_dirs=["exp_001"],
+                experiment_dirs=[make_exp_dir("exp_001")],
                 author="a",
                 recommendation="R.",
                 scientific_interest="low",
@@ -592,7 +604,7 @@ class TestRegistryErrors:
                 repo_root=repo_root,
             )
 
-    def test_promote_raises_on_malformed_entry(self, registry_root, repo_root):
+    def test_promote_raises_on_malformed_entry(self, registry_root, repo_root, make_exp_dir):
         """An entry missing required fields should raise on promotion."""
         malformed = {"surface_id": "bad_surface"}  # missing many required fields
         path = registry_root / "bad_surface.yaml"
@@ -601,7 +613,7 @@ class TestRegistryErrors:
         with pytest.raises(ValueError, match="malformed"):
             promote(
                 surface_id="bad_surface",
-                experiment_dirs=["exp_001"],
+                experiment_dirs=[make_exp_dir("exp_001")],
                 author="a",
                 recommendation="R.",
                 scientific_interest="low",
@@ -702,11 +714,11 @@ class TestHighScore:
         summary = generate_summary(repo_root=repo_root, fmt="markdown")
         assert "low" in summary.lower()
 
-    def test_summary_shows_latest_experiment_after_promotion(self, repo_root, registry_root):
+    def test_summary_shows_latest_experiment_after_promotion(self, repo_root, registry_root, make_exp_dir):
         _write_entry(registry_root, "surface_a")
         promote(
             surface_id="surface_a",
-            experiment_dirs=["analysis/output/exp_XYZ"],
+            experiment_dirs=[make_exp_dir("analysis/output/exp_XYZ")],
             author="a",
             recommendation="R.",
             scientific_interest="medium",
@@ -814,3 +826,478 @@ class TestShippedReactiveJpyEntry:
         data = load_registry_entry(path)
         assert data["supporting_experiments"] == []
         assert data["promotion_history"] == []
+
+
+# ===========================================================================
+# Fix 1: lifecycle_stage consistency check against stage statuses
+# ===========================================================================
+
+class TestLifecycleConsistency:
+    """promote() must reject lifecycle_stage transitions that are inconsistent
+    with the current stage statuses, unless force=True is passed."""
+
+    def test_advance_to_predictive_validation_requires_stage1_complete(
+        self, registry_root, repo_root, make_exp_dir
+    ):
+        """Promoting to Predictive Validation while stage1 is in_progress must raise."""
+        entry = _minimal_entry("surface_a")
+        entry["stage1"]["status"] = "in_progress"  # not complete
+        _write_entry(registry_root, "surface_a", entry)
+        with pytest.raises(ValueError, match="stage1"):
+            promote(
+                surface_id="surface_a",
+                experiment_dirs=[make_exp_dir("exp_001")],
+                author="a",
+                recommendation="R.",
+                scientific_interest="high",
+                scientific_confidence="medium",
+                notes="",
+                lifecycle_stage="Predictive Validation",
+                repo_root=repo_root,
+            )
+
+    def test_advance_to_predictive_validation_requires_stage1_complete_not_started(
+        self, registry_root, repo_root, make_exp_dir
+    ):
+        """Promoting to Predictive Validation while stage1 is not_started must raise."""
+        entry = _minimal_entry("surface_a")
+        entry["stage1"]["status"] = "not_started"
+        _write_entry(registry_root, "surface_a", entry)
+        with pytest.raises(ValueError, match="stage1"):
+            promote(
+                surface_id="surface_a",
+                experiment_dirs=[make_exp_dir("exp_001")],
+                author="a",
+                recommendation="R.",
+                scientific_interest="high",
+                scientific_confidence="medium",
+                notes="",
+                lifecycle_stage="Predictive Validation",
+                repo_root=repo_root,
+            )
+
+    def test_advance_to_predictive_validation_succeeds_when_stage1_complete(
+        self, registry_root, repo_root, make_exp_dir
+    ):
+        """Promoting to Predictive Validation is permitted when stage1.status == 'complete'."""
+        entry = _minimal_entry("surface_a")
+        entry["stage1"]["status"] = "complete"
+        _write_entry(registry_root, "surface_a", entry)
+        result = promote(
+            surface_id="surface_a",
+            experiment_dirs=[make_exp_dir("exp_001")],
+            author="a",
+            recommendation="Proceed to walk-forward validation.",
+            scientific_interest="high",
+            scientific_confidence="medium",
+            notes="",
+            lifecycle_stage="Predictive Validation",
+            repo_root=repo_root,
+        )
+        assert result["lifecycle_stage"] == "Predictive Validation"
+
+    def test_advance_to_trading_validation_requires_stage2_complete(
+        self, registry_root, repo_root, make_exp_dir
+    ):
+        """Promoting to Trading Validation while stage2 is not complete must raise."""
+        entry = _minimal_entry("surface_a")
+        entry["lifecycle_stage"] = "Predictive Validation"
+        entry["stage2"]["status"] = "in_progress"  # not complete
+        _write_entry(registry_root, "surface_a", entry)
+        with pytest.raises(ValueError, match="stage2"):
+            promote(
+                surface_id="surface_a",
+                experiment_dirs=[make_exp_dir("exp_001")],
+                author="a",
+                recommendation="R.",
+                scientific_interest="high",
+                scientific_confidence="high",
+                notes="",
+                lifecycle_stage="Trading Validation",
+                repo_root=repo_root,
+            )
+
+    def test_force_bypasses_lifecycle_consistency_check(
+        self, registry_root, repo_root, make_exp_dir
+    ):
+        """force=True must allow a lifecycle_stage transition even when stage status
+        is inconsistent, and the entry must be written with the new stage."""
+        entry = _minimal_entry("surface_a")
+        entry["stage1"]["status"] = "in_progress"  # would normally block the transition
+        _write_entry(registry_root, "surface_a", entry)
+        result = promote(
+            surface_id="surface_a",
+            experiment_dirs=[make_exp_dir("exp_001")],
+            author="a",
+            recommendation="Forced transition.",
+            scientific_interest="medium",
+            scientific_confidence="low",
+            notes="",
+            lifecycle_stage="Predictive Validation",
+            repo_root=repo_root,
+            force=True,
+        )
+        assert result["lifecycle_stage"] == "Predictive Validation"
+
+    def test_no_lifecycle_stage_change_skips_consistency_check(
+        self, registry_root, repo_root, make_exp_dir
+    ):
+        """When lifecycle_stage is not provided, no consistency check is performed."""
+        entry = _minimal_entry("surface_a")
+        entry["stage1"]["status"] = "in_progress"
+        _write_entry(registry_root, "surface_a", entry)
+        # Should succeed: no lifecycle_stage change requested
+        result = promote(
+            surface_id="surface_a",
+            experiment_dirs=[make_exp_dir("exp_001")],
+            author="a",
+            recommendation="Repeat.",
+            scientific_interest="medium",
+            scientific_confidence="low",
+            notes="",
+            lifecycle_stage=None,
+            repo_root=repo_root,
+        )
+        assert result["lifecycle_stage"] == "Characterization"
+
+    def test_retiring_a_surface_has_no_prerequisite(
+        self, registry_root, repo_root, make_exp_dir
+    ):
+        """Transitioning to 'Retired' has no stage prerequisite and must always succeed."""
+        entry = _minimal_entry("surface_a")
+        entry["stage1"]["status"] = "in_progress"
+        _write_entry(registry_root, "surface_a", entry)
+        result = promote(
+            surface_id="surface_a",
+            experiment_dirs=[make_exp_dir("exp_001")],
+            author="a",
+            recommendation="Retire this surface.",
+            scientific_interest="low",
+            scientific_confidence="low",
+            notes="",
+            lifecycle_stage="Retired",
+            repo_root=repo_root,
+        )
+        assert result["lifecycle_stage"] == "Retired"
+
+    def test_lifecycle_error_message_mentions_force(
+        self, registry_root, repo_root, make_exp_dir
+    ):
+        """The error message for a lifecycle mismatch must mention the force override."""
+        entry = _minimal_entry("surface_a")
+        entry["stage1"]["status"] = "in_progress"
+        _write_entry(registry_root, "surface_a", entry)
+        with pytest.raises(ValueError, match="force"):
+            promote(
+                surface_id="surface_a",
+                experiment_dirs=[make_exp_dir("exp_001")],
+                author="a",
+                recommendation="R.",
+                scientific_interest="high",
+                scientific_confidence="medium",
+                notes="",
+                lifecycle_stage="Predictive Validation",
+                repo_root=repo_root,
+            )
+
+
+# ===========================================================================
+# Fix 2: --scientific-interest / --scientific-confidence enum validation
+# ===========================================================================
+
+class TestEnumValidation:
+    """promote() must reject invalid scientific_interest and scientific_confidence
+    values with a clear error listing the valid options."""
+
+    def test_invalid_scientific_interest_raises_before_disk_write(
+        self, registry_root, repo_root
+    ):
+        """A typo in scientific_interest must raise ValueError before any write."""
+        _write_entry(registry_root, "surface_a")
+        with pytest.raises(ValueError, match="scientific_interest"):
+            promote(
+                surface_id="surface_a",
+                experiment_dirs=["exp_001"],  # path check comes after enum check
+                author="a",
+                recommendation="R.",
+                scientific_interest="mediium",  # typo
+                scientific_confidence="low",
+                notes="",
+                repo_root=repo_root,
+            )
+
+    def test_invalid_scientific_confidence_raises_before_disk_write(
+        self, registry_root, repo_root
+    ):
+        """A typo in scientific_confidence must raise ValueError before any write."""
+        _write_entry(registry_root, "surface_a")
+        with pytest.raises(ValueError, match="scientific_confidence"):
+            promote(
+                surface_id="surface_a",
+                experiment_dirs=["exp_001"],
+                author="a",
+                recommendation="R.",
+                scientific_interest="low",
+                scientific_confidence="hihg",  # typo
+                notes="",
+                repo_root=repo_root,
+            )
+
+    def test_invalid_interest_error_lists_valid_options(
+        self, registry_root, repo_root
+    ):
+        """The error message for an invalid interest value must list the valid options."""
+        _write_entry(registry_root, "surface_a")
+        with pytest.raises(ValueError) as exc_info:
+            promote(
+                surface_id="surface_a",
+                experiment_dirs=["exp_001"],
+                author="a",
+                recommendation="R.",
+                scientific_interest="extreme",
+                scientific_confidence="low",
+                notes="",
+                repo_root=repo_root,
+            )
+        msg = str(exc_info.value)
+        assert "high" in msg
+        assert "low" in msg
+        assert "medium" in msg
+
+    def test_registry_entry_not_modified_when_interest_invalid(
+        self, registry_root, repo_root
+    ):
+        """A failed enum validation must leave the registry entry unchanged on disk."""
+        path = _write_entry(registry_root, "surface_a")
+        original_mtime = path.stat().st_mtime
+        with pytest.raises(ValueError):
+            promote(
+                surface_id="surface_a",
+                experiment_dirs=["exp_001"],
+                author="a",
+                recommendation="R.",
+                scientific_interest="wrong",
+                scientific_confidence="low",
+                notes="",
+                repo_root=repo_root,
+            )
+        assert path.stat().st_mtime == original_mtime, (
+            "Registry entry must not be modified when enum validation fails"
+        )
+
+    def test_validate_entry_catches_invalid_interest_in_written_data(self):
+        """validate_entry() must catch an invalid scientific_interest value."""
+        entry = _minimal_entry()
+        entry["scientific_interest"] = "mediium"  # typo written directly to dict
+        errors = validate_entry(entry)
+        assert any("scientific_interest" in e for e in errors)
+        assert any("mediium" in e for e in errors)
+
+    def test_validate_entry_catches_invalid_confidence_in_written_data(self):
+        """validate_entry() must catch an invalid scientific_confidence value."""
+        entry = _minimal_entry()
+        entry["scientific_confidence"] = "hihg"  # typo
+        errors = validate_entry(entry)
+        assert any("scientific_confidence" in e for e in errors)
+
+
+# ===========================================================================
+# Fix 3: experiment path existence check
+# ===========================================================================
+
+class TestExperimentPathExistence:
+    """promote() must reject experiment paths that do not exist on disk."""
+
+    def test_missing_experiment_dir_raises_file_not_found(
+        self, registry_root, repo_root
+    ):
+        """A non-existent experiment directory must raise FileNotFoundError."""
+        _write_entry(registry_root, "surface_a")
+        with pytest.raises(FileNotFoundError, match="exp_does_not_exist"):
+            promote(
+                surface_id="surface_a",
+                experiment_dirs=["exp_does_not_exist"],
+                author="a",
+                recommendation="R.",
+                scientific_interest="low",
+                scientific_confidence="low",
+                notes="",
+                repo_root=repo_root,
+            )
+
+    def test_missing_second_experiment_dir_raises(
+        self, registry_root, repo_root, make_exp_dir
+    ):
+        """Even when the first path exists, a missing second path must raise."""
+        _write_entry(registry_root, "surface_a")
+        with pytest.raises(FileNotFoundError):
+            promote(
+                surface_id="surface_a",
+                experiment_dirs=[make_exp_dir("exp_exists"), "exp_missing"],
+                author="a",
+                recommendation="R.",
+                scientific_interest="low",
+                scientific_confidence="low",
+                notes="",
+                repo_root=repo_root,
+            )
+
+    def test_registry_not_written_when_experiment_path_missing(
+        self, registry_root, repo_root
+    ):
+        """The registry entry must not be modified when an experiment path is missing."""
+        path = _write_entry(registry_root, "surface_a")
+        original_mtime = path.stat().st_mtime
+        with pytest.raises(FileNotFoundError):
+            promote(
+                surface_id="surface_a",
+                experiment_dirs=["no_such_dir"],
+                author="a",
+                recommendation="R.",
+                scientific_interest="low",
+                scientific_confidence="low",
+                notes="",
+                repo_root=repo_root,
+            )
+        assert path.stat().st_mtime == original_mtime, (
+            "Registry entry must not be written when experiment path is missing"
+        )
+
+    def test_existing_experiment_dir_passes_check(
+        self, registry_root, repo_root, make_exp_dir
+    ):
+        """An experiment directory that exists on disk must pass the existence check."""
+        _write_entry(registry_root, "surface_a")
+        result = promote(
+            surface_id="surface_a",
+            experiment_dirs=[make_exp_dir("exp_real")],
+            author="a",
+            recommendation="R.",
+            scientific_interest="low",
+            scientific_confidence="low",
+            notes="",
+            repo_root=repo_root,
+        )
+        assert len(result["supporting_experiments"]) == 1
+
+    def test_absolute_path_existence_check(self, registry_root, repo_root, tmp_path):
+        """An absolute path to a non-existent directory must also raise."""
+        _write_entry(registry_root, "surface_a")
+        abs_missing = str(tmp_path / "absolutely_missing_dir")
+        with pytest.raises(FileNotFoundError):
+            promote(
+                surface_id="surface_a",
+                experiment_dirs=[abs_missing],
+                author="a",
+                recommendation="R.",
+                scientific_interest="low",
+                scientific_confidence="low",
+                notes="",
+                repo_root=repo_root,
+            )
+
+
+# ===========================================================================
+# Fix 4: post-write schema re-validation
+# ===========================================================================
+
+class TestPostWriteValidation:
+    """promote() must run schema validation on the updated entry before writing,
+    so a bad promotion fails at promotion time rather than surfacing later."""
+
+    def test_post_write_validation_catches_corrupted_lifecycle_stage(
+        self, registry_root, repo_root, make_exp_dir, monkeypatch
+    ):
+        """If a bug in promote() produces an invalid lifecycle_stage, the final
+        validate_entry() call must catch it before the file is written."""
+        _write_entry(registry_root, "surface_a")
+
+        # Patch save_registry_entry on the same module instance used by promote().
+        calls: list[dict] = []
+        original_save = promote_mod.save_registry_entry
+
+        def _capturing_save(path, data):
+            calls.append(dict(data))
+            original_save(path, data)
+
+        monkeypatch.setattr(promote_mod, "save_registry_entry", _capturing_save)
+
+        result = promote(
+            surface_id="surface_a",
+            experiment_dirs=[make_exp_dir("exp_001")],
+            author="a",
+            recommendation="R.",
+            scientific_interest="low",
+            scientific_confidence="low",
+            notes="",
+            repo_root=repo_root,
+        )
+        # Confirm save was called and the written entry is valid
+        assert len(calls) == 1
+        errors = validate_entry(calls[0])
+        assert errors == [], f"Written entry has validation errors: {errors}"
+        _ = result  # suppress unused-variable warning
+
+    def test_final_validation_runs_before_write(
+        self, registry_root, repo_root, make_exp_dir, monkeypatch
+    ):
+        """save_registry_entry must only be called when the updated entry is valid."""
+        _write_entry(registry_root, "surface_a")
+
+        save_calls: list[int] = []
+        original_save = promote_mod.save_registry_entry
+
+        def _counting_save(path, data):
+            save_calls.append(1)
+            original_save(path, data)
+
+        monkeypatch.setattr(promote_mod, "save_registry_entry", _counting_save)
+
+        promote(
+            surface_id="surface_a",
+            experiment_dirs=[make_exp_dir("exp_001")],
+            author="a",
+            recommendation="R.",
+            scientific_interest="medium",
+            scientific_confidence="low",
+            notes="",
+            repo_root=repo_root,
+        )
+        assert save_calls == [1], "save_registry_entry must be called exactly once for a valid promotion"
+
+    def test_validate_entry_called_on_output_of_promotion(
+        self, registry_root, repo_root, make_exp_dir
+    ):
+        """The dict returned by promote() must pass validate_entry() without errors."""
+        _write_entry(registry_root, "surface_a")
+        result = promote(
+            surface_id="surface_a",
+            experiment_dirs=[make_exp_dir("exp_001")],
+            author="a",
+            recommendation="R.",
+            scientific_interest="medium",
+            scientific_confidence="low",
+            notes="",
+            repo_root=repo_root,
+        )
+        errors = validate_entry(result)
+        assert errors == [], f"Return value of promote() has validation errors: {errors}"
+
+    def test_on_disk_entry_passes_validation_after_promotion(
+        self, registry_root, repo_root, make_exp_dir
+    ):
+        """After a successful promotion, the on-disk YAML must pass validate_entry()."""
+        path = _write_entry(registry_root, "surface_a")
+        promote(
+            surface_id="surface_a",
+            experiment_dirs=[make_exp_dir("exp_001")],
+            author="a",
+            recommendation="R.",
+            scientific_interest="medium",
+            scientific_confidence="low",
+            notes="",
+            repo_root=repo_root,
+        )
+        reloaded = load_registry_entry(path)
+        errors = validate_entry(reloaded)
+        assert errors == [], f"On-disk entry has validation errors after promotion: {errors}"
