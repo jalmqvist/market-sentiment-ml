@@ -1,0 +1,106 @@
+# Behavioral Surface Registry Entry
+# ===================================
+# Authoritative scientific record for the Reactive JPY Behavioral Surface.
+#
+# This file is the single durable record for all accumulated evidence relating
+# to this surface.  It is updated exclusively through the explicit promotion
+# workflow (analysis/registry/promote.py) and must remain fully version-controlled.
+#
+# Schema version: 1.0.0
+# See registry/surfaces/README.md for field definitions and lifecycle documentation.
+
+surface_id: reactive_jpy
+
+ontology_version: v1
+
+lifecycle_stage: Characterization
+# Lifecycle stages: Characterization → Predictive Validation → Trading Validation → Integrated
+#                                                           → Retired
+
+current_status: active
+# current_status values: active | retired | suspended
+
+scientific_interest: medium
+# Scientific Interest: low | medium | high
+# How important or potentially novel would this surface's findings be if confirmed?
+# Human-authored; never computed automatically.
+
+scientific_confidence: low
+# Scientific Confidence: low | medium | high
+# How strongly is current evidence supporting the accumulated findings?
+# Human-authored; never computed automatically.
+
+current_recommendation: >
+  Repeat characterization with additional training epochs before drawing conclusions.
+  Prediction entropy is high and effective coverage is low in initial characterization
+  experiments.  Compare against a random size-matched control to determine whether
+  these properties are specific to the Behavioral Surface or a general property of
+  the dataset.
+
+# Supporting experiments that have been explicitly promoted into this registry entry.
+# Each entry references a completed experiment directory.
+# Do not add entries here directly — use analysis/registry/promote.py.
+supporting_experiments: []
+
+# Full promotion history.  Each promotion records what changed and why.
+# Appended by analysis/registry/promote.py; never edited manually.
+promotion_history: []
+
+# ---------------------------------------------------------------------------
+# Stage 1 — Behavioral Characterization
+# ---------------------------------------------------------------------------
+# Questions: Is the surface internally consistent?  Are the states meaningful?
+#            Does the induced prediction problem exhibit interesting properties?
+# Primary outputs: characterization reports, prediction characterization, coverage analysis.
+
+stage1:
+  status: in_progress
+  # status values: not_started | in_progress | complete
+
+  ontology_notes: >
+    Initial Reactive JPY ontology (v1) defines behavioral states based on crowd
+    positioning consensus and episode maturity.  States include
+    JPY_CONSENSUS_YOUNG, JPY_CONSENSUS_MATURE, and JPY_NON_EXTREME.
+    Ontology construction and BSVE validation are documented in
+    bsve/docs/reactive_jpy_findings.md.
+
+  previous_ontology_versions: []
+  # References to previous ontology versions for historical comparison.
+  # Format: { version: "v0", notes: "Description of what changed." }
+
+  characterization_experiments: []
+  # References to completed characterization experiment directories.
+  # Populated by promotion workflow.
+
+  summary: >
+    Stage 1 characterization is in progress.  No characterization experiments
+    have yet been formally promoted into the registry.
+
+# ---------------------------------------------------------------------------
+# Stage 2 — Predictive Validation
+# ---------------------------------------------------------------------------
+# Questions: Does the surface simplify prediction?  Does it outperform existing
+#            market-regime representations?  Are improvements stable under
+#            walk-forward validation?
+# Primary outputs: walk-forward reports, predictive comparisons, robustness estimates.
+
+stage2:
+  status: not_started
+  # Awaiting completion of Stage 1 characterization.
+
+  walk_forward_experiments: []
+  summary: null
+
+# ---------------------------------------------------------------------------
+# Stage 3 — Trading Validation
+# ---------------------------------------------------------------------------
+# Questions: Does improved prediction improve trading?  Does adaptive routing
+#            benefit from Behavioral Surface information?
+# Primary outputs: MPML evaluation, trading performance, robustness analysis.
+
+stage3:
+  status: not_started
+  # Awaiting successful Stage 2 predictive validation.
+
+  trading_experiments: []
+  summary: null

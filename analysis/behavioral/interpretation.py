@@ -2,7 +2,7 @@
 
 This module synthesizes experimental evidence into concise scientific findings.
 
-Public API (Behavioral Characterization Framework — PR5.1/PR5.2):
+Public API (Behavioral Characterization Framework — PR5.1, updated PR5.4):
     Finding                     — aggregated scientific finding with Interest/Confidence,
                                   separate observation/interpretation fields, and
                                   machine-readable evidence_strength summary.
@@ -30,6 +30,20 @@ All report sections, including Research Recommendations, derive from the canonic
 
 This avoids maintaining separate scientific rule systems for the recommendation
 engine and the report body.
+
+Scientific Restraint Conventions (PR5.4)
+-----------------------------------------
+Generated findings distinguish between:
+  - measured evidence (what the data shows)
+  - interpretation (what it may mean)
+  - hypothesis (what warrants further investigation)
+
+Findings prefer "The current evidence is consistent with..." over direct
+attribution to the Behavioral Surface when alternative explanations remain
+plausible (e.g. model capacity, optimization, sample size, calibration).
+
+When historical comparison information is unavailable, findings state this
+explicitly rather than interpreting isolated metrics as absolute.
 
 Legacy API (preserved for backwards compatibility):
     Observation                 — per-artifact rule-triggered observation
@@ -170,8 +184,10 @@ def _finding_prediction_entropy(metrics_df: pd.DataFrame) -> Finding | None:
             "with predicted probabilities concentrated near 0.5."
         )
         interp = (
-            "Behavioral characterization suggests training has not yet converged to a "
-            "discriminative solution for these states."
+            "The current evidence is consistent with training not yet converging to a "
+            "discriminative solution for these states.  Alternative explanations include "
+            "insufficient model capacity, limited discriminative signal in the current "
+            "feature set, or class imbalance effects."
         )
         confidence = "high"
         agreement = "full"
@@ -181,8 +197,10 @@ def _finding_prediction_entropy(metrics_df: pd.DataFrame) -> Finding | None:
             f"{len(rows_with_entropy)} state/model combinations."
         )
         interp = (
-            "Current evidence suggests partial convergence; some state/model pairs "
-            "may benefit from additional training."
+            "The current evidence is consistent with partial convergence; some "
+            "state/model pairs may not yet have reached a discriminative solution.  "
+            "Historical comparison is unavailable — a second characterization experiment "
+            "would clarify whether this is stable."
         )
         confidence = "medium"
         agreement = "partial"
@@ -199,9 +217,10 @@ def _finding_prediction_entropy(metrics_df: pd.DataFrame) -> Finding | None:
         interest="medium",
         confidence=confidence,
         follow_up=(
-            "Verify that training converged (inspect loss curves). "
-            "Consider increasing epochs or enriching the feature set with more "
-            "discriminative signals for these states."
+            "Repeat characterization with additional training epochs before drawing "
+            "conclusions.  Compare against a random size-matched control to determine "
+            "whether the high entropy is specific to these Behavioral States or a "
+            "general property of the training window."
         ),
         evidence_strength={
             "sample_size": f"{state_count} state(s), {combination_count} model/state combinations",
@@ -243,8 +262,11 @@ def _finding_effective_coverage(metrics_df: pd.DataFrame) -> Finding | None:
             "fewer than half of predictions are materially informative."
         )
         interp = (
-            "Current evidence suggests the model produces near-uniform predictions "
-            "for most observations, providing little actionable signal in the trained states."
+            "The current evidence is consistent with the model producing near-uniform "
+            "predictions for most observations.  Alternative explanations include "
+            "sample size effects, class imbalance, or insufficient training epochs.  "
+            "Historical comparison is unavailable — compare against a random "
+            "size-matched control to isolate any state-specific effect."
         )
         confidence = "high"
         agreement = "full"
@@ -254,8 +276,10 @@ def _finding_effective_coverage(metrics_df: pd.DataFrame) -> Finding | None:
             f"{len(rows)} state/model combinations."
         )
         interp = (
-            "Behavioral characterization suggests partial signal; some state/model "
-            "pairs show higher effective coverage than others."
+            "The current evidence is consistent with partial signal; some state/model "
+            "pairs show higher effective coverage than others.  Historical comparison "
+            "is unavailable — a further characterization experiment would clarify "
+            "whether the pattern is stable."
         )
         confidence = "medium"
         agreement = "partial"
@@ -272,10 +296,10 @@ def _finding_effective_coverage(metrics_df: pd.DataFrame) -> Finding | None:
         interest="high",
         confidence=confidence,
         follow_up=(
-            "Compare against random-matched controls to determine whether low "
-            "coverage is state-specific or a general property of the training "
-            "window. If universal, more training epochs or a richer feature set "
-            "may be required."
+            "Compare against previous Behavioral Surfaces or random size-matched "
+            "controls to determine whether low coverage is state-specific or a "
+            "general property of the training window.  Repeat characterization "
+            "with additional training epochs if controls confirm a state-specific effect."
         ),
         evidence_strength={
             "sample_size": f"{state_count} state(s), {combination_count} model/state combinations",
@@ -315,16 +339,20 @@ def _finding_mlp_lstm_agreement(compare_df: pd.DataFrame) -> Finding | None:
                 "MLP/LSTM directional agreement is consistently low across all states."
             )
             interp = (
-                "Behavioral characterization suggests the behavioral partitions do not "
-                "produce a robustly learnable signal, or that the two architectures "
-                "are capturing different noise structures."
+                "The current evidence is consistent with the behavioral partitions "
+                "not producing a robustly learnable signal across architectures.  "
+                "Alternative explanations include insufficient training epochs, "
+                "feature representation mismatch, or sample size effects.  "
+                "Historical comparison is unavailable — compare against a random "
+                "size-matched control to assess whether the pattern is state-specific."
             )
         else:
             states = ", ".join(str(r.get("state_id", "?")) for _, r in low_rows.iterrows())
             obs = f"MLP/LSTM directional agreement is low for states: {states}."
             interp = (
-                "Current evidence suggests these states may not produce a consistently "
-                "learnable signal across architectures."
+                "The current evidence is consistent with these states not producing a "
+                "consistently learnable signal across architectures.  Historical comparison "
+                "is unavailable — further experiments would clarify whether this is stable."
             )
         description = f"{obs} {interp}"
         return Finding(
@@ -336,8 +364,10 @@ def _finding_mlp_lstm_agreement(compare_df: pd.DataFrame) -> Finding | None:
             interest="high",
             confidence="medium" if not all_low else "high",
             follow_up=(
-                "Inspect prediction entropy per model separately. "
-                "Verify that the temporal training window is sufficient for stable convergence."
+                "Compare against previous Behavioral Surfaces to assess whether low "
+                "agreement is a property of this surface or a general training artefact.  "
+                "Inspect prediction entropy per model separately.  Repeat characterization "
+                "with a longer training window before drawing conclusions."
             ),
             evidence_strength={
                 "sample_size": f"{n_states} state(s)",
@@ -352,15 +382,19 @@ def _finding_mlp_lstm_agreement(compare_df: pd.DataFrame) -> Finding | None:
         if all_high:
             obs = "MLP/LSTM directional agreement is high across all states."
             interp = (
-                "Behavioral characterization suggests a potentially stable and learnable "
-                "signal across architectures. This is an unexpected result warranting "
-                "further evaluation."
+                "The current evidence is consistent with a stable and learnable signal "
+                "across architectures.  This is a noteworthy result; however, high "
+                "cross-architecture agreement alone does not confirm predictive value — "
+                "it may reflect shared directional bias rather than genuine mutual "
+                "information with future prices.  Historical comparison is unavailable."
             )
         else:
             obs = f"MLP/LSTM directional agreement is high in {len(high_rows)} of {len(rows)} states."
             interp = (
-                "Current evidence suggests a partially stable cross-architecture signal. "
-                "Further characterization is needed to assess generality."
+                "The current evidence is consistent with a partially stable "
+                "cross-architecture signal.  Historical comparison is unavailable — "
+                "further characterization is needed before drawing conclusions about "
+                "generality across states."
             )
         description = f"{obs} {interp}"
         return Finding(
@@ -372,8 +406,9 @@ def _finding_mlp_lstm_agreement(compare_df: pd.DataFrame) -> Finding | None:
             interest="high",
             confidence="high" if all_high else "medium",
             follow_up=(
-                "Verify that high agreement reflects genuine mutual information with future "
-                "prices rather than directional bias. Consider walk-forward evaluation."
+                "Proceed to walk-forward validation (PR7) to assess whether high agreement "
+                "reflects genuine predictive value.  Compare against previous Behavioral "
+                "Surfaces to determine whether high agreement is surface-specific."
             ),
             evidence_strength={
                 "sample_size": f"{n_states} state(s)",
@@ -759,13 +794,15 @@ def derive_research_recommendation(
     used when findings are available; coverage signals are read from the
     ``findings`` list instead.
 
-    Examples of returned recommendations::
+    Recommendations are phrased as research decisions rather than implementation
+    instructions.  Examples of returned recommendations::
 
-        Repeat characterization with additional training — ...
-        Proceed to walk-forward evaluation (PR7) — ...
+        Repeat characterization — ...
+        Proceed to walk-forward validation — ...
         Diagnose and repeat — ...
         Acquire additional Behavioral Surface evidence — ...
-        Proceed to initial comparison — ...
+        Compare against previous Behavioral Surfaces — ...
+        Await additional evidence — ...
         Insufficient evidence — no runs completed.
     """
     # Failures take priority
@@ -800,30 +837,35 @@ def derive_research_recommendation(
     if low_coverage and low_confidence_signal:
         return (
             "**Acquire additional Behavioral Surface evidence** — behavioral coverage is "
-            "limited and prediction confidence is weak. Consider a dataset variant with "
-            "broader behavioral coverage, or repeat characterization with additional training "
-            "before drawing conclusions."
+            "limited and prediction confidence is weak.  Consider a dataset variant with "
+            "broader behavioral coverage, or repeat characterization before drawing "
+            "conclusions.  Compare against a random size-matched control to separate "
+            "coverage effects from behavioral effects."
         )
 
     if low_confidence_signal:
         return (
-            "**Repeat characterization with additional training** — prediction entropy is "
-            "high and/or effective coverage is low, suggesting training has not yet converged "
-            "to a discriminative solution. Repeat characterization after adjusting training "
-            "parameters (see Finding follow-up for guidance)."
+            "**Repeat characterization** — prediction entropy is high and/or effective "
+            "coverage is low.  The current evidence is consistent with training not yet "
+            "converging to a discriminative solution.  Await additional characterization "
+            "evidence before proceeding to predictive validation.  See Finding follow-up "
+            "for guidance on adjusting training parameters."
         )
 
     if high_agreement:
         return (
-            "**Proceed to walk-forward evaluation (PR7)** — cross-architecture agreement is "
-            "high, suggesting a potentially learnable signal. Walk-forward evaluation will "
-            "assess whether the agreement reflects genuine predictive value."
+            "**Proceed to walk-forward validation** — cross-architecture agreement is "
+            "high.  The current evidence is consistent with a potentially learnable "
+            "signal.  Walk-forward evaluation (PR7) will assess whether the agreement "
+            "reflects genuine predictive value rather than directional bias."
         )
 
     return (
-        "**Proceed to initial comparison** — initial characterization completed without "
-        "critical issues. Consider comparing against Reactive CHF or a Persistent surface "
-        "to evaluate family-specific behavioral differences."
+        "**Compare against previous Behavioral Surfaces** — initial characterization "
+        "completed without critical issues.  Historical comparison is unavailable for "
+        "this experiment.  Consider comparing against Reactive CHF or a Persistent "
+        "surface to evaluate family-specific behavioral differences before proceeding "
+        "to walk-forward validation."
     )
 
 
