@@ -92,8 +92,9 @@ _DEFAULT_PROFILE = "standard"
 def _apply_profile(args: argparse.Namespace) -> argparse.Namespace:
     """Apply profile defaults to *args*, respecting explicit CLI overrides.
 
-    The profile sets default values for ``epochs`` and ``hidden_dim`` if and
-    only if those flags were not explicitly supplied on the command line.
+    The profile sets default values for ``epochs`` and ``hidden_dim`` only
+    when those flags were not explicitly supplied (i.e. they are still ``None``
+    from argparse, which uses ``None`` as the sentinel default for both flags).
     """
     profile_name = getattr(args, "profile", _DEFAULT_PROFILE) or _DEFAULT_PROFILE
     profile = PROFILES.get(profile_name)
@@ -101,12 +102,13 @@ def _apply_profile(args: argparse.Namespace) -> argparse.Namespace:
         known = ", ".join(PROFILES)
         raise ValueError(f"Unknown profile '{profile_name}'. Known profiles: {known}.")
 
-    # Only apply profile defaults when the user did not supply the flag.
-    # The sentinel approach: argparse stores the default value when no flag is
-    # given; we compare against _PROFILE_SENTINEL to detect "not supplied".
-    for key in ("epochs", "hidden_dim"):
-        if getattr(args, f"_{key}_explicit", False) is False:
-            setattr(args, key, profile[key])
+    # Only apply profile defaults when the user did not explicitly supply the
+    # flag.  Both --epochs and --hidden-dim default to None in argparse, so a
+    # None value here reliably means "not provided on the command line".
+    if args.epochs is None:
+        args.epochs = profile["epochs"]
+    if args.hidden_dim is None:
+        args.hidden_dim = profile["hidden_dim"]
 
     args.profile_name = profile_name
     args.profile_description = profile["description"]
@@ -156,14 +158,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--logs-dir", type=Path, default=Path("logs"))
     parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
     args = parser.parse_args(argv)
-
-    # Track which flags were explicitly provided so profile application can
-    # respect user overrides.
-    provided = {a.lstrip("-").replace("-", "_") for a in (argv or []) if a.startswith("--")}
-    args._epochs_explicit = "epochs" in provided
-    args._hidden_dim_explicit = "hidden_dim" in provided
-
     return _apply_profile(args)
+
 
 
 def _build_experiment_id(args: argparse.Namespace) -> str:

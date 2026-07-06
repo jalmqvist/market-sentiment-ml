@@ -26,7 +26,7 @@ from analysis.behavioral.interpretation import (
     format_findings,
     generate_findings,
 )
-from analysis.behavioral.run_behavioral_suite import PROFILES, _apply_profile, _parse_args
+from analysis.behavioral.run_behavioral_suite import PROFILES, _parse_args
 import analysis.behavioral.run_behavioral_suite as suite
 
 
@@ -544,6 +544,6 @@ class TestReportStructure:
         manifest = json.loads(
             (tmp_path / "out" / "exp_test" / "experiment_manifest.json").read_text(encoding="utf-8")
         )
-        # profile should appear somewhere in the manifest CLI section
+        # config_payload records the profile under "profile" key
         cli_parsed = manifest["cli"]["parsed"]
-        assert cli_parsed.get("profile") == "smoke" or cli_parsed.get("profile_name") == "smoke"
+        assert cli_parsed.get("profile") == "smoke"

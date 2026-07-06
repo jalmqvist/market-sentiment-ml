@@ -233,7 +233,7 @@ def _finding_mlp_lstm_agreement(compare_df: pd.DataFrame) -> Finding | None:
             description=description,
             evidence=evidence,
             interest="high",
-            confidence="medium" if not all_low else "high",  # type: ignore[possibly-undefined]
+            confidence="medium" if not all_low else "high",
             follow_up=(
                 "Inspect prediction entropy per model separately. "
                 "Verify that the temporal training window is sufficient for stable convergence."
