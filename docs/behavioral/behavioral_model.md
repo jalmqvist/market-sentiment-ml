@@ -250,3 +250,38 @@ The behavioral model should therefore be interpreted as:
 
 > a working research hypothesis,
 > not a finalized theory.
+
+---
+
+# Behavioral Characterization
+
+Behavioral experiments are evaluated by the **Behavioral Characterization Framework** (PR5.1).
+
+Reports produced by this framework answer:
+
+> **What have we learned about this Behavioral Surface?**
+
+Each report distinguishes two independent properties for every finding:
+
+**Scientific Interest**
+
+How important or potentially novel would this finding be if confirmed?
+
+**Scientific Confidence**
+
+How strongly is the finding currently supported by available evidence?
+
+A finding may have high Scientific Interest but low Scientific Confidence early in an experiment
+programme. As evidence accumulates across experiments, Confidence increases. Interest may decrease
+as findings become well-established.
+
+This distinction helps prioritize future research without overstating current evidence.
+
+Reports end with a single **Research Recommendation** derived from the synthesized findings:
+
+- **Proceed to walk-forward evaluation** — when cross-architecture agreement is high.
+- **Repeat characterization with additional training** — when training has not yet converged.
+- **Diagnose and repeat** — when training runs failed.
+- **Acquire additional Behavioral Surface evidence** — when coverage is limited and prediction confidence is weak.
+- **Proceed to initial comparison** — when characterization is complete and no critical issues were found.
+

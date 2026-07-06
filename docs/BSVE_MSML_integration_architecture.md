@@ -761,7 +761,168 @@ The primary output of the Behavioral Evaluation Framework is not the experiment 
 
 ---
 
-# PR6 — Behavioral Prediction Routing
+# PR5.1 — Behavioral Characterization Framework
+
+## Objective
+
+Transform the Behavioral Evaluation Framework into a **Behavioral Characterization Framework** that synthesizes experimental evidence into concise scientific findings.
+
+The primary objective is to improve scientific decision-making, not to increase the amount of reported information.
+
+Engineering diagnostics remain available in report appendices, but the primary report becomes a research decision-support document.
+
+---
+
+## Report Structure
+
+Every report begins with a one-page **Executive Summary**:
+
+```
+Experiment status
+Behavioral Surface
+Coverage
+Key Findings (≤ 5)
+Research Recommendation
+```
+
+The primary body contains **Scientific Findings** — aggregated, noise-suppressed statements with:
+
+```
+Finding title
+Observation   (factual — what the data shows)
+Interpretation (scientific — what it may mean)
+Supporting evidence (one line per model/state)
+Scientific Interest
+Scientific Confidence
+Recommended follow-up
+```
+
+Engineering diagnostics (raw metrics, coverage tables, manifest warnings, baseline controls, Key Observations legacy section, reproducibility) are moved to a report **Appendix**.
+
+---
+
+## Scientific Interest and Scientific Confidence
+
+Reports distinguish two independent quantities for each finding:
+
+**Scientific Interest**
+How important or potentially novel would this finding be if confirmed?  Interest is assigned based on the scientific importance of the phenomenon, not solely on threshold values.
+
+| Interest | Examples |
+|----------|---------|
+| High     | Strong architecture disagreement; unexpected transfer behaviour; unusually stable Behavioral Surface; surprising comparison against controls |
+| Medium   | Expected coverage limitations; moderate state imbalance |
+| Low      | Expected engineering properties; routine diagnostics |
+
+**Scientific Confidence**
+How strongly is the finding currently supported by available evidence?
+
+These quantities intentionally measure different properties. High-interest findings may initially carry low confidence. Well-established findings may eventually have relatively modest scientific interest. This distinction helps prioritize future research without overstating current evidence.
+
+Interest and Confidence are rated `low` / `medium` / `high`.
+
+---
+
+## Noise Suppression
+
+Repeated per-artifact observations are collapsed into single aggregated findings.
+
+Instead of:
+
+```
+Entropy high (STATE_A / MLP)
+Entropy high (STATE_A / LSTM)
+Entropy high (STATE_B / MLP)
+Entropy high (STATE_B / LSTM)
+```
+
+the report produces:
+
+```
+Finding: High prediction entropy across states
+Observation: Prediction entropy is consistently high across all Behavioral States,
+  with predicted probabilities concentrated near 0.5.
+Interpretation: Behavioral characterization suggests training has not yet converged
+  to a discriminative solution for these states.
+Supporting evidence:
+  - MLP / STATE_A: entropy 0.952 bits
+  - LSTM / STATE_A: entropy 0.961 bits
+  - MLP / STATE_B: entropy 0.948 bits
+  - LSTM / STATE_B: entropy 0.957 bits
+Scientific Interest: medium   Scientific Confidence: high
+Recommended follow-up: Verify training convergence. Consider increasing epochs.
+```
+
+---
+
+## Research Recommendation
+
+Every report ends with a single recommended next experimental step, derived exclusively from synthesized ``Finding`` objects rather than independently re-evaluating raw metrics. Examples:
+
+- **Proceed to walk-forward evaluation (PR7)** — when cross-architecture agreement is high.
+- **Repeat characterization with additional training** — when entropy is high or effective coverage is low.
+- **Diagnose and repeat** — when training runs failed.
+- **Acquire additional Behavioral Surface evidence** — when coverage is limited and prediction confidence is weak.
+- **Proceed to initial comparison** — when the experiment completed without critical issues.
+
+---
+
+## Named Training Profiles
+
+`run_behavioral_suite.py` exposes named profiles that replace raw epoch counts as the primary way to express training intent:
+
+| Profile       | Epochs | Purpose |
+|---------------|--------|---------|
+| `smoke`       | 2      | Pipeline smoke-test; results are not scientifically meaningful |
+| `standard`    | 10     | Initial scientific characterization (default) |
+| `publication` | 50     | Publication-quality results |
+
+The default profile is `standard` (10 epochs), replacing the previous default of 1 epoch.
+
+Individual hyperparameters (`--epochs`, `--hidden-dim`) can still be overridden via explicit CLI flags.
+
+Example:
+
+```bash
+python analysis/behavioral/run_behavioral_suite.py \
+  --dataset-version 1.5.1 \
+  --dataset-variant reactive_jpy_v1_core \
+  --profile standard
+```
+
+---
+
+## Future Compatibility
+
+The report architecture anticipates comparison against:
+
+- Reactive CHF Behavioral Surface
+- Persistent Behavioral Surface
+- Additional future surfaces
+
+No fixed state ontology is assumed. All finding rules operate on the metrics present in the experiment outputs.
+
+---
+
+## Delivered modules
+
+| Module | Purpose |
+|---|---|
+| `analysis/behavioral/interpretation.py` | `Finding` dataclass (with `observation`, `interpretation`, `evidence_strength`); `generate_findings()` (noise suppression, Finding-centric recommendation); `format_executive_summary()`; `format_findings()`; `derive_research_recommendation()` (derives from Findings only); legacy `Observation` API preserved |
+| `analysis/behavioral/reporting.py` | Restructured report: Executive Summary → Scientific Findings → Appendix (diagnostics) |
+| `analysis/behavioral/run_behavioral_suite.py` | Named profiles (`smoke` / `standard` / `publication`); default epoch 10; profile recorded in `experiment_manifest.json` |
+
+---
+
+The primary question answered by a Behavioral Characterization Report is:
+
+> **What have we learned about this Behavioral Surface?**
+
+not
+
+> **What happened during this experiment?**
+
+
 
 ### Objective
 

@@ -4,7 +4,16 @@ from pathlib import Path
 
 import pandas as pd
 
-from analysis.behavioral.interpretation import format_key_observations, generate_key_observations, Observation
+from analysis.behavioral.interpretation import (
+    Finding,
+    Observation,
+    derive_research_recommendation,
+    format_executive_summary,
+    format_findings,
+    format_key_observations,
+    generate_findings,
+    generate_key_observations,
+)
 
 
 def write_summary_csv(summary_rows: list[dict], output_path: Path) -> pd.DataFrame:
@@ -51,33 +60,57 @@ def write_markdown_report(
                 has_issue = has_issue | (manifest_df[col].fillna(0).astype(int) > 0)
         warning_rows = manifest_df[has_issue]
 
-    lines = [
-        f"# Behavioral Experiment Report: {experiment_id}",
+    # ------------------------------------------------------------------
+    # Synthesize findings and recommendation (PR5.1)
+    # ------------------------------------------------------------------
+    auto_metrics = metrics_df if metrics_df is not None else pd.DataFrame()
+    findings: list[Finding] = generate_findings(coverage_df, compare_df, auto_metrics)
+    recommendation = derive_research_recommendation(
+        run_df=run_df,
+        findings=findings,
+        coverage_df=coverage_df,
+    )
+
+    # ------------------------------------------------------------------
+    # Primary report: Executive Summary → Scientific Findings → Recommendation
+    # ------------------------------------------------------------------
+    lines: list[str] = [
+        f"# Behavioral Characterization Report: {experiment_id}",
         "",
-        "## Reproducibility",
-        f"- dataset_version: `{config.get('dataset_version')}`",
-        f"- dataset_variant: `{config.get('dataset_variant')}`",
-        f"- selected_models: `{','.join(config.get('models', []))}`",
-        f"- feature_set: `{config.get('feature_set')}`",
-        f"- target_horizon: `{config.get('target_horizon')}`",
-        f"- git_commit: `{config.get('git_commit')}`",
-        f"- started_at: `{config.get('started_at')}`",
-        f"- finished_at: `{config.get('finished_at')}`",
+        format_executive_summary(
+            experiment_id=experiment_id,
+            run_df=run_df,
+            coverage_df=coverage_df,
+            discovered_states=discovered_states or [],
+            findings=findings,
+            recommendation=recommendation,
+        ),
         "",
-        "## Discovered Behavioral Surface States",
+        format_findings(findings),
     ]
+
+    # ------------------------------------------------------------------
+    # Appendix: engineering diagnostics and raw metrics
+    # ------------------------------------------------------------------
+    lines.extend([
+        "",
+        "---",
+        "",
+        "## Appendix",
+        "",
+        "### Discovered Behavioral Surface States",
+    ])
     lines.append(_states_table(discovered_states or []))
 
     lines.extend([
         "",
-        "## Execution Summary",
+        "### Execution Summary",
         f"- total_runs: {len(run_df)}",
         f"- successful_runs: {(run_df['status'] == 'success').sum() if not run_df.empty else 0}",
         f"- failed_runs: {len(failures) if failures is not None else 0}",
-        "",
-        "## Coverage",
     ])
 
+    lines.extend(["", "### Coverage"])
     if coverage_df.empty:
         lines.append("No coverage rows generated.")
     else:
@@ -88,7 +121,7 @@ def write_markdown_report(
         ]]
         lines.append(coverage_df[display_cols].to_markdown(index=False))
 
-    lines.extend(["", "## Prediction Comparison (MLP vs LSTM)"])
+    lines.extend(["", "### Prediction Comparison (MLP vs LSTM)"])
     if compare_df.empty:
         lines.append("No comparable MLP/LSTM prediction overlap found.")
     else:
@@ -96,7 +129,7 @@ def write_markdown_report(
 
     # Scientific metrics
     if metrics_df is not None and not metrics_df.empty:
-        lines.extend(["", "## Scientific Prediction Metrics"])
+        lines.extend(["", "### Scientific Prediction Metrics"])
         metric_display_cols = [c for c in [
             "artifact_file", "state_id", "n_predictions",
             "prediction_entropy_mean", "prediction_confidence_mean",
@@ -108,7 +141,7 @@ def write_markdown_report(
 
     # Controls
     if controls_df is not None and not controls_df.empty:
-        lines.extend(["", "## Baseline Controls"])
+        lines.extend(["", "### Baseline Controls"])
         control_display_cols = [c for c in [
             "scope", "control_type", "row_count",
             "coverage_fraction", "pair_count",
@@ -117,19 +150,15 @@ def write_markdown_report(
         if control_display_cols:
             lines.append(controls_df[control_display_cols].to_markdown(index=False))
 
-    # Key observations
+    # Key observations (legacy section, kept for traceability)
     if key_observations is not None:
         lines.extend(["", format_key_observations(key_observations)])
     else:
-        # Auto-generate if all required dataframes are present
-        if not coverage_df.empty:
-            auto_metrics = metrics_df if metrics_df is not None else pd.DataFrame()
-            auto_compare = compare_df
-            obs = generate_key_observations(coverage_df, auto_compare, auto_metrics, controls_df)
-            lines.extend(["", format_key_observations(obs)])
+        obs = generate_key_observations(coverage_df, compare_df, auto_metrics, controls_df)
+        lines.extend(["", format_key_observations(obs)])
 
     # Manifest issues (errors first, then warnings)
-    lines.extend(["", "## Manifest Issues"])
+    lines.extend(["", "### Manifest Issues"])
     if warning_rows.empty:
         lines.append("No manifest errors or warnings detected.")
     else:
@@ -137,13 +166,13 @@ def write_markdown_report(
         if "error_count" in manifest_df.columns:
             error_rows = manifest_df[manifest_df["error_count"].fillna(0).astype(int) > 0]
             if not error_rows.empty:
-                lines.extend(["", "### Errors"])
+                lines.extend(["", "#### Errors"])
                 lines.append(error_rows[["manifest_file", "errors"]].to_markdown(index=False))
         # Show warning rows
         if "warning_count" in manifest_df.columns:
             warn_rows = manifest_df[manifest_df["warning_count"].fillna(0).astype(int) > 0]
             if not warn_rows.empty:
-                lines.extend(["", "### Warnings"])
+                lines.extend(["", "#### Warnings"])
                 disp_cols = ["manifest_file", "warnings"]
                 if "notes" in manifest_df.columns:
                     disp_cols = ["manifest_file", "warnings", "notes"]
@@ -153,11 +182,24 @@ def write_markdown_report(
     if not manifest_df.empty and "warning_count" not in manifest_df.columns and "warnings" in manifest_df.columns:
         legacy_warn = manifest_df[manifest_df.get("warning_count", 0) > 0]
         if not legacy_warn.empty:
-            lines.extend(["", "### Legacy Manifest Warnings"])
+            lines.extend(["", "#### Legacy Manifest Warnings"])
             lines.append(legacy_warn[["manifest_file", "warnings"]].to_markdown(index=False))
 
     if not failures.empty:
         lines.extend(["", "## Failed Runs"])
         lines.append(failures[["surface_id", "state_id", "model", "returncode", "log_file"]].to_markdown(index=False))
+
+    lines.extend([
+        "",
+        "### Reproducibility",
+        f"- dataset_version: `{config.get('dataset_version')}`",
+        f"- dataset_variant: `{config.get('dataset_variant')}`",
+        f"- selected_models: `{','.join(config.get('models', []))}`",
+        f"- feature_set: `{config.get('feature_set')}`",
+        f"- target_horizon: `{config.get('target_horizon')}`",
+        f"- git_commit: `{config.get('git_commit')}`",
+        f"- started_at: `{config.get('started_at')}`",
+        f"- finished_at: `{config.get('finished_at')}`",
+    ])
 
     output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
