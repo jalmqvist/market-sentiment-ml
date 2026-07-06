@@ -161,7 +161,8 @@ def _finding_prediction_entropy(metrics_df: pd.DataFrame) -> Finding | None:
 
     all_high = len(high_rows) == len(rows_with_entropy)
     frac = len(high_rows) / len(rows_with_entropy)
-    n_states = rows_with_entropy["state_id"].nunique() if "state_id" in rows_with_entropy.columns else len(rows_with_entropy)
+    state_count = rows_with_entropy["state_id"].nunique() if "state_id" in rows_with_entropy.columns else len(rows_with_entropy)
+    combination_count = len(rows_with_entropy)  # model × state combinations
 
     if all_high:
         obs = (
@@ -203,7 +204,7 @@ def _finding_prediction_entropy(metrics_df: pd.DataFrame) -> Finding | None:
             "discriminative signals for these states."
         ),
         evidence_strength={
-            "sample_size": f"{n_states} state(s), {len(rows_with_entropy)} model/state combinations",
+            "sample_size": f"{state_count} state(s), {combination_count} model/state combinations",
             "agreement": agreement,
             "controls": "none",
             "repeatability": "single_run",
@@ -233,7 +234,8 @@ def _finding_effective_coverage(metrics_df: pd.DataFrame) -> Finding | None:
 
     all_low = len(low_rows) == len(rows)
     frac = len(low_rows) / len(rows)
-    n_states = rows["state_id"].nunique() if "state_id" in rows.columns else len(rows)
+    state_count = rows["state_id"].nunique() if "state_id" in rows.columns else len(rows)
+    combination_count = len(rows)  # model × state combinations
 
     if all_low:
         obs = (
@@ -276,7 +278,7 @@ def _finding_effective_coverage(metrics_df: pd.DataFrame) -> Finding | None:
             "may be required."
         ),
         evidence_strength={
-            "sample_size": f"{n_states} state(s), {len(rows)} model/state combinations",
+            "sample_size": f"{state_count} state(s), {combination_count} model/state combinations",
             "agreement": agreement,
             "controls": "none",
             "repeatability": "single_run",

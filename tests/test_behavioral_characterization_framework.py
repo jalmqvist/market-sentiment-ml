@@ -673,16 +673,29 @@ class TestCoverageFindingWording:
 
 
 class TestHighAgreementInterest:
-    """High MLP/LSTM agreement now has Scientific Interest = high."""
+    """High MLP/LSTM agreement has Scientific Interest = high.
+
+    Rationale: strong cross-architecture agreement is scientifically notable because
+    it suggests an unusually stable Behavioral Surface — an unexpected result that
+    warrants further investigation (e.g. walk-forward evaluation).  This qualifies
+    as 'High Interest' per the interest assignment guidelines.
+    """
 
     def test_high_agreement_has_high_interest(self):
+        """High cross-architecture agreement should be rated High Interest —
+        an unusually stable Behavioral Surface is scientifically notable."""
         compare_df = _make_compare_df(agreement=0.90)
         findings = generate_findings(pd.DataFrame(), compare_df, pd.DataFrame())
         agree_f = next((f for f in findings if "high" in f.title.lower() and "agreement" in f.title.lower()), None)
         assert agree_f is not None
-        assert agree_f.interest == "high"
+        assert agree_f.interest == "high", (
+            "High MLP/LSTM agreement should be High Interest: an unusually stable "
+            "Behavioral Surface is scientifically notable and warrants walk-forward evaluation."
+        )
 
     def test_low_agreement_retains_high_interest(self):
+        """Low cross-architecture agreement is rated High Interest — strong architecture
+        disagreement is a scientifically important signal."""
         compare_df = _make_compare_df(agreement=0.45)
         findings = generate_findings(pd.DataFrame(), compare_df, pd.DataFrame())
         agree_f = next((f for f in findings if "low" in f.title.lower() and "agreement" in f.title.lower()), None)
