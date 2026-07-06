@@ -31,7 +31,9 @@ preserving backwards compatibility.
 | PR3   | Behavioral training                                         |
 | PR3.1 | Dataset variants                                            |
 | PR4   | Behavioral Experiment Framework                             |
-| PR5   | Behavioral Characterization Framework                       |
+| PR5   | Behavioral Evaluation Framework                             |
+| PR5.1 | Behavioral Characterization Framework                       |
+| PR5.4 | Behavioral Surface Registry                                 |
 | PR6   | MPML behavioral prediction routing                          |
 | PR7   | Walk-forward scientific evaluation                          |
 | PR8   | Generalized SurfaceProvider abstraction (only if justified) |
@@ -345,12 +347,12 @@ filenames directly.
 
 Filename resolution:
 
-| variant      | filename                                            |
-|--------------|-----------------------------------------------------|
-| `full`       | `master_research_dataset.csv`                       |
-| `core`       | `master_research_dataset_core.csv`                  |
-| `extended`   | `master_research_dataset_extended.csv`              |
-| `<other>`    | `master_research_dataset_<other>.csv`               |
+| variant    | filename                               |
+| ---------- | -------------------------------------- |
+| `full`     | `master_research_dataset.csv`          |
+| `core`     | `master_research_dataset_core.csv`     |
+| `extended` | `master_research_dataset_extended.csv` |
+| `<other>`  | `master_research_dataset_<other>.csv`  |
 
 The variant parameter accepts any string, enabling arbitrary Behavioral Surface
 variants without modifying the loader.
@@ -543,12 +545,14 @@ results rather than managing training runs and artifacts.
 
 ## Objective
 
-Transform the Behavioral Experiment Framework into a Behavioral Characterization Framework capable of synthesizing evidence about Behavioral Surfaces rather than merely reporting experiment metrics.
+Transform the Behavioral Experiment Framework into a Behavioral Evaluation
+Framework capable of producing standardized, comparable characterizations about
+Behavioral Surfaces rather than merely reporting raw experiment outputs.
 
 This PR introduces no new predictive models.
 
 Its purpose is to improve experiment robustness and the scientific value of the
- generated reports.
+generated reports.
 
 ------
 
@@ -617,86 +621,10 @@ Initial controls include
 - randomly sampled partitions matched for sample size
 
 Controls exist to distinguish genuine behavioral effects from effects caused by
- dataset size or partitioning alone.
+dataset size or partitioning alone.
 
 Random partitions shall be matched for sample size and temporal coverage
 whenever possible to avoid confounding coverage effects with predictive effects.
-
-------
-
-## Scientific Interpretation
-
-Generated reports should contain a concise rule-based interpretation section.
-
-Interpretations summarize the experimental observations without drawing
- scientific conclusions.
-
-Examples include
-
-- Behavioral coverage represents 6.7% of the canonical dataset.
-- MLP/LSTM agreement is substantially lower in JPY_CONSENSUS_YOUNG than in
-   JPY_NON_EXTREME.
-- Behavioral state occupancy is strongly imbalanced.
-
-Interpretations shall explain
-
-- what was observed
-- why it matters
-- what follow-up investigation it suggests
-
-without making unsupported scientific claims.
-
-Interpretations should explain why observations matter rather than merely
- repeating numeric values.
-
----
-
-### Evidence Assessment
-
-Scientific findings should distinguish between
-
-**Scientific Interest**
-
-How important or potentially novel would this finding be if confirmed?
-
-and
-
-**Scientific Confidence**
-
-How strongly is the finding currently supported by available evidence?
-
-These quantities intentionally measure different properties.
-
-High-interest findings may initially have low confidence.
-
-Conversely, well-established findings may eventually have relatively modest scientific interest.
-
-This distinction helps prioritize future research without overstating current evidence.
-
----
-
-### Scientific Synthesis
-
-The primary purpose of generated reports is to support scientific decision-making rather than comprehensive metric reporting.
-
-Reports should therefore prioritize
-
-- concise executive summaries
-- aggregated findings rather than repetitive observations
-- supporting evidence for each finding
-- recommended next experiments
-
-Engineering diagnostics remain available in appendices or auxiliary output files.
-
-Behavioral characterization reports should answer
-
-> **What have we learned about this Behavioral Surface?**
-
-rather than
-
-> **What happened during this experiment?**
-
-Characterization reports are intended to support research decisions, not publication-quality scientific conclusions.
 
 ------
 
@@ -704,9 +632,7 @@ Characterization reports are intended to support research decisions, not publica
 
 Introduce
 
-```
-analysis/behavioral/compare_experiments.py
-```
+`analysis/behavioral/compare_experiments.py`
 
 capable of comparing two or more completed experiment directories without requiring prediction regeneration or retraining.
 
@@ -735,7 +661,7 @@ Those remain the responsibility of subsequent PRs.
 
 ## Result
 
-The Behavioral Experiment Framework evolves from an execution framework into a scientific characterization framework, allowing researchers to focus primarily on  interpreting behavioral experiments rather than assembling metrics manually.
+The Behavioral Experiment Framework evolves into the foundation upon which the Behavioral Characterization Framework (PR5.1) builds, allowing researchers to focus primarily on interpreting behavioral experiments rather than assembling metrics manually.
 
 ### Delivered modules
 
@@ -776,28 +702,74 @@ Engineering diagnostics remain available in report appendices, but the primary r
 ## Report Structure
 
 Every report begins with a one-page **Executive Summary**:
-
-```
-Experiment status
-Behavioral Surface
-Coverage
-Key Findings (≤ 5)
-Research Recommendation
 ```
 
+Experiment status Behavioral Surface Coverage Key Findings (≤ 5) Research Recommendation
+
+```
 The primary body contains **Scientific Findings** — aggregated, noise-suppressed statements with:
-
-```
-Finding title
-Observation   (factual — what the data shows)
-Interpretation (scientific — what it may mean)
-Supporting evidence (one line per model/state)
-Scientific Interest
-Scientific Confidence
-Recommended follow-up
 ```
 
+Finding title Observation (factual — what the data shows) Interpretation (scientific — what it may mean) Supporting evidence (one line per model/state) Scientific Interest Scientific Confidence Recommended follow-up
+
+```
 Engineering diagnostics (raw metrics, coverage tables, manifest warnings, baseline controls, Key Observations legacy section, reproducibility) are moved to a report **Appendix**.
+
+---
+
+## Scientific Interpretation
+
+Generated reports should contain a concise rule-based interpretation section.
+
+Interpretations summarize the experimental observations without drawing
+scientific conclusions.
+
+Examples include
+
+- Behavioral coverage represents 6.7% of the canonical dataset.
+- MLP/LSTM agreement is substantially lower in JPY_CONSENSUS_YOUNG than in
+  JPY_NON_EXTREME.
+- Behavioral state occupancy is strongly imbalanced.
+
+Interpretations shall explain
+
+- what was observed
+- why it matters
+- what follow-up investigation it suggests
+
+without making unsupported scientific claims.
+
+Interpretations should explain why observations matter rather than merely
+repeating numeric values.
+
+---
+
+## Comparative Characterization
+
+Behavioral Characterization should become increasingly comparative as evidence accumulates.
+
+Early reports necessarily interpret individual experiments in isolation.
+
+Once multiple Behavioral Surfaces have been evaluated, reports should increasingly compare new results against accumulated historical evidence.
+
+Preferred comparisons include
+
+- previous ontology versions,
+- related Behavioral Surfaces,
+- architecture agreement trends,
+- prediction uncertainty,
+- coverage,
+- registry status.
+
+Characterization therefore evolves from
+
+> "What happened during this experiment?"
+
+towards
+
+> "How does this Behavioral Surface compare with everything currently known?"
+
+The Behavioral Surface Registry (PR5.4) provides the accumulated scientific context required for these comparisons.
 
 ---
 
@@ -823,36 +795,64 @@ Interest and Confidence are rated `low` / `medium` / `high`.
 
 ---
 
+## Scientific Restraint
+
+Behavioral Characterization Reports intentionally distinguish between
+
+**observations**
+
+and
+
+**scientific conclusions**.
+
+Characterization experiments describe properties of the induced prediction problem.
+
+They do **not** establish predictive usefulness.
+
+Interpretations should therefore avoid attributing observed behaviour directly to the Behavioral Surface when alternative explanations remain plausible.
+
+Examples include
+
+- model capacity,
+- optimization,
+- feature representation,
+- sample size,
+- calibration,
+- class imbalance.
+
+Reports should therefore prefer wording such as
+
+> "The current evidence is consistent with..."
+
+rather than
+
+> "The Behavioral Surface demonstrates..."
+
+This preserves the distinction between hypothesis generation and predictive validation.
+
+---
+
 ## Noise Suppression
 
 Repeated per-artifact observations are collapsed into single aggregated findings.
 
 Instead of:
-
-```
-Entropy high (STATE_A / MLP)
-Entropy high (STATE_A / LSTM)
-Entropy high (STATE_B / MLP)
-Entropy high (STATE_B / LSTM)
 ```
 
+Entropy high (STATE_A / MLP) Entropy high (STATE_A / LSTM) Entropy high (STATE_B / MLP) Entropy high (STATE_B / LSTM)
+
+```
 the report produces:
-
-```
-Finding: High prediction entropy across states
-Observation: Prediction entropy is consistently high across all Behavioral States,
-  with predicted probabilities concentrated near 0.5.
-Interpretation: Behavioral characterization suggests training has not yet converged
-  to a discriminative solution for these states.
-Supporting evidence:
-  - MLP / STATE_A: entropy 0.952 bits
-  - LSTM / STATE_A: entropy 0.961 bits
-  - MLP / STATE_B: entropy 0.948 bits
-  - LSTM / STATE_B: entropy 0.957 bits
-Scientific Interest: medium   Scientific Confidence: high
-Recommended follow-up: Verify training convergence. Consider increasing epochs.
 ```
 
+Finding: High prediction entropy across states Observation: Prediction entropy is consistently high across all Behavioral States, with predicted probabilities concentrated near 0.5. Interpretation: Behavioral characterization suggests training has not yet converged to a discriminative solution for these states. Supporting evidence:
+
+- MLP / STATE_A: entropy 0.952 bits
+- LSTM / STATE_A: entropy 0.961 bits
+- MLP / STATE_B: entropy 0.948 bits
+- LSTM / STATE_B: entropy 0.957 bits Scientific Interest: medium Scientific Confidence: high Recommended follow-up: Verify training convergence. Consider increasing epochs.
+
+```
 ---
 
 ## Research Recommendation
@@ -890,7 +890,7 @@ python analysis/behavioral/run_behavioral_suite.py \
   --profile standard
 ```
 
----
+------
 
 ## Future Compatibility
 
@@ -902,17 +902,17 @@ The report architecture anticipates comparison against:
 
 No fixed state ontology is assumed. All finding rules operate on the metrics present in the experiment outputs.
 
----
+------
 
 ## Delivered modules
 
-| Module | Purpose |
-|---|---|
-| `analysis/behavioral/interpretation.py` | `Finding` dataclass (with `observation`, `interpretation`, `evidence_strength`); `generate_findings()` (noise suppression, Finding-centric recommendation); `format_executive_summary()`; `format_findings()`; `derive_research_recommendation()` (derives from Findings only); legacy `Observation` API preserved |
-| `analysis/behavioral/reporting.py` | Restructured report: Executive Summary → Scientific Findings → Appendix (diagnostics) |
+| Module                                        | Purpose                                                      |
+| --------------------------------------------- | ------------------------------------------------------------ |
+| `analysis/behavioral/interpretation.py`       | `Finding` dataclass (with `observation`, `interpretation`, `evidence_strength`); `generate_findings()` (noise suppression, Finding-centric recommendation); `format_executive_summary()`; `format_findings()`; `derive_research_recommendation()` (derives from Findings only); legacy `Observation` API preserved |
+| `analysis/behavioral/reporting.py`            | Restructured report: Executive Summary → Scientific Findings → Appendix (diagnostics) |
 | `analysis/behavioral/run_behavioral_suite.py` | Named profiles (`smoke` / `standard` / `publication`); default epoch 10; profile recorded in `experiment_manifest.json` |
 
----
+------
 
 The primary question answered by a Behavioral Characterization Report is:
 
@@ -922,9 +922,204 @@ not
 
 > **What happened during this experiment?**
 
+------
 
+# PR5.4 — Behavioral Surface Registry
 
-### Objective
+## Objective
+
+Introduce a durable, cross-experiment record of accumulated evidence for each Behavioral Surface, independent of any individual experiment report.
+
+Behavioral Characterization Reports answer
+
+> **What happened during this experiment?**
+
+Walk-forward validation answers
+
+> **Does this Behavioral Surface possess predictive value?**
+
+The Behavioral Surface Registry answers
+
+> **What do we currently believe about this Behavioral Surface, based on all accumulated evidence?**
+
+As the number of Behavioral Surfaces grows beyond the initial Reactive JPY ontology, maintaining scientific continuity across experiments becomes an architectural responsibility rather than merely a documentation convenience.
+
+------
+
+## Scope
+
+This PR introduces the registry schema and promotion workflow only.
+
+It does **not**
+
+- introduce new evaluation metrics,
+- modify experiment reports,
+- automate scientific interpretation,
+- perform walk-forward evaluation,
+- or perform trading evaluation.
+
+Registry entries initially contain Stage 1 evidence.
+
+The schema intentionally reserves sections for Stage 2 (Predictive Validation) and Stage 3 (Trading Validation) so that future evidence extends existing records rather than introducing parallel registries.
+
+------
+
+## Design Principles
+
+### Scientific judgments, not measurements
+
+The registry stores scientific judgments derived from accumulated evidence rather than experimental measurements.
+
+Experiment reports remain the authoritative source of measurements.
+
+The registry records the current scientific interpretation of that evidence.
+
+------
+
+### Human interpretation remains authoritative
+
+Scientific Interest and Scientific Confidence are the concepts introduced in PR5.
+
+Within the registry they are always human-authored.
+
+Each assessment records
+
+- author
+- timestamp
+- supporting experiments
+
+These assessments are informed by experiment evidence but are never computed automatically.
+
+------
+
+### One Behavioral Surface, one scientific record
+
+Each Behavioral Surface owns exactly one registry entry.
+
+Evidence accumulates.
+
+Interpretation evolves.
+
+History is preserved.
+
+------
+
+### The registry is an index
+
+The registry references experiment reports.
+
+It never duplicates measurements or report content.
+
+Reports remain responsible for experimental evidence.
+
+The registry records the project's current working scientific interpretation.
+
+------
+
+### Promotion is explicit
+
+Completed experiments append candidate evidence.
+
+A separate promotion step updates the authoritative registry entry.
+
+Scientific interpretation therefore remains a deliberate research decision rather than an automatic consequence of experiment completion.
+
+------
+
+### Retirement is informative
+
+A Behavioral Surface that ultimately fails predictive validation is retained.
+
+Its registry entry transitions to
+
+```
+Retired
+```
+
+together with the supporting evidence.
+
+Negative results remain durable scientific outputs.
+
+------
+
+## Registry Lifecycle
+
+Each Behavioral Surface progresses independently through the research programme.
+
+Typical progression:
+
+```
+Characterization
+
+↓
+
+Predictive Validation
+
+↓
+
+Trading Validation
+
+↓
+
+Integrated
+```
+
+or
+
+```
+Characterization
+
+↓
+
+Predictive Validation
+
+↓
+
+Retired
+```
+
+Lifecycle stage records research progress rather than scientific quality.
+
+------
+
+## Deliverables
+
+```
+registry/surfaces/<surface>.yaml
+
+analysis/registry/promote.py
+
+analysis/registry/high_score.py
+```
+
+Each registry entry records
+
+- lifecycle stage
+- Scientific Interest
+- Scientific Confidence
+- accumulated supporting evidence
+- recommended next research step
+- promotion history
+
+------
+
+## Result
+
+The Behavioral Surface Registry becomes the project's durable scientific memory.
+
+Experiment reports describe individual experiments.
+
+Walk-forward reports establish predictive evidence.
+
+MPML establishes trading evidence.
+
+The registry records the current scientific understanding of every Behavioral Surface.
+
+------
+
+# PR6 — Behavioral Prediction Routing
+
+## Objective
 
 Teach MPML to consume Behavioral Surface prediction artifacts while preserving complete backwards compatibility with the existing regime-based workflow.
 
@@ -936,7 +1131,15 @@ Behavioral routing should be additive rather than replacing existing regime rout
 
 Scientific conclusions remain explicitly out of scope until PR7.
 
----
+------
+
+## Result
+
+Behavioral prediction artifacts become first-class routing inputs for MPML while remaining completely independent of the existing market-regime workflow.
+
+This PR establishes the architectural connection between Behavioral Characterization and downstream predictive validation without drawing scientific conclusions about predictive value.
+
+------
 
 # PR7 — Behavioral Walk-forward Validation
 
@@ -951,6 +1154,7 @@ Previous PRs establish
 - model training
 - experiment orchestration
 - experiment characterization
+- behavioral prediction routing
 
 PR7 introduces **predictive validation**.
 
@@ -966,9 +1170,11 @@ Observations regarding entropy, confidence, agreement or state occupancy may sug
 
 Only reproducible walk-forward evaluation may support such conclusions.
 
-### Deliverables
+------
 
-- full walk-forward
+## Deliverables
+
+- full walk-forward evaluation
 - predictive metrics
 - comparison against trend/volatility regimes
 - reproducible reports
@@ -983,28 +1189,29 @@ Expected comparisons
 - Coverage
 - Statistical significance of predictive differences
 
-### Possible outcomes
+------
 
-CONFIRMED
+## Possible outcomes
 
-Behavioral surfaces outperform the existing market-regime partition.
+### CONFIRMED
 
-INCONCLUSIVE
+Behavioral Surfaces outperform the existing market-regime partition.
+
+### INCONCLUSIVE
 
 Behavioral representation appears useful but requires refinement.
 
-NOT CONFIRMED
+### NOT CONFIRMED
 
-Behavioral partitioning does not improve prediction despite successful BSVE
-validation.
+Behavioral partitioning does not improve prediction despite successful BSVE validation.
 
----
+------
 
-## Scientific Maturity
+# Scientific Evidence Hierarchy
 
 Behavioral Surfaces evolve through several distinct stages of scientific maturity.
 
-### Stage 1 — Behavioral Characterization
+## Stage 1 — Behavioral Characterization
 
 Questions answered
 
@@ -1014,13 +1221,13 @@ Questions answered
 
 Primary outputs
 
-- experiment reports
+- characterization reports
 - prediction characterization
 - coverage analysis
 
 ------
 
-### Stage 2 — Predictive Validation
+## Stage 2 — Predictive Validation
 
 Questions answered
 
@@ -1036,7 +1243,7 @@ Primary outputs
 
 ------
 
-### Stage 3 — Trading Validation
+## Stage 3 — Trading Validation
 
 Questions answered
 
@@ -1050,7 +1257,11 @@ Primary outputs
 - trading performance
 - robustness analysis
 
----
+These stages represent increasing levels of scientific evidence.
+
+Progression between stages is deliberate and requires supporting experimental evidence rather than successful software implementation.
+
+------
 
 # PR8 — Surface Generalization
 
@@ -1058,46 +1269,15 @@ Replace the current surface-specific interfaces with a generic SurfaceProvider a
 
 This refactor is intentionally deferred until Behavioral Surface predictive value has been demonstrated.
 
----
-
-# Future Direction — Behavioral Surface Registry
-
-Repeated Behavioral Surface experiments suggest that the enduring scientific object is the **Behavioral Surface itself**, rather than any individual experiment.
-
-Experiment reports are transient.
-
-Behavioral Surfaces accumulate evidence through repeated characterization, validation and comparison.
-
-A future Behavioral Surface Registry may therefore be introduced to maintain accumulated evidence across experiments.
-
-Possible responsibilities include
-
-- evaluation history
-- walk-forward history
-- comparison history
-- researcher annotations
-- current research status
-- recommended next steps
-
-The precise contents of such a registry are intentionally left undefined.
-
-The project is expected to discover which quantities prove scientifically valuable through the evaluation of multiple independent Behavioral Surfaces before committing to a permanent schema.
-
-This registry is conceptually distinct from experiment tracking systems (such as MLflow), whose primary responsibility is experiment provenance rather than long-term scientific interpretation.
-
-The registry is expected to evolve from accumulated evidence rather than from predefined scoring rules.
-
----
+------
 
 # Future Work
 
 The implementation above intentionally postpones architectural generalization.
 
-If Behavioral Surface predictive validation succeeds, a later refactor may
-introduce a generalized SurfaceProvider abstraction.
+If Behavioral Surface predictive validation succeeds, a later refactor may introduce a generalized SurfaceProvider abstraction.
 
-That abstraction would allow multiple behavioral or market surfaces to coexist
-without modifying train.py or MPML.
+That abstraction would allow multiple behavioral or market surfaces to coexist without modifying train.py or MPML.
 
 Examples include
 
@@ -1106,58 +1286,27 @@ Examples include
 - Reactive-CHF Surface
 - Persistent Surface
 
-This refactor is intentionally deferred until predictive value has been
-demonstrated.
+This refactor is intentionally deferred until predictive value has been demonstrated.
 
-The current implementation prioritizes answering the scientific question over
-architectural elegance.
+The current implementation prioritizes answering the scientific question over architectural elegance.
 
----
+------
 
 # Layered Architecture
 
-The integration intentionally separates behavioral discovery from predictive
-modelling and experiment execution.
+The integration intentionally separates behavioral discovery from predictive modelling and experiment execution.
 
-BSVE
-        │
-        ▼
-Behavioral Surface Artifact
-        │
-        ▼
-Dataset Builder
-        │
-        ▼
-Augmented Dataset
-        │
-        ▼
-MSML Training Pipelines
-        │
-        ▼
-Prediction Artifacts
-        │
-        ▼
-Behavioral Experiment Framework
-        │
-        ▼
-Behavioral Evaluation Framework
-        │
-        ▼
-Experiment Comparison
-        │
-        ▼
-MPML Evaluation
+BSVE │ ▼ Behavioral Surface Artifact │ ▼ Dataset Builder │ ▼ Augmented Dataset │ ▼ MSML Training Pipelines │ ▼ Prediction Artifacts │ ▼ Behavioral Experiment Framework │ ▼ Behavioral Evaluation Framework │ ▼ Experiment Comparison │ ▼ MPML Evaluation
 
-Each layer consumes only the published artifacts of the previous layer and
-never depends upon internal implementation details.
+Each layer consumes only the published artifacts of the previous layer and never depends upon internal implementation details.
 
----
+------
 
 # Research Philosophy
 
-The Behavioral Surface integration intentionally separates three independent scientific questions.
+The Behavioral Surface integration intentionally separates three independent scientific questions, each answered by a distinct stage of evidence. Behavioral discovery in BSVE is the prerequisite that produces the Behavioral Surface; the three MSML/MPML stages then characterize, validate, and trade on it.
 
-## Stage 1 — Behavioral Discovery (BSVE)
+## Behavioral Discovery (BSVE) — Prerequisite
 
 Question
 
@@ -1167,76 +1316,79 @@ Primary evidence
 
 Behavioral consistency.
 
+This stage is owned by BSVE and produces the Behavioral Surface artifact consumed by the stages below. It is a precondition for — not a substitute for — predictive or trading evidence.
+
 ------
 
-## Stage 2 — Behavioral Characterization (MSML)
+## Stage 1 — Behavioral Characterization (MSML)
 
 Question
 
-> Does the Behavioral Surface induce an interesting prediction problem?
+> Does the Behavioral Surface induce an interesting and internally consistent prediction problem?
 
 Primary evidence
 
-Prediction characteristics, coverage, agreement, uncertainty and comparison against baseline controls.
+Prediction characterization — coverage, state occupancy, prediction distributions, entropy, confidence, and cross-architecture agreement.
 
-Characterization is descriptive rather than predictive.
-
-It exists to generate hypotheses.
+This stage describes properties of the induced prediction problem. It generates hypotheses about predictive usefulness but does not establish it. Owned by the Behavioral Experiment, Evaluation, and Characterization Frameworks (PR4, PR5, PR5.1).
 
 ------
 
-## Stage 3 — Behavioral Validation (MSML Walk-forward)
+## Stage 2 — Predictive Validation (MSML)
 
 Question
 
-> Does the Behavioral Surface improve predictive performance under causal walk-forward evaluation?
+> Does partitioning the market according to Behavioral Surface states produce more predictable price behavior than existing regime-based representations?
 
 Primary evidence
 
-Predictive accuracy, stability and comparison against established market-regime baselines.
+Reproducible walk-forward evaluation — predictive comparison against trend/volatility regimes, per-state and aggregate performance, fold stability, and statistical significance of predictive differences.
 
-Validation determines whether the Behavioral Surface possesses predictive value.
+This is the first stage at which a Behavioral Surface may be judged as a predictive representation rather than merely a behavioral one. Owned by PR7.
 
 ------
 
-## Stage 4 — Trading Validation (MPML)
+## Stage 3 — Trading Validation (MPML)
 
 Question
 
-> Does improved prediction translate into improved trading performance?
+> Does improved prediction translate into improved trading under realistic execution?
 
 Primary evidence
 
-Walk-forward trading performance.
+MPML evaluation — adaptive routing performance, trading metrics, and robustness under realistic execution assumptions.
 
-Trading performance is evaluated only after predictive value has been established independently.
+This is the final stage of scientific maturity. A Behavioral Surface reaches `Integrated` status only after surviving this stage. Owned by MPML.
 
 ------
 
-This hierarchy intentionally separates
+## Separation of Evidence
 
-behavioral evidence
+Each stage answers an independent question with its own evidence standard:
 
-↓
+| Stage                     | System | Question                                       | Evidence                    |
+| ------------------------- | ------ | ---------------------------------------------- | --------------------------- |
+| Discovery                 | BSVE   | Is the phenomenon real?                        | Behavioral consistency      |
+| 1 — Characterization      | MSML   | Is the induced prediction problem interesting? | Prediction characterization |
+| 2 — Predictive Validation | MSML   | Does it improve prediction?                    | Walk-forward evaluation     |
+| 3 — Trading Validation    | MPML   | Does it improve trading?                       | MPML evaluation             |
 
-predictive evidence
+Progression between stages is deliberate and requires supporting experimental evidence rather than successful software implementation.
 
-↓
-
-trading evidence
-
-preventing later stages from being interpreted as evidence for earlier scientific claims.
+Crucially, evidence from a later stage must never be interpreted as retroactive support for an earlier stage's claim, nor may an earlier stage's evidence be treated as anticipating a later stage's conclusion. A confirmed characterization does not imply predictive value; confirmed predictive value does not guarantee trading value. This strict separation is the central discipline of the research programme: it prevents the accumulation of software progress from being mistaken for the accumulation of scientific evidence.
 
 ---
 
-## Relationship to Implementation
+# Summary
 
-This document describes the intended architecture of Behavioral Surface
-integration.
+The BSVE → MSML → MPML integration establishes a single, reproducible research pipeline in which behavioral discovery, predictive modelling, and trading evaluation remain rigorously separated.
 
-Concrete implementation details—including CLI syntax, exported schemas,
-artifact formats, regression requirements and testing—are specified in the
-individual PR design documents.
+- **BSVE** discovers and validates behavioral phenomena, exporting them as immutable Behavioral Surface artifacts.
+- **The dataset builder** joins those artifacts onto the master research dataset without ever rewriting canonical outputs.
+- **MSML** trains predictive models from behavioral dataset variants and characterizes, then validates, the induced prediction problem.
+- **MPML** evaluates whether validated predictive improvements translate into trading value.
+- **The Behavioral Surface Registry** accumulates durable scientific interpretation across all experiments, preserving both positive and negative results.
 
-If any implementation detail described elsewhere conflicts with this document,
-the architecture described here takes precedence.
+Information flows only through published artifacts and stable public contracts. No component reproduces the responsibilities of another. Each architectural step is additive and backwards-compatible, and each scientific stage is gated by its own evidence standard.
+
+The architecture prioritizes answering the scientific question over architectural elegance, deferring generalization (PR8) until predictive value has been demonstrated.
