@@ -87,6 +87,10 @@ modeling and downstream evaluation to evolve independently.
 | Behavioral Dataset Variant | Dataset augmentation | MSML                 |
 | Prediction Artifact        | MSML                 | MPML                 |
 
+The **Behavioral Surface Registry** accumulates durable scientific interpretation
+across experiments.  It is not a data artifact; it is the project's scientific
+memory.
+
 ---
 
 ## Repository Layout
@@ -105,6 +109,10 @@ market-sentiment-ml/
 │
 ├── docs/
 │   Documentation and research notes
+│
+├── registry/
+│   Behavioral Surface Registry
+│   └── surfaces/   — one YAML entry per registered Behavioral Surface
 │
 ├── research/
 │   Predictive modelling and experimentation
@@ -252,6 +260,50 @@ across the following modules:
 | `analysis/behavioral/compare_experiments.py` | Multi-experiment comparison CLI |
 | `analysis/behavioral/compare_predictions.py` | MLP/LSTM prediction comparison with overlap percentages |
 | `analysis/behavioral/analyze_manifests.py` | Manifest parsing with note/warning/error classification |
+
+### Behavioral Surface Registry
+
+The **Behavioral Surface Registry** is the project's durable scientific memory.
+
+Experiment reports answer *"What happened during this experiment?"*
+
+The registry answers *"What do we currently believe about this Behavioral Surface, based on all accumulated evidence?"*
+
+Registry entries are never updated automatically by experiment runs.  Scientific
+interpretation remains a deliberate research decision, applied through an explicit
+promotion step.
+
+```bash
+# Promote experiment evidence into the registry
+python analysis/registry/promote.py \
+  --surface reactive_jpy \
+  --experiments analysis/output/exp_2026_01_01 \
+  --author "your.name" \
+  --recommendation "Repeat characterization with additional training." \
+  --scientific-interest medium \
+  --scientific-confidence low \
+  --notes "Initial characterization.  Entropy high across all states."
+
+# View registry summary (scientific triage, not a ranking)
+python analysis/registry/high_score.py
+```
+
+Each registered Behavioral Surface owns exactly one YAML entry under
+`registry/surfaces/`.  Evidence accumulates across experiments.  Interpretation
+evolves.  History is preserved.
+
+The registry is documented in full at `registry/surfaces/README.md`, including:
+
+- lifecycle stages (Characterization → Predictive Validation → Trading Validation → Integrated / Retired)
+- promotion workflow
+- registry schema (all field definitions)
+- distinction between experiment reports and registry entries
+
+| Module | Purpose |
+|---|---|
+| `registry/surfaces/<surface_id>.yaml` | Authoritative scientific record per surface |
+| `analysis/registry/promote.py` | Explicit manual promotion CLI |
+| `analysis/registry/high_score.py` | Human-readable registry summary (scientific triage) |
 
 ### Behavioral Research Documentation
 

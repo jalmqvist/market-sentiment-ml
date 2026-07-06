@@ -1103,6 +1103,20 @@ Each registry entry records
 
 ------
 
+## Delivered modules (PR5.4)
+
+| Module | Purpose |
+|---|---|
+| `registry/surfaces/<surface_id>.yaml` | Authoritative scientific record per surface |
+| `analysis/registry/promote.py` | Explicit manual promotion workflow |
+| `analysis/registry/high_score.py` | Human-readable registry summary (scientific triage) |
+
+Schema documentation: `registry/surfaces/README.md`
+
+Regression tests: `tests/test_behavioral_surface_registry.py`
+
+------
+
 ## Result
 
 The Behavioral Surface Registry becomes the project's durable scientific memory.
