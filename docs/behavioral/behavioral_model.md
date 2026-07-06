@@ -280,8 +280,8 @@ This distinction helps prioritize future research without overstating current ev
 Reports end with a single **Research Recommendation** derived from the synthesized findings:
 
 - **Proceed to walk-forward evaluation** — when cross-architecture agreement is high.
-- **Repeat with more epochs** — when training has not yet converged.
+- **Repeat characterization with additional training** — when training has not yet converged.
 - **Diagnose and repeat** — when training runs failed.
-- **Compare with Reactive CHF or Persistent** — when current surface characterization is complete.
-- **Insufficient evidence** — when coverage or data volume is too low for reliable characterization.
+- **Acquire additional Behavioral Surface evidence** — when coverage is limited and prediction confidence is weak.
+- **Proceed to initial comparison** — when characterization is complete and no critical issues were found.
 

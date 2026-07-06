@@ -789,7 +789,8 @@ The primary body contains **Scientific Findings** — aggregated, noise-suppress
 
 ```
 Finding title
-Full description
+Observation   (factual — what the data shows)
+Interpretation (scientific — what it may mean)
 Supporting evidence (one line per model/state)
 Scientific Interest
 Scientific Confidence
@@ -805,7 +806,13 @@ Engineering diagnostics (raw metrics, coverage tables, manifest warnings, baseli
 Reports distinguish two independent quantities for each finding:
 
 **Scientific Interest**
-How important or potentially novel would this finding be if confirmed?
+How important or potentially novel would this finding be if confirmed?  Interest is assigned based on the scientific importance of the phenomenon, not solely on threshold values.
+
+| Interest | Examples |
+|----------|---------|
+| High     | Strong architecture disagreement; unexpected transfer behaviour; unusually stable Behavioral Surface; surprising comparison against controls |
+| Medium   | Expected coverage limitations; moderate state imbalance |
+| Low      | Expected engineering properties; routine diagnostics |
 
 **Scientific Confidence**
 How strongly is the finding currently supported by available evidence?
@@ -833,7 +840,10 @@ the report produces:
 
 ```
 Finding: High prediction entropy across states
-Description: Prediction entropy is consistently high across all Behavioral States.
+Observation: Prediction entropy is consistently high across all Behavioral States,
+  with predicted probabilities concentrated near 0.5.
+Interpretation: Behavioral characterization suggests training has not yet converged
+  to a discriminative solution for these states.
 Supporting evidence:
   - MLP / STATE_A: entropy 0.952 bits
   - LSTM / STATE_A: entropy 0.961 bits
@@ -847,13 +857,13 @@ Recommended follow-up: Verify training convergence. Consider increasing epochs.
 
 ## Research Recommendation
 
-Every report ends with a single recommended next experimental step. Examples:
+Every report ends with a single recommended next experimental step, derived exclusively from synthesized ``Finding`` objects rather than independently re-evaluating raw metrics. Examples:
 
 - **Proceed to walk-forward evaluation (PR7)** — when cross-architecture agreement is high.
-- **Repeat with more epochs** — when entropy is high or effective coverage is low.
+- **Repeat characterization with additional training** — when entropy is high or effective coverage is low.
 - **Diagnose and repeat** — when training runs failed.
-- **Insufficient evidence** — when coverage is too low for reliable characterization.
-- **Continue characterization** — when the experiment completed without critical issues.
+- **Acquire additional Behavioral Surface evidence** — when coverage is limited and prediction confidence is weak.
+- **Proceed to initial comparison** — when the experiment completed without critical issues.
 
 ---
 
@@ -898,7 +908,7 @@ No fixed state ontology is assumed. All finding rules operate on the metrics pre
 
 | Module | Purpose |
 |---|---|
-| `analysis/behavioral/interpretation.py` | `Finding` dataclass; `generate_findings()` (noise suppression); `format_executive_summary()`; `format_findings()`; `derive_research_recommendation()`; legacy `Observation` API preserved |
+| `analysis/behavioral/interpretation.py` | `Finding` dataclass (with `observation`, `interpretation`, `evidence_strength`); `generate_findings()` (noise suppression, Finding-centric recommendation); `format_executive_summary()`; `format_findings()`; `derive_research_recommendation()` (derives from Findings only); legacy `Observation` API preserved |
 | `analysis/behavioral/reporting.py` | Restructured report: Executive Summary → Scientific Findings → Appendix (diagnostics) |
 | `analysis/behavioral/run_behavioral_suite.py` | Named profiles (`smoke` / `standard` / `publication`); default epoch 10; profile recorded in `experiment_manifest.json` |
 

@@ -547,3 +547,254 @@ class TestReportStructure:
         # config_payload records the profile under "profile" key
         cli_parsed = manifest["cli"]["parsed"]
         assert cli_parsed.get("profile") == "smoke"
+
+
+# ===========================================================================
+# PR5.2 — Architectural cleanup regression tests
+# ===========================================================================
+
+class TestFindingNewFields:
+    """Finding dataclass now carries observation, interpretation, and evidence_strength."""
+
+    def test_finding_has_observation_field(self):
+        f = Finding(title="T", description="D", observation="Entropy is high.")
+        assert f.observation == "Entropy is high."
+
+    def test_finding_has_interpretation_field(self):
+        f = Finding(title="T", description="D", interpretation="Suggests no convergence.")
+        assert f.interpretation == "Suggests no convergence."
+
+    def test_finding_has_evidence_strength_field(self):
+        f = Finding(title="T", description="D")
+        assert isinstance(f.evidence_strength, dict)
+
+    def test_finding_defaults_observation_empty(self):
+        f = Finding(title="T", description="D")
+        assert f.observation == ""
+
+    def test_finding_defaults_interpretation_empty(self):
+        f = Finding(title="T", description="D")
+        assert f.interpretation == ""
+
+    def test_evidence_strength_serializable_to_json(self):
+        f = Finding(
+            title="T",
+            description="D",
+            evidence_strength={
+                "sample_size": "2 states",
+                "agreement": "full",
+                "controls": "none",
+                "repeatability": "single_run",
+            },
+        )
+        import json
+        serialized = json.dumps(f.evidence_strength)
+        loaded = json.loads(serialized)
+        assert loaded["agreement"] == "full"
+        assert loaded["controls"] == "none"
+
+
+class TestGeneratedFindingFields:
+    """Generated findings should populate observation and interpretation separately."""
+
+    def test_entropy_finding_has_observation(self):
+        metrics_df = _make_metrics_df(entropy=0.96)
+        findings = generate_findings(pd.DataFrame(), pd.DataFrame(), metrics_df)
+        entropy_f = next(f for f in findings if "entropy" in f.title.lower())
+        assert entropy_f.observation != ""
+
+    def test_entropy_finding_has_interpretation(self):
+        metrics_df = _make_metrics_df(entropy=0.96)
+        findings = generate_findings(pd.DataFrame(), pd.DataFrame(), metrics_df)
+        entropy_f = next(f for f in findings if "entropy" in f.title.lower())
+        assert entropy_f.interpretation != ""
+
+    def test_entropy_finding_observation_differs_from_interpretation(self):
+        metrics_df = _make_metrics_df(entropy=0.96)
+        findings = generate_findings(pd.DataFrame(), pd.DataFrame(), metrics_df)
+        entropy_f = next(f for f in findings if "entropy" in f.title.lower())
+        assert entropy_f.observation != entropy_f.interpretation
+
+    def test_entropy_finding_has_evidence_strength(self):
+        metrics_df = _make_metrics_df(entropy=0.96)
+        findings = generate_findings(pd.DataFrame(), pd.DataFrame(), metrics_df)
+        entropy_f = next(f for f in findings if "entropy" in f.title.lower())
+        assert "sample_size" in entropy_f.evidence_strength
+        assert "agreement" in entropy_f.evidence_strength
+        assert "controls" in entropy_f.evidence_strength
+        assert "repeatability" in entropy_f.evidence_strength
+
+    def test_coverage_finding_has_observation(self):
+        cov_df = _make_coverage_df(beh_frac=0.05)
+        findings = generate_findings(cov_df, pd.DataFrame(), pd.DataFrame())
+        cov_f = next((f for f in findings if "coverage" in f.title.lower()), None)
+        assert cov_f is not None
+        assert cov_f.observation != ""
+
+    def test_coverage_finding_has_interpretation(self):
+        cov_df = _make_coverage_df(beh_frac=0.05)
+        findings = generate_findings(cov_df, pd.DataFrame(), pd.DataFrame())
+        cov_f = next(f for f in findings if "coverage" in f.title.lower())
+        assert cov_f.interpretation != ""
+
+    def test_all_generated_findings_have_evidence_strength(self):
+        cov_df = _make_coverage_df(beh_frac=0.05)
+        metrics_df = _make_metrics_df(entropy=0.96, eff_cov=0.1)
+        compare_df = _make_compare_df(agreement=0.45)
+        findings = generate_findings(cov_df, compare_df, metrics_df)
+        for f in findings:
+            assert isinstance(f.evidence_strength, dict), (
+                f"Finding '{f.title}' is missing evidence_strength"
+            )
+
+
+class TestCoverageFindingWording:
+    """Coverage findings should frame results in terms of characterization reliability."""
+
+    def test_low_coverage_uses_reliability_framing(self):
+        cov_df = _make_coverage_df(beh_frac=0.05)
+        findings = generate_findings(cov_df, pd.DataFrame(), pd.DataFrame())
+        cov_f = next(f for f in findings if "coverage" in f.title.lower())
+        combined = f"{cov_f.observation} {cov_f.interpretation}".lower()
+        assert "characterization" in combined or "characteriz" in combined
+
+    def test_low_coverage_observation_contains_percentage(self):
+        cov_df = _make_coverage_df(beh_frac=0.05)
+        findings = generate_findings(cov_df, pd.DataFrame(), pd.DataFrame())
+        cov_f = next(f for f in findings if "coverage" in f.title.lower())
+        assert "5.0%" in cov_f.observation
+
+    def test_low_coverage_wording_is_neutral_not_negative(self):
+        """Coverage description should not use language like 'only X%'."""
+        cov_df = _make_coverage_df(beh_frac=0.05)
+        findings = generate_findings(cov_df, pd.DataFrame(), pd.DataFrame())
+        cov_f = next(f for f in findings if "coverage" in f.title.lower())
+        assert "only" not in cov_f.observation.lower()
+
+
+class TestHighAgreementInterest:
+    """High MLP/LSTM agreement now has Scientific Interest = high."""
+
+    def test_high_agreement_has_high_interest(self):
+        compare_df = _make_compare_df(agreement=0.90)
+        findings = generate_findings(pd.DataFrame(), compare_df, pd.DataFrame())
+        agree_f = next((f for f in findings if "high" in f.title.lower() and "agreement" in f.title.lower()), None)
+        assert agree_f is not None
+        assert agree_f.interest == "high"
+
+    def test_low_agreement_retains_high_interest(self):
+        compare_df = _make_compare_df(agreement=0.45)
+        findings = generate_findings(pd.DataFrame(), compare_df, pd.DataFrame())
+        agree_f = next((f for f in findings if "low" in f.title.lower() and "agreement" in f.title.lower()), None)
+        assert agree_f is not None
+        assert agree_f.interest == "high"
+
+
+class TestRecommendationDerivesFromFindings:
+    """Research Recommendation must derive from findings, not raw coverage_df."""
+
+    def test_low_coverage_finding_triggers_acquire_evidence(self):
+        """A coverage Finding with interest=medium should trigger the acquire evidence recommendation."""
+        run_df = pd.DataFrame([{"status": "success"}])
+        # Generate a coverage finding that has interest="medium" (low coverage)
+        low_cov_finding = Finding(
+            title="Behavioral Surface coverage",
+            description="...",
+            interest="medium",
+            confidence="high",
+        )
+        entropy_finding = Finding(
+            title="High prediction entropy across states",
+            description="...",
+            interest="medium",
+            confidence="high",
+        )
+        # Pass empty coverage_df — recommendation must use findings, not the df
+        rec = derive_research_recommendation(
+            run_df=run_df,
+            findings=[low_cov_finding, entropy_finding],
+            coverage_df=pd.DataFrame(),
+        )
+        assert "acquire" in rec.lower() or "additional" in rec.lower()
+
+    def test_coverage_df_alone_does_not_trigger_low_coverage(self):
+        """If coverage_df has low coverage but no corresponding Finding, recommendation
+        should not produce the low-coverage path."""
+        run_df = pd.DataFrame([{"status": "success"}])
+        # Provide low coverage_df but no coverage finding in findings list
+        cov_df = _make_coverage_df(beh_frac=0.02)
+        rec = derive_research_recommendation(
+            run_df=run_df,
+            findings=[],  # no findings — recommendation should not see low coverage
+            coverage_df=cov_df,
+        )
+        # Should NOT recommend acquiring evidence since no finding triggered it
+        assert "acquire" not in rec.lower() or "insufficient" in rec.lower() or "proceed" in rec.lower()
+
+    def test_recommendation_uses_experimental_decision_language(self):
+        """Recommendations should be phrased as experimental decisions."""
+        run_df = pd.DataFrame([{"status": "success"}])
+        rec = derive_research_recommendation(
+            run_df=run_df, findings=[], coverage_df=pd.DataFrame()
+        )
+        # Should contain an experimental action verb
+        lower = rec.lower()
+        action_verbs = ["proceed", "repeat", "diagnose", "acquire", "insufficient"]
+        assert any(v in lower for v in action_verbs)
+
+
+class TestFormatFindingsDeterminism:
+    """format_findings must produce identical output on repeated calls."""
+
+    def test_format_findings_is_deterministic(self):
+        findings = [
+            Finding(title="A", description="Desc A", interest="high", confidence="high",
+                    observation="Obs A", interpretation="Interp A", follow_up="Follow A"),
+            Finding(title="B", description="Desc B", interest="medium", confidence="medium",
+                    evidence=["- evidence"]),
+        ]
+        md1 = format_findings(findings)
+        md2 = format_findings(findings)
+        assert md1 == md2
+
+    def test_format_findings_observation_rendered_when_set(self):
+        f = Finding(title="T", description="desc", observation="OBS TEXT", interpretation="INTERP TEXT")
+        md = format_findings([f])
+        assert "OBS TEXT" in md
+        assert "INTERP TEXT" in md
+
+    def test_format_findings_description_fallback_when_no_observation(self):
+        f = Finding(title="T", description="FALLBACK DESC")
+        md = format_findings([f])
+        assert "FALLBACK DESC" in md
+
+    def test_format_findings_uses_centralized_interest_confidence(self):
+        """Interest/Confidence line should be present in standard format."""
+        f = Finding(title="T", description="D", interest="high", confidence="low")
+        md = format_findings([f])
+        assert "Scientific Interest" in md
+        assert "Scientific Confidence" in md
+
+
+class TestBackwardsCompatibility:
+    """All pre-existing Finding usage patterns must remain valid."""
+
+    def test_finding_without_new_fields_still_works(self):
+        f = Finding(title="T", description="D", interest="high", confidence="medium",
+                    evidence=["- e1"], follow_up="Do more.")
+        md = format_findings([f])
+        assert "## Scientific Findings" in md
+        assert "D" in md
+
+    def test_generate_findings_returns_list(self):
+        findings = generate_findings(pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
+        assert isinstance(findings, list)
+
+    def test_derive_recommendation_still_accepts_coverage_df(self):
+        """coverage_df parameter must remain accepted (API compat)."""
+        run_df = pd.DataFrame([{"status": "success"}])
+        rec = derive_research_recommendation(
+            run_df=run_df, findings=[], coverage_df=_make_coverage_df()
+        )
+        assert isinstance(rec, str) and len(rec) > 0
+

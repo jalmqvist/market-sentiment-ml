@@ -2,12 +2,34 @@
 
 This module synthesizes experimental evidence into concise scientific findings.
 
-Public API (Behavioral Characterization Framework — PR5.1):
-    Finding                     — aggregated scientific finding with Interest/Confidence
+Public API (Behavioral Characterization Framework — PR5.1/PR5.2):
+    Finding                     — aggregated scientific finding with Interest/Confidence,
+                                  separate observation/interpretation fields, and
+                                  machine-readable evidence_strength summary.
     generate_findings()         — synthesize metrics/coverage/comparison into ≤5 findings
     format_executive_summary()  — one-page executive summary block
     format_findings()           — markdown rendering of Finding objects
-    format_research_recommendation() — recommended next experimental step
+    derive_research_recommendation() — single recommended next step, derived from Findings
+
+Architecture
+------------
+All report sections, including Research Recommendations, derive from the canonical
+``Finding`` pipeline::
+
+    metrics / coverage / comparison / controls
+            │
+            ▼
+    generate_findings()
+            │
+            ▼
+    Finding objects
+            │
+    ┌───────┴────────────┐
+    ▼                    ▼
+  rendering          recommendation
+
+This avoids maintaining separate scientific rule systems for the recommendation
+engine and the report body.
 
 Legacy API (preserved for backwards compatibility):
     Observation                 — per-artifact rule-triggered observation
@@ -66,17 +88,38 @@ class Finding:
     title:
         Short headline for the finding (one phrase).
     description:
-        Full synthesized statement of what was found.
+        Full synthesized statement of what was found.  Retained for backwards
+        compatibility.  Prefer populating ``observation`` and ``interpretation``
+        in new code; ``format_findings`` renders them separately when set.
+    observation:
+        Factual statement of what the data shows — free of interpretation.
+        Example: "Prediction entropy is consistently high across all Behavioral
+        States (mean 0.95 bits)."
+    interpretation:
+        Scientific interpretation of the observation — what it may mean.
+        Example: "Behavioral characterization suggests training has not yet
+        converged to a discriminative solution."
     evidence:
         List of supporting evidence lines (one per model/state/artifact).
     interest:
         Scientific Interest — how important or novel would this finding be if
-        confirmed?  One of ``"low"``, ``"medium"``, ``"high"``.
+        confirmed?  Assigned based on the scientific importance of the
+        phenomenon, not solely on threshold values.
+        One of ``"low"``, ``"medium"``, ``"high"``.
     confidence:
         Scientific Confidence — how strongly is the finding supported by
         available evidence?  One of ``"low"``, ``"medium"``, ``"high"``.
     follow_up:
-        Recommended investigation to increase confidence or exploit the finding.
+        Recommended experimental decision to increase confidence or exploit the
+        finding.
+    evidence_strength:
+        Machine-readable summary of evidence quality.  Keys:
+        ``"sample_size"``    — number of states/models contributing evidence.
+        ``"agreement"``      — ``"full"`` | ``"partial"`` | ``"single"``.
+        ``"controls"``       — ``"none"`` | ``"available"``.
+        ``"repeatability"``  — ``"unknown"`` | ``"single_run"`` | ``"multi_run"``.
+        This field is intended for future registry and report generation;
+        it is not exposed in the Executive Summary.
     """
 
     title: str
@@ -85,6 +128,9 @@ class Finding:
     interest: str = "medium"     # "low" | "medium" | "high"
     confidence: str = "medium"   # "low" | "medium" | "high"
     follow_up: str = ""
+    observation: str = ""        # factual statement — what the data shows
+    interpretation: str = ""     # scientific interpretation — what it means
+    evidence_strength: dict = field(default_factory=dict)  # machine-readable evidence summary
 
 
 # ---------------------------------------------------------------------------
@@ -115,25 +161,39 @@ def _finding_prediction_entropy(metrics_df: pd.DataFrame) -> Finding | None:
 
     all_high = len(high_rows) == len(rows_with_entropy)
     frac = len(high_rows) / len(rows_with_entropy)
+    n_states = rows_with_entropy["state_id"].nunique() if "state_id" in rows_with_entropy.columns else len(rows_with_entropy)
 
     if all_high:
-        description = (
+        obs = (
             "Prediction entropy is consistently high across all Behavioral States, "
-            "indicating that predicted probabilities are concentrated near 0.5."
+            "with predicted probabilities concentrated near 0.5."
+        )
+        interp = (
+            "Behavioral characterization suggests training has not yet converged to a "
+            "discriminative solution for these states."
         )
         confidence = "high"
+        agreement = "full"
     elif frac >= 0.5:
-        description = (
+        obs = (
             f"Prediction entropy is above threshold in {len(high_rows)} of "
             f"{len(rows_with_entropy)} state/model combinations."
         )
+        interp = (
+            "Current evidence suggests partial convergence; some state/model pairs "
+            "may benefit from additional training."
+        )
         confidence = "medium"
+        agreement = "partial"
     else:
         return None
 
+    description = f"{obs} {interp}"
     return Finding(
         title="High prediction entropy across states",
         description=description,
+        observation=obs,
+        interpretation=interp,
         evidence=evidence,
         interest="medium",
         confidence=confidence,
@@ -142,6 +202,12 @@ def _finding_prediction_entropy(metrics_df: pd.DataFrame) -> Finding | None:
             "Consider increasing epochs or enriching the feature set with more "
             "discriminative signals for these states."
         ),
+        evidence_strength={
+            "sample_size": f"{n_states} state(s), {len(rows_with_entropy)} model/state combinations",
+            "agreement": agreement,
+            "controls": "none",
+            "repeatability": "single_run",
+        },
     )
 
 
@@ -167,25 +233,39 @@ def _finding_effective_coverage(metrics_df: pd.DataFrame) -> Finding | None:
 
     all_low = len(low_rows) == len(rows)
     frac = len(low_rows) / len(rows)
+    n_states = rows["state_id"].nunique() if "state_id" in rows.columns else len(rows)
 
     if all_low:
-        description = (
+        obs = (
             "Effective prediction coverage is low across all Behavioral States: "
             "fewer than half of predictions are materially informative."
         )
+        interp = (
+            "Current evidence suggests the model produces near-uniform predictions "
+            "for most observations, providing little actionable signal in the trained states."
+        )
         confidence = "high"
+        agreement = "full"
     elif frac >= 0.5:
-        description = (
+        obs = (
             f"Effective prediction coverage is low in {len(low_rows)} of "
             f"{len(rows)} state/model combinations."
         )
+        interp = (
+            "Behavioral characterization suggests partial signal; some state/model "
+            "pairs show higher effective coverage than others."
+        )
         confidence = "medium"
+        agreement = "partial"
     else:
         return None
 
+    description = f"{obs} {interp}"
     return Finding(
         title="Low effective prediction coverage",
         description=description,
+        observation=obs,
+        interpretation=interp,
         evidence=evidence,
         interest="high",
         confidence=confidence,
@@ -195,6 +275,12 @@ def _finding_effective_coverage(metrics_df: pd.DataFrame) -> Finding | None:
             "window. If universal, more training epochs or a richer feature set "
             "may be required."
         ),
+        evidence_strength={
+            "sample_size": f"{n_states} state(s), {len(rows)} model/state combinations",
+            "agreement": agreement,
+            "controls": "none",
+            "repeatability": "single_run",
+        },
     )
 
 
@@ -218,19 +304,32 @@ def _finding_mlp_lstm_agreement(compare_df: pd.DataFrame) -> Finding | None:
         state = row.get("state_id", "unknown")
         evidence.append(f"- {state}: agreement {_pct(rate)}")
 
+    n_states = rows["state_id"].nunique() if "state_id" in rows.columns else len(rows)
+
     if not low_rows.empty:
         all_low = len(low_rows) == len(rows)
         if all_low:
-            description = (
-                "MLP/LSTM directional agreement is consistently low across all states, "
-                "suggesting the behavioral partitions do not produce a robustly learnable signal."
+            obs = (
+                "MLP/LSTM directional agreement is consistently low across all states."
+            )
+            interp = (
+                "Behavioral characterization suggests the behavioral partitions do not "
+                "produce a robustly learnable signal, or that the two architectures "
+                "are capturing different noise structures."
             )
         else:
             states = ", ".join(str(r.get("state_id", "?")) for _, r in low_rows.iterrows())
-            description = f"MLP/LSTM directional agreement is low for states: {states}."
+            obs = f"MLP/LSTM directional agreement is low for states: {states}."
+            interp = (
+                "Current evidence suggests these states may not produce a consistently "
+                "learnable signal across architectures."
+            )
+        description = f"{obs} {interp}"
         return Finding(
             title="Low MLP/LSTM directional agreement",
             description=description,
+            observation=obs,
+            interpretation=interp,
             evidence=evidence,
             interest="high",
             confidence="medium" if not all_low else "high",
@@ -238,25 +337,48 @@ def _finding_mlp_lstm_agreement(compare_df: pd.DataFrame) -> Finding | None:
                 "Inspect prediction entropy per model separately. "
                 "Verify that the temporal training window is sufficient for stable convergence."
             ),
+            evidence_strength={
+                "sample_size": f"{n_states} state(s)",
+                "agreement": "full" if all_low else "partial",
+                "controls": "none",
+                "repeatability": "single_run",
+            },
         )
 
     if not high_rows.empty:
         all_high = len(high_rows) == len(rows)
-        description = (
-            "MLP/LSTM directional agreement is high across all states."
-            if all_high else
-            f"MLP/LSTM directional agreement is high in {len(high_rows)} of {len(rows)} states."
-        )
+        if all_high:
+            obs = "MLP/LSTM directional agreement is high across all states."
+            interp = (
+                "Behavioral characterization suggests a potentially stable and learnable "
+                "signal across architectures. This is an unexpected result warranting "
+                "further evaluation."
+            )
+        else:
+            obs = f"MLP/LSTM directional agreement is high in {len(high_rows)} of {len(rows)} states."
+            interp = (
+                "Current evidence suggests a partially stable cross-architecture signal. "
+                "Further characterization is needed to assess generality."
+            )
+        description = f"{obs} {interp}"
         return Finding(
             title="High MLP/LSTM directional agreement",
             description=description,
+            observation=obs,
+            interpretation=interp,
             evidence=evidence,
-            interest="medium",
+            interest="high",
             confidence="high" if all_high else "medium",
             follow_up=(
                 "Verify that high agreement reflects genuine mutual information with future "
                 "prices rather than directional bias. Consider walk-forward evaluation."
             ),
+            evidence_strength={
+                "sample_size": f"{n_states} state(s)",
+                "agreement": "full" if all_high else "partial",
+                "controls": "none",
+                "repeatability": "single_run",
+            },
         )
 
     return None
@@ -287,11 +409,16 @@ def _finding_behavioral_coverage(coverage_df: pd.DataFrame) -> Finding | None:
         sfrac = _safe_float(r.get("state_fraction_of_behavioral"))
         evidence.append(f"- {r['scope']}: {count:,} rows ({_pct(sfrac)} of behavioral)")
 
+    n_states = len(state_rows)
+
     if frac < _LOW_COVERAGE_THRESHOLD:
-        description = (
-            f"Behavioral coverage represents only {_pct(frac)} of the canonical dataset "
-            f"({beh_n:,} of {total_n:,} rows). "
-            "This limits the statistical reliability of per-state metrics."
+        obs = (
+            f"Behavioral coverage currently represents {_pct(frac)} of the canonical dataset "
+            f"({beh_n:,} of {total_n:,} rows)."
+        )
+        interp = (
+            "Characterization therefore relies on a relatively small subset of market "
+            "observations, which limits the statistical reliability of per-state metrics."
         )
         interest = "medium"
         confidence = "high"
@@ -300,21 +427,34 @@ def _finding_behavioral_coverage(coverage_df: pd.DataFrame) -> Finding | None:
             "Consider whether the behavioral ontology covers a wider range of market conditions."
         )
     else:
-        description = (
-            f"Behavioral coverage is {_pct(frac)} of the canonical dataset "
-            f"({beh_n:,} of {total_n:,} rows), providing adequate data volume for initial characterization."
+        obs = (
+            f"Behavioral coverage currently represents {_pct(frac)} of the canonical dataset "
+            f"({beh_n:,} of {total_n:,} rows)."
+        )
+        interp = (
+            "This provides a reasonable basis for initial characterization across the "
+            "observed states."
         )
         interest = "low"
         confidence = "high"
         follow_up = "Verify that temporal coverage spans multiple market regimes."
 
+    description = f"{obs} {interp}"
     return Finding(
         title="Behavioral Surface coverage",
         description=description,
+        observation=obs,
+        interpretation=interp,
         evidence=evidence,
         interest=interest,
         confidence=confidence,
         follow_up=follow_up,
+        evidence_strength={
+            "sample_size": f"{n_states} state(s), {beh_n:,} behavioral rows",
+            "agreement": "full",
+            "controls": "none",
+            "repeatability": "single_run",
+        },
     )
 
 
@@ -343,12 +483,21 @@ def _finding_state_imbalance(coverage_df: pd.DataFrame) -> Finding | None:
         f"- Ratio: {ratio:.1f}×",
     ]
 
+    obs = (
+        f"State occupancy is strongly imbalanced ({ratio:.1f}× ratio between largest and "
+        "smallest states)."
+    )
+    interp = (
+        "Metrics for smaller states carry higher variance. "
+        "Behavioral characterization suggests per-state comparisons should be "
+        "interpreted with caution."
+    )
+    description = f"{obs} {interp}"
     return Finding(
         title="Strongly imbalanced state occupancy",
-        description=(
-            f"State occupancy is strongly imbalanced ({ratio:.1f}× ratio between largest and "
-            "smallest states). Metrics for smaller states carry higher variance."
-        ),
+        description=description,
+        observation=obs,
+        interpretation=interp,
         evidence=evidence,
         interest="medium",
         confidence="high",
@@ -356,6 +505,12 @@ def _finding_state_imbalance(coverage_df: pd.DataFrame) -> Finding | None:
             "Inspect per-state effective prediction coverage and confidence separately. "
             "Consider whether the smaller state has sufficient data for reliable training."
         ),
+        evidence_strength={
+            "sample_size": f"{len(state_rows)} states",
+            "agreement": "full",
+            "controls": "none",
+            "repeatability": "single_run",
+        },
     )
 
 
@@ -422,6 +577,16 @@ def generate_findings(
 
 _INTEREST_ICON = {"high": "⬆", "medium": "●", "low": "⬇"}
 _CONFIDENCE_ICON = {"high": "★★★", "medium": "★★☆", "low": "★☆☆"}
+
+
+def _render_interest_confidence(interest: str, confidence: str) -> str:
+    """Return the formatted Interest / Confidence line used in finding blocks."""
+    interest_icon = _INTEREST_ICON.get(interest, "●")
+    confidence_icon = _CONFIDENCE_ICON.get(confidence, "★★☆")
+    return (
+        f"**Scientific Interest:** {interest_icon} {interest.capitalize()}  "
+        f"**Scientific Confidence:** {confidence_icon} {confidence.capitalize()}"
+    )
 
 
 def format_executive_summary(
@@ -494,20 +659,23 @@ def format_findings(findings: list[Finding]) -> str:
 
     lines = ["## Scientific Findings", ""]
     for i, f in enumerate(findings, start=1):
-        interest_icon = _INTEREST_ICON.get(f.interest, "●")
-        confidence_icon = _CONFIDENCE_ICON.get(f.confidence, "★★☆")
         lines.append(f"### Finding {i}: {f.title}")
         lines.append("")
-        lines.append(f.description)
-        lines.append("")
+        # Prefer observation + interpretation when both are set; fall back to description
+        if f.observation:
+            lines.append(f"**Observation:** {f.observation}")
+            lines.append("")
+        if f.interpretation:
+            lines.append(f"**Interpretation:** {f.interpretation}")
+            lines.append("")
+        if not f.observation and not f.interpretation:
+            lines.append(f.description)
+            lines.append("")
         if f.evidence:
             lines.append("**Supporting evidence:**")
             lines.extend(f.evidence)
             lines.append("")
-        lines.append(
-            f"**Scientific Interest:** {interest_icon} {f.interest.capitalize()}  "
-            f"**Scientific Confidence:** {confidence_icon} {f.confidence.capitalize()}"
-        )
+        lines.append(_render_interest_confidence(f.interest, f.confidence))
         lines.append("")
         if f.follow_up:
             lines.append(f"**Recommended follow-up:** {f.follow_up}")
@@ -523,11 +691,22 @@ def derive_research_recommendation(
 ) -> str:
     """Return a single recommended next experimental step.
 
-    The recommendation is derived from experiment status and synthesized
-    findings.  It follows the pattern:
+    The recommendation is derived exclusively from the synthesized ``findings``
+    list and experiment run status.  It does not independently re-evaluate raw
+    metrics, ensuring a single scientific rule system.
 
-        Continue | Repeat with more epochs | Proceed to walk-forward |
-        Compare with Reactive CHF | Insufficient evidence | ...
+    The ``coverage_df`` parameter is accepted for API compatibility but is not
+    used when findings are available; coverage signals are read from the
+    ``findings`` list instead.
+
+    Examples of returned recommendations::
+
+        Repeat characterization with additional training — ...
+        Proceed to walk-forward evaluation (PR7) — ...
+        Diagnose and repeat — ...
+        Acquire additional Behavioral Surface evidence — ...
+        Proceed to initial comparison — ...
+        Insufficient evidence — no runs completed.
     """
     # Failures take priority
     if not run_df.empty and (run_df["status"] != "success").any():
@@ -540,20 +719,18 @@ def derive_research_recommendation(
     if run_df.empty:
         return "**Insufficient evidence** — no runs completed."
 
-    # Check findings for signals
+    # Derive signals from synthesized Finding objects (not from raw metrics)
     low_confidence_signal = any(
         f.title in ("High prediction entropy across states", "Low effective prediction coverage")
         for f in findings
         if f.confidence in ("medium", "high")
     )
 
-    low_coverage = False
-    if not coverage_df.empty and "scope" in coverage_df.columns:
-        beh_row = coverage_df[coverage_df["scope"] == "behavioral_coverage"]
-        if not beh_row.empty:
-            frac = _safe_float(beh_row.iloc[0].get("coverage_fraction"))
-            if frac is not None and frac < _LOW_COVERAGE_THRESHOLD:
-                low_coverage = True
+    # Low behavioral coverage is signalled by a coverage finding with medium interest
+    low_coverage = any(
+        f.title == "Behavioral Surface coverage" and f.interest == "medium"
+        for f in findings
+    )
 
     high_agreement = any(
         f.title == "High MLP/LSTM directional agreement" and f.confidence in ("medium", "high")
@@ -562,15 +739,17 @@ def derive_research_recommendation(
 
     if low_coverage and low_confidence_signal:
         return (
-            "**Insufficient evidence** — behavioral coverage is low and prediction confidence "
-            "is weak. Consider a dataset variant with broader behavioral coverage, or increase "
-            "training epochs before re-evaluating."
+            "**Acquire additional Behavioral Surface evidence** — behavioral coverage is "
+            "limited and prediction confidence is weak. Consider a dataset variant with "
+            "broader behavioral coverage, or repeat characterization with additional training "
+            "before drawing conclusions."
         )
 
     if low_confidence_signal:
         return (
-            "**Repeat with more epochs** — prediction entropy is high and/or effective coverage "
-            "is low, suggesting training has not yet converged to a discriminative solution. "
+            "**Repeat characterization with additional training** — prediction entropy is "
+            "high and/or effective coverage is low, suggesting training has not yet converged "
+            "to a discriminative solution. "
             "Increase epochs (e.g. `--profile standard` or `--profile publication`) and re-run."
         )
 
@@ -582,9 +761,9 @@ def derive_research_recommendation(
         )
 
     return (
-        "**Continue characterization** — initial experiment completed without critical issues. "
-        "Consider comparing against Reactive CHF or a Persistent surface to evaluate "
-        "family-specific behavioral differences."
+        "**Proceed to initial comparison** — initial characterization completed without "
+        "critical issues. Consider comparing against Reactive CHF or a Persistent surface "
+        "to evaluate family-specific behavioral differences."
     )
 
 
