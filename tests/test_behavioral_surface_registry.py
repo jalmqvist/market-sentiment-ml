@@ -14,7 +14,7 @@ Covers:
 """
 from __future__ import annotations
 
-import copy
+import importlib.util
 from pathlib import Path
 
 import pytest
@@ -25,9 +25,6 @@ import yaml
 # Helpers — locate registry tools via importlib so tests do not depend on
 # PYTHONPATH containing analysis/ as a top-level namespace.
 # ---------------------------------------------------------------------------
-
-import sys
-import importlib.util
 
 _REPO_ROOT = Path(__file__).parent.parent
 

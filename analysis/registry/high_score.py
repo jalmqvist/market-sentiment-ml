@@ -26,6 +26,8 @@ score.  The objective is scientific triage rather than competition.
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import sys
 from pathlib import Path
 
@@ -171,8 +173,6 @@ def _format_table_csv(rows: list[dict]) -> str:
     """Render *rows* as CSV."""
     if not rows:
         return ",".join(_COLUMNS) + "\n"
-    import csv
-    import io
     buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=_COLUMNS, extrasaction="ignore")
     writer.writeheader()
