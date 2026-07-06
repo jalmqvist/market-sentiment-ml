@@ -68,7 +68,9 @@ _VALID_STAGES = frozenset({
 
 # Maps a requested lifecycle_stage to the prerequisite (stage_key, required_status) that
 # must hold in the current registry entry before the transition is permitted.
-# Promotions within the same stage, or to "Retired", have no hard prerequisite here.
+# Only cross-stage advances are listed here; same-stage promotions (e.g., multiple
+# characterization rounds within "Characterization") are inherently allowed and need
+# no prerequisite.  "Retired" is also absent — retirement may be triggered at any point.
 _STAGE_PREREQUISITES: dict[str, tuple[str, str]] = {
     "Predictive Validation": ("stage1", "complete"),
     "Trading Validation": ("stage2", "complete"),

@@ -1236,7 +1236,7 @@ class TestPostWriteValidation:
         assert len(calls) == 1
         errors = validate_entry(calls[0])
         assert errors == [], f"Written entry has validation errors: {errors}"
-        _ = result  # suppress unused-variable warning
+        assert result["surface_id"] == "surface_a"
 
     def test_final_validation_runs_before_write(
         self, registry_root, repo_root, make_exp_dir, monkeypatch
