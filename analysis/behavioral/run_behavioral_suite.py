@@ -571,6 +571,13 @@ def run_walkforward_suite(args: argparse.Namespace) -> dict[str, object]:
     states = discover_behavioral_states(dataset_df, selected_surface_id=args.surface_id)
     time_col = resolve_time_column(dataset_df)
     target_col = resolve_target_column(dataset_df, args.target_horizon)
+    state_partitions: dict[tuple[str, str], pd.DataFrame] = {}
+    for state in states:
+        key = (state["surface_id"], state["state_id"])
+        state_partitions[key] = dataset_df[
+            (dataset_df["surface_id"] == state["surface_id"])
+            & (dataset_df["state_id"] == state["state_id"])
+        ].copy()
 
     dates = pd.DatetimeIndex(pd.to_datetime(dataset_df[time_col], errors="coerce").dropna().sort_values().unique())
     folds = generate_walkforward_folds_by_pos(
@@ -601,18 +608,12 @@ def run_walkforward_suite(args: argparse.Namespace) -> dict[str, object]:
         test_start = pd.Timestamp(fold["test_start_dt"])
         test_end = pd.Timestamp(fold["test_end_dt"])
 
-        fold_train_df = filter_window(dataset_df, time_col=time_col, start=train_start, end=train_end)
         fold_test_df = filter_window(dataset_df, time_col=time_col, start=test_start, end=test_end)
 
         for state in states:
-            state_train_df = fold_train_df[
-                (fold_train_df["surface_id"] == state["surface_id"]) &
-                (fold_train_df["state_id"] == state["state_id"])
-            ].copy()
-            state_test_df = fold_test_df[
-                (fold_test_df["surface_id"] == state["surface_id"]) &
-                (fold_test_df["state_id"] == state["state_id"])
-            ].copy()
+            state_df = state_partitions[(state["surface_id"], state["state_id"])]
+            state_train_df = filter_window(state_df, time_col=time_col, start=train_start, end=train_end)
+            state_test_df = filter_window(state_df, time_col=time_col, start=test_start, end=test_end)
             threshold = train_threshold(
                 state_train_df,
                 target_col=target_col,

@@ -70,23 +70,24 @@ def build_control_rows(
     )
 
     # Trend/volatility baseline from regime-conditioned train frequencies.
-    if regime_train_df is not None and regime_test_df is not None and "regime" in regime_train_df.columns and "regime" in regime_test_df.columns:
-        work_train = regime_train_df.copy()
-        work_test = regime_test_df.copy()
-        work_train = work_train.dropna(subset=["regime", "y_true"])
-        work_test = work_test.dropna(subset=["regime", "y_true"])
+    has_regime_frames = (regime_train_df is not None) and (regime_test_df is not None)
+    if has_regime_frames:
+        has_regime_cols = ("regime" in regime_train_df.columns) and ("regime" in regime_test_df.columns)
+        if has_regime_cols:
+            work_train = regime_train_df.copy().dropna(subset=["regime", "y_true"])
+            work_test = regime_test_df.copy().dropna(subset=["regime", "y_true"])
 
-        if not work_train.empty and not work_test.empty:
-            regime_map = work_train.groupby("regime")["y_true"].mean().to_dict()
-            fallback = float(work_train["y_true"].mean())
-            reg_probs = work_test["regime"].map(regime_map).fillna(fallback).astype(float).to_numpy()
-            reg_true = work_test["y_true"].astype(int).to_numpy()
-            rows.append(
-                {
-                    **base_meta,
-                    "baseline": "trend_volatility",
-                    **compute_predictive_metrics(reg_true, reg_probs),
-                }
-            )
+            if not work_train.empty and not work_test.empty:
+                regime_map = work_train.groupby("regime")["y_true"].mean().to_dict()
+                fallback = float(work_train["y_true"].mean())
+                reg_probs = work_test["regime"].map(regime_map).fillna(fallback).astype(float).to_numpy()
+                reg_true = work_test["y_true"].astype(int).to_numpy()
+                rows.append(
+                    {
+                        **base_meta,
+                        "baseline": "trend_volatility",
+                        **compute_predictive_metrics(reg_true, reg_probs),
+                    }
+                )
 
     return rows

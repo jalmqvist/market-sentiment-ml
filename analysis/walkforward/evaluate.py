@@ -17,7 +17,7 @@ def _average_precision_score(y_true: np.ndarray, y_prob: np.ndarray) -> float:
     if positives == 0:
         return 0.0
 
-    order = np.argsort(-y_prob, kind="mergesort")
+    order = np.argsort(-y_prob)
     y_sorted = y_true[order]
 
     tp = 0
