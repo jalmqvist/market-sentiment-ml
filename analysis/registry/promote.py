@@ -323,16 +323,63 @@ def promote(
     history.append(history_record)
     data["promotion_history"] = history
 
-    # Also update stage1.characterization_experiments if this is a Stage 1 promotion
+    # Also update Stage 1 bookkeeping if this is a Characterization promotion.
     if data.get("lifecycle_stage") == "Characterization":
         stage1 = data.get("stage1") or {}
+
         char_exps: list[str] = stage1.get("characterization_experiments") or []
+
         for exp_dir in experiment_dirs:
             if str(exp_dir) not in char_exps:
                 char_exps.append(str(exp_dir))
-        stage1["characterization_experiments"] = char_exps
-        stage1["status"] = "in_progress"
+
+        stage1["characterization_experiments"] = sorted(
+            char_exps,
+            key=str,
+        )
+
+        # Only transition from not_started -> in_progress.
+        # Never silently downgrade a manually completed stage.
+        if stage1.get("status", "not_started") == "not_started":
+            stage1["status"] = "in_progress"
+
         data["stage1"] = stage1
+
+        #
+        # Keep the Stage 1 summary consistent with the registry contents.
+        #
+        n = len(char_exps)
+
+        status = stage1.get("status", "not_started")
+
+        if status == "not_started":
+            stage1["summary"] = (
+                "Stage 1 characterization has not yet begun."
+            )
+
+        elif status == "in_progress":
+            if n == 1:
+                stage1["summary"] = (
+                    "Stage 1 characterization is in progress. "
+                    "One characterization experiment has been promoted."
+                )
+            else:
+                stage1["summary"] = (
+                    f"Stage 1 characterization is in progress. "
+                    f"{n} characterization experiments have been promoted."
+                )
+
+        elif status == "complete":
+            if n == 1:
+                stage1["summary"] = (
+                    "Stage 1 characterization is complete. "
+                    "One characterization experiment was promoted."
+                )
+            else:
+                stage1["summary"] = (
+                    f"Stage 1 characterization is complete. "
+                    f"{n} characterization experiments were promoted."
+                )
 
     # Final validation of updated entry
     errors = validate_entry(data)
