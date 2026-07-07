@@ -200,6 +200,10 @@ def main():
             "remain unchanged."
         ),
     )
+    parser.add_argument("--wf-train-start", type=str, default=None)
+    parser.add_argument("--wf-train-end", type=str, default=None)
+    parser.add_argument("--wf-test-start", type=str, default=None)
+    parser.add_argument("--wf-test-end", type=str, default=None)
 
     args = parser.parse_args()
     validate_partition_args(args.regime, args.surface, args.state)
@@ -306,19 +310,41 @@ def main():
         logging.warning(f"SKIP | reason=too_few_sequences | seqs={len(X_proto)}")
         return
 
-    split_proto = int(len(X_proto) * 0.8)
-    # len(X_proto) >= 50 is guaranteed by the check above, so split_proto >= 40 > 0
-    assert split_proto < len(X_proto), (
-        f"Split boundary equals sequence count (split={split_proto}, total={len(X_proto)})"
+    walkforward_mode = all(
+        v is not None
+        for v in [args.wf_train_start, args.wf_train_end, args.wf_test_start, args.wf_test_end]
     )
+    if walkforward_mode:
+        if "entry_time" not in meta_proto.columns:
+            raise ValueError("Walk-forward mode requires sequence metadata with 'entry_time'.")
+        train_start = pd.Timestamp(args.wf_train_start)
+        train_end = pd.Timestamp(args.wf_train_end)
+        test_start = pd.Timestamp(args.wf_test_start)
+        test_end = pd.Timestamp(args.wf_test_end)
+        entry_meta = pd.to_datetime(meta_proto["entry_time"], errors="coerce")
+        train_mask_proto = (entry_meta >= train_start) & (entry_meta <= train_end)
+        test_mask_proto = (entry_meta >= test_start) & (entry_meta <= test_end)
+        train_ret_vals = y_proto[train_mask_proto.to_numpy()]
+        if train_ret_vals.size == 0 or int(test_mask_proto.sum()) == 0:
+            logging.warning(
+                "SKIP | reason=empty_walkforward_partition | train_seqs=%d test_seqs=%d",
+                int(train_mask_proto.sum()),
+                int(test_mask_proto.sum()),
+            )
+            return
+    else:
+        split_proto = int(len(X_proto) * 0.8)
+        # len(X_proto) >= 50 is guaranteed by the check above, so split_proto >= 40 > 0
+        assert split_proto < len(X_proto), (
+            f"Split boundary equals sequence count (split={split_proto}, total={len(X_proto)})"
+        )
+        train_ret_vals = y_proto[:split_proto]
 
-    # Threshold derived from train-fold raw return values (y_proto contains ret_col values)
-    train_ret_vals = y_proto[:split_proto]
     threshold = float(np.quantile(np.abs(train_ret_vals), args.label_quantile))
     logging.info(
         "label_threshold (train-only): %.6f  split=%d/%d",
         threshold,
-        split_proto,
+        int(train_ret_vals.size),
         len(X_proto),
     )
 
@@ -332,10 +358,20 @@ def main():
         logging.warning(f"SKIP | reason=too_few_sequences | seqs={len(X)}")
         return
 
-    split = int(len(X) * 0.8)
-    X_train, X_test = X[:split], X[split:]
-    y_train, y_test = y[:split], y[split:]
-    meta_test = meta_df.iloc[split:].copy().reset_index(drop=True)
+    if walkforward_mode:
+        entry_meta = pd.to_datetime(meta_df["entry_time"], errors="coerce")
+        train_mask = ((entry_meta >= train_start) & (entry_meta <= train_end)).to_numpy()
+        test_mask = ((entry_meta >= test_start) & (entry_meta <= test_end)).to_numpy()
+        X_train, X_test = X[train_mask], X[test_mask]
+        y_train, y_test = y[train_mask], y[test_mask]
+        meta_test = meta_df.loc[test_mask].copy().reset_index(drop=True)
+        meta_train_slice = meta_df.loc[train_mask]
+    else:
+        split = int(len(X) * 0.8)
+        X_train, X_test = X[:split], X[split:]
+        y_train, y_test = y[:split], y[split:]
+        meta_test = meta_df.iloc[split:].copy().reset_index(drop=True)
+        meta_train_slice = meta_df.iloc[:split]
 
     if len(X_test) == 0:
         logging.warning("SKIP | reason=empty_test_set | rows=0")
@@ -348,7 +384,6 @@ def main():
     logging.info(f"class_balance_train: {y_train.mean():.3f}")
     logging.info(f"class_balance_test: {y_test.mean():.3f}")
 
-    meta_train_slice = meta_df.iloc[:split]
     logging.info(
         "train_entry_time: %s → %s | test_entry_time: %s → %s",
         meta_train_slice["entry_time"].min() if "entry_time" in meta_train_slice.columns else "?",

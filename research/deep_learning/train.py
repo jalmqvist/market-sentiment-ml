@@ -173,6 +173,10 @@ def main():
             "remain unchanged."
         ),
     )
+    parser.add_argument("--wf-train-start", type=str, default=None)
+    parser.add_argument("--wf-train-end", type=str, default=None)
+    parser.add_argument("--wf-test-start", type=str, default=None)
+    parser.add_argument("--wf-test-end", type=str, default=None)
 
     args = parser.parse_args()
     validate_partition_args(args.regime, args.surface, args.state)
@@ -277,13 +281,37 @@ def main():
         logging.warning(f"SKIP | reason=too_few_rows_after_dropna | rows={len(df)}")
         return
 
-    split = int(len(df) * 0.8)
+    walkforward_mode = all(
+        v is not None
+        for v in [args.wf_train_start, args.wf_train_end, args.wf_test_start, args.wf_test_end]
+    )
+    if walkforward_mode:
+        if "entry_time" not in df.columns:
+            raise ValueError("Walk-forward mode requires 'entry_time' column.")
+        entry_time = pd.to_datetime(df["entry_time"], errors="coerce")
+        train_start = pd.Timestamp(args.wf_train_start)
+        train_end = pd.Timestamp(args.wf_train_end)
+        test_start = pd.Timestamp(args.wf_test_start)
+        test_end = pd.Timestamp(args.wf_test_end)
 
-    # CONTRACT: Label threshold MUST be computed on train rows only.
-    # Computing threshold from the full dataset (including test rows) would
-    # allow future test-set return distribution to contaminate training labels.
-    # The split boundary is therefore determined BEFORE threshold computation.
-    threshold = float(df.iloc[:split][ret_col].abs().quantile(args.label_quantile))
+        train_mask = (entry_time >= train_start) & (entry_time <= train_end)
+        test_mask = (entry_time >= test_start) & (entry_time <= test_end)
+        train_df = df.loc[train_mask].copy()
+        test_df = df.loc[test_mask].copy()
+        split = len(train_df)
+        if train_df.empty or test_df.empty:
+            logging.warning(
+                "SKIP | reason=empty_walkforward_partition | train_rows=%d test_rows=%d",
+                len(train_df),
+                len(test_df),
+            )
+            return
+        threshold = float(train_df[ret_col].abs().quantile(args.label_quantile))
+        df = pd.concat([train_df, test_df], axis=0, ignore_index=True)
+    else:
+        split = int(len(df) * 0.8)
+        threshold = float(df.iloc[:split][ret_col].abs().quantile(args.label_quantile))
+
     logging.info(
         "label_threshold (train-only): %.6f  split=%d/%d",
         threshold,
@@ -298,9 +326,8 @@ def main():
     X = df[features].values.astype("float32")
     y = df["target_direction"].values.astype("float32")
 
-    # split index is stable: target_direction assignment does not change row count
-    # (ret_col NaNs were already removed above)
-    split = int(len(X) * 0.8)
+    if not walkforward_mode:
+        split = int(len(X) * 0.8)
 
     X_train, X_test = X[:split], X[split:]
     y_train, y_test = y[:split], y[split:]
