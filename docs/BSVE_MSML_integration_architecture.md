@@ -1526,6 +1526,15 @@ Primary evidence
 
 Reproducible walk-forward evaluation using the shared MPML fold protocol, enabling direct comparison between predictive and downstream trading evidence — predictive comparison against trend/volatility regimes, per-state and aggregate performance, fold stability, and statistical significance of predictive differences.
 
+Implementation status (PR7 Stage 2):
+
+- executed via `analysis/behavioral/run_behavioral_suite.py --mode walkforward`
+- outputs under `analysis/output/<experiment_id>/` (`summary.csv`, `metrics.csv`, `report.md`, `experiment_manifest.json`, `plots/`)
+- predictive metrics: PR-AUC, Brier, MCC, balanced accuracy (plus precision/recall/F1 diagnostics)
+- calibration outputs: fold calibration summaries + reliability-curve artifact
+- predictive controls: permutation, base-rate, random matched-partition, and trend/volatility baseline
+- report interpretation is comparative (Behavioral Surface vs controls), not absolute metric listing
+
 This is the first stage at which a Behavioral Surface may be judged as a predictive representation rather than merely a behavioral one. Owned by PR7.
 
 ------
@@ -1558,6 +1567,8 @@ Each stage answers an independent question with its own evidence standard:
 Progression between stages is deliberate and requires supporting experimental evidence rather than successful software implementation.
 
 Crucially, evidence from a later stage must never be interpreted as retroactive support for an earlier stage's claim, nor may an earlier stage's evidence be treated as anticipating a later stage's conclusion. A confirmed characterization does not imply predictive value; confirmed predictive value does not guarantee trading value. This strict separation is the central discipline of the research programme: it prevents the accumulation of software progress from being mistaken for the accumulation of scientific evidence.
+
+Stage 2 language must therefore remain predictive-only (discrimination, calibration, robustness, and baseline comparisons). Trading outcomes such as profitability, Sharpe, or execution performance are exclusively Stage 3 evidence.
 
 ---
 

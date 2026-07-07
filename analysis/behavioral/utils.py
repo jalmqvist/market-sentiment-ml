@@ -121,6 +121,7 @@ def build_training_command(
     train_pairs: str | None,
     predict_pairs: str | None,
     export_split: str,
+    walkforward_window: dict[str, str] | None = None,
 ) -> list[str]:
     if trainer not in {"mlp", "lstm"}:
         raise ValueError(f"Unsupported trainer: {trainer}")
@@ -159,6 +160,16 @@ def build_training_command(
         command.extend(["--predict-pairs", predict_pairs])
     if trainer == "lstm":
         command.extend(["--seq-len", str(seq_len)])
+    if walkforward_window:
+        for flag, key in [
+            ("--wf-train-start", "train_start"),
+            ("--wf-train-end", "train_end"),
+            ("--wf-test-start", "test_start"),
+            ("--wf-test-end", "test_end"),
+        ]:
+            value = walkforward_window.get(key)
+            if value:
+                command.extend([flag, str(value)])
 
     return command
 

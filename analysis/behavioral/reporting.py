@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 
 from analysis.behavioral.interpretation import (
@@ -15,6 +19,7 @@ from analysis.behavioral.interpretation import (
     generate_key_observations,
 )
 
+_MAX_PLOT_LEGEND_LINES = 8
 
 def write_summary_csv(summary_rows: list[dict], output_path: Path) -> pd.DataFrame:
     df = pd.DataFrame(summary_rows)
@@ -201,5 +206,304 @@ def write_markdown_report(
         f"- started_at: `{config.get('started_at')}`",
         f"- finished_at: `{config.get('finished_at')}`",
     ])
+
+    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _safe_float(value: object) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return None if np.isnan(number) else number
+
+
+def _build_control_comparison_bullets(aggregated_df: pd.DataFrame) -> list[str]:
+    if aggregated_df.empty:
+        return []
+
+    behavior_df = aggregated_df[aggregated_df["baseline"] == "behavioral_surface"].copy()
+    if behavior_df.empty:
+        return []
+
+    comparison_bullets: list[str] = []
+    for baseline in [
+        "permutation",
+        "base_rate",
+        "random_matched_partition",
+        "trend_volatility",
+    ]:
+        baseline_df = aggregated_df[aggregated_df["baseline"] == baseline].copy()
+        if baseline_df.empty:
+            continue
+
+        merged = behavior_df.merge(
+            baseline_df,
+            on=["model", "surface_id", "state_id"],
+            how="left",
+            suffixes=("_behavioral", "_control"),
+        )
+        if merged.empty:
+            continue
+
+        comparable = merged[
+            merged["pr_auc_mean_control"].notna() & merged["brier_score_mean_control"].notna()
+        ].copy()
+        if comparable.empty:
+            comparison_bullets.append(
+                f"- Versus `{baseline}`: no comparable control rows were available for summary."
+            )
+            continue
+
+        pr_wins = (
+            comparable["pr_auc_mean_behavioral"].astype(float)
+            > comparable["pr_auc_mean_control"].astype(float)
+        ).sum()
+        brier_wins = (
+            comparable["brier_score_mean_behavioral"].astype(float)
+            < comparable["brier_score_mean_control"].astype(float)
+        ).sum()
+        total = len(comparable)
+        comparison_bullets.append(
+            f"- Versus `{baseline}`: PR-AUC is higher in {int(pr_wins)}/{total} model-state comparisons; "
+            f"Brier score is lower in {int(brier_wins)}/{total} comparisons."
+        )
+    return comparison_bullets
+
+
+def _write_fold_performance_plot(
+    *,
+    fold_metrics_df: pd.DataFrame,
+    output_path: Path,
+) -> bool:
+    wf_df = fold_metrics_df[fold_metrics_df["baseline"] == "behavioral_surface"].copy()
+    if wf_df.empty or "fold" not in wf_df.columns or "pr_auc" not in wf_df.columns:
+        return False
+
+    wf_df["line_key"] = (
+        wf_df["model"].astype(str)
+        + " | "
+        + wf_df["surface_id"].astype(str)
+        + " | "
+        + wf_df["state_id"].astype(str)
+    )
+    plt.figure(figsize=(10, 5))
+    for line_key, group in wf_df.groupby("line_key"):
+        sorted_group = group.sort_values("fold")
+        plt.plot(
+            sorted_group["fold"].astype(int),
+            sorted_group["pr_auc"].astype(float),
+            marker="o",
+            linewidth=1.5,
+            label=line_key,
+        )
+    plt.xlabel("Walk-forward fold")
+    plt.ylabel("PR-AUC")
+    plt.title("Predictive Performance by Walk-forward Fold")
+    plt.grid(alpha=0.3)
+    if wf_df["line_key"].nunique() <= _MAX_PLOT_LEGEND_LINES:
+        plt.legend(loc="best", fontsize=8)
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150)
+    plt.close()
+    return True
+
+
+def _write_calibration_curve_plot(
+    *,
+    calibration_curve_df: pd.DataFrame,
+    output_path: Path,
+) -> bool:
+    if calibration_curve_df.empty:
+        return False
+    required = {"mean_pred", "observed_freq"}
+    if not required.issubset(calibration_curve_df.columns):
+        return False
+
+    curve_df = calibration_curve_df.dropna(subset=["mean_pred", "observed_freq"]).copy()
+    if curve_df.empty:
+        return False
+
+    grouped = (
+        curve_df.groupby("bin", dropna=False)[["mean_pred", "observed_freq"]]
+        .mean()
+        .reset_index()
+        .sort_values("bin")
+    )
+    plt.figure(figsize=(6, 6))
+    plt.plot([0, 1], [0, 1], linestyle="--", linewidth=1.0, color="gray", label="Perfect calibration")
+    plt.plot(
+        grouped["mean_pred"].astype(float),
+        grouped["observed_freq"].astype(float),
+        marker="o",
+        linewidth=1.8,
+        color="#1f77b4",
+        label="Behavioral Surface",
+    )
+    plt.xlabel("Mean predicted probability")
+    plt.ylabel("Observed positive frequency")
+    plt.title("Calibration Curve (Reliability Diagram)")
+    plt.xlim(0.0, 1.0)
+    plt.ylim(0.0, 1.0)
+    plt.grid(alpha=0.3)
+    plt.legend(loc="best", fontsize=8)
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150)
+    plt.close()
+    return True
+
+
+def write_walkforward_report(
+    *,
+    output_path: Path,
+    experiment_id: str,
+    config_payload: dict[str, object],
+    run_df: pd.DataFrame,
+    fold_metrics_df: pd.DataFrame,
+    aggregated_df: pd.DataFrame,
+    calibration_curve_df: pd.DataFrame | None = None,
+) -> None:
+    plots_dir = output_path.parent / "plots"
+    plots_dir.mkdir(parents=True, exist_ok=True)
+
+    fold_plot_rel = "plots/fold_pr_auc.png"
+    calibration_plot_rel = "plots/calibration_curve.png"
+    has_fold_plot = _write_fold_performance_plot(
+        fold_metrics_df=fold_metrics_df,
+        output_path=output_path.parent / fold_plot_rel,
+    )
+    has_calibration_plot = _write_calibration_curve_plot(
+        calibration_curve_df=calibration_curve_df if calibration_curve_df is not None else pd.DataFrame(),
+        output_path=output_path.parent / calibration_plot_rel,
+    )
+
+    summary_lines = [
+        "## Executive Summary",
+        f"- total_runs: {len(run_df)}",
+        f"- successful_runs: {(run_df['status'] == 'success').sum() if not run_df.empty else 0}",
+        f"- failed_runs: {(run_df['status'] != 'success').sum() if not run_df.empty else 0}",
+        f"- folds: {run_df['fold'].nunique() if 'fold' in run_df.columns and not run_df.empty else 0}",
+    ]
+    summary_lines.extend(_build_control_comparison_bullets(aggregated_df))
+
+    behavior_agg = (
+        aggregated_df[aggregated_df["baseline"] == "behavioral_surface"]
+        if (not aggregated_df.empty and "baseline" in aggregated_df.columns)
+        else pd.DataFrame()
+    )
+    if not behavior_agg.empty and "pr_auc_mean" in behavior_agg.columns:
+        pr_mean = _safe_float(behavior_agg["pr_auc_mean"].mean())
+        if pr_mean is not None:
+            summary_lines.append(f"- Behavioral Surface mean PR-AUC across model-state groups: {pr_mean:.3f}.")
+
+    behavior_fold = (
+        fold_metrics_df[fold_metrics_df["baseline"] == "behavioral_surface"]
+        if (not fold_metrics_df.empty and "baseline" in fold_metrics_df.columns)
+        else pd.DataFrame()
+    )
+    if not behavior_fold.empty and "calibration_ece" in behavior_fold.columns:
+        ece_mean = _safe_float(behavior_fold["calibration_ece"].mean())
+        if ece_mean is not None:
+            summary_lines.append(
+                f"- Mean Expected Calibration Error (ECE) for Behavioral Surface predictions: {ece_mean:.3f}."
+            )
+
+    lines = [
+        f"# Behavioral Walk-forward Predictive Validation Report: {experiment_id}",
+        "",
+        "This report evaluates predictive discrimination, calibration, and robustness only.",
+        "It does not evaluate trading suitability, returns, or strategy profitability.",
+        "",
+        *summary_lines,
+        "",
+        "## Scientific Findings",
+        "",
+        "Predictive performance is interpreted relative to baseline controls rather than as isolated metrics.",
+        "A Behavioral Surface is considered stronger only when discrimination and error metrics improve versus controls.",
+        "Calibration is reported separately so discrimination gains can be interpreted together with probability reliability.",
+    ]
+
+    if has_fold_plot or has_calibration_plot:
+        lines.extend(["", "## Plots"])
+        if has_fold_plot:
+            lines.extend(
+                [
+                    "",
+                    "### Predictive Performance by Fold (PR-AUC)",
+                    f"![Predictive performance by walk-forward fold]({fold_plot_rel})",
+                ]
+            )
+        if has_calibration_plot:
+            lines.extend(
+                [
+                    "",
+                    "### Calibration Curve",
+                    f"![Calibration curve reliability diagram]({calibration_plot_rel})",
+                ]
+            )
+
+    if not aggregated_df.empty:
+        lines.extend(["", "## Aggregate Predictive Comparison"])
+        disp = [
+            c
+            for c in [
+                "model",
+                "surface_id",
+                "state_id",
+                "baseline",
+                "folds",
+                "pr_auc_mean",
+                "brier_score_mean",
+                "mcc_mean",
+                "balanced_accuracy_mean",
+                "precision_mean",
+                "recall_mean",
+                "f1_mean",
+            ]
+            if c in aggregated_df.columns
+        ]
+        if disp:
+            lines.append(aggregated_df[disp].to_markdown(index=False))
+
+    if not fold_metrics_df.empty:
+        lines.extend(["", "## Per-fold Metrics"])
+        disp = [
+            c
+            for c in [
+                "fold",
+                "model",
+                "surface_id",
+                "state_id",
+                "baseline",
+                "n",
+                "positive_rate",
+                "pr_auc",
+                "brier_score",
+                "calibration_ece",
+                "mcc",
+                "balanced_accuracy",
+                "precision",
+                "recall",
+                "f1",
+            ]
+            if c in fold_metrics_df.columns
+        ]
+        if disp:
+            lines.append(fold_metrics_df[disp].to_markdown(index=False))
+
+    lines.extend(
+        [
+            "",
+            "## Reproducibility",
+            f"- dataset_version: `{config_payload.get('dataset_version')}`",
+            f"- dataset_variant: `{config_payload.get('dataset_variant')}`",
+            f"- selected_surface_id: `{config_payload.get('selected_surface_id')}`",
+            f"- models: `{', '.join(config_payload.get('models', []))}`",
+            f"- walkforward_protocol: `{config_payload.get('walkforward_protocol')}`",
+            f"- git_commit: `{config_payload.get('git_commit')}`",
+            f"- started_at: `{config_payload.get('started_at')}`",
+            f"- finished_at: `{config_payload.get('finished_at')}`",
+        ]
+    )
 
     output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")

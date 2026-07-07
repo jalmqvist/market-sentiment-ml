@@ -8,6 +8,22 @@ from pathlib import Path
 
 import pandas as pd
 
+from analysis.walkforward.calibration import compute_calibration
+from analysis.walkforward.controls import build_control_rows
+from analysis.walkforward.evaluate import aggregate_metric_table, compute_predictive_metrics
+from analysis.walkforward.utils import (
+    build_binary_labels,
+    filter_window,
+    match_predictions_with_labels,
+    resolve_target_column,
+    resolve_time_column,
+    train_threshold,
+)
+from research.utils.mpml_walkforward_reference import (
+    generate_walkforward_folds_by_pos,
+    walkforward_signature,
+)
+
 if __package__ in {None, ""}:
     _REPO_ROOT = Path(__file__).resolve().parents[2]
     if str(_REPO_ROOT) not in sys.path:
@@ -25,6 +41,7 @@ from analysis.behavioral.reporting import (
     write_markdown_report,
     write_metrics_csv,
     write_summary_csv,
+    write_walkforward_report,
 )
 from analysis.behavioral.utils import (
     build_training_command,
@@ -128,7 +145,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--dataset-version", required=True)
     parser.add_argument("--dataset-variant", required=True)
-    parser.add_argument("--surface-id", default=None)
+    parser.add_argument("--surface-id", "--surface", dest="surface_id", default=None)
+    parser.add_argument(
+        "--mode",
+        default="characterization",
+        choices=["characterization", "walkforward"],
+    )
     parser.add_argument("--models", default="both", help="mlp, lstm, or both")
     parser.add_argument("--feature-set", default="price_trend")
     parser.add_argument("--target-horizon", type=int, default=24)
@@ -149,6 +171,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--label-quantile", type=float, default=0.5)
     parser.add_argument("--seq-len", type=int, default=24)
+    parser.add_argument("--wf-train-years", type=int, default=7)
+    parser.add_argument("--wf-test-months", type=int, default=6)
+    parser.add_argument("--wf-step-months", type=int, default=6)
+    parser.add_argument("--calibration-bins", type=int, default=10)
+    parser.add_argument("--random-seed", type=int, default=42)
     parser.add_argument("--train-pairs", default=None)
     parser.add_argument("--predict-pairs", default=None)
     parser.add_argument("--export-split", default="all", choices=["all", "test"])
@@ -167,7 +194,8 @@ def _build_experiment_id(args: argparse.Namespace) -> str:
         return args.experiment_id
     timestamp = pd.Timestamp.now(tz="UTC").strftime("%Y%m%dT%H%M%SZ")
     variant = sanitize_fragment(args.dataset_variant)
-    return f"behavioral_suite_{args.dataset_version}_{variant}_{timestamp}"
+    prefix = "behavioral_walkforward" if args.mode == "walkforward" else "behavioral_suite"
+    return f"{prefix}_{args.dataset_version}_{variant}_{timestamp}"
 
 
 def _prepare_experiment_dir(root: Path, experiment_id: str) -> Path:
@@ -438,9 +466,323 @@ def run_suite(args: argparse.Namespace) -> dict[str, object]:
     return summary
 
 
+def run_walkforward_suite(args: argparse.Namespace) -> dict[str, object]:
+    models = select_models(args.models)
+    experiment_id = _build_experiment_id(args)
+    experiment_dir = _prepare_experiment_dir(args.output_root, experiment_id)
+
+    dataset_output_dir = args.repo_root / "data" / "output"
+    dataset_path = resolve_dataset_csv_path(
+        args.dataset_version,
+        args.dataset_variant,
+        output_dir=dataset_output_dir,
+    )
+    dataset_df = load_dataset_for_suite(
+        args.dataset_version,
+        args.dataset_variant,
+        output_dir=dataset_output_dir,
+    )
+    states = discover_behavioral_states(dataset_df, selected_surface_id=args.surface_id)
+    time_col = resolve_time_column(dataset_df)
+    target_col = resolve_target_column(dataset_df, args.target_horizon)
+    state_partitions: dict[tuple[str, str], pd.DataFrame] = {}
+    for state in states:
+        key = (state["surface_id"], state["state_id"])
+        state_partitions[key] = dataset_df[
+            (dataset_df["surface_id"] == state["surface_id"])
+            & (dataset_df["state_id"] == state["state_id"])
+        ].copy()
+
+    dates = pd.DatetimeIndex(pd.to_datetime(dataset_df[time_col], errors="coerce").dropna().sort_values().unique())
+    folds = generate_walkforward_folds_by_pos(
+        dates=dates,
+        train_years=args.wf_train_years,
+        test_months=args.wf_test_months,
+        step_months=args.wf_step_months,
+    )
+    protocol = walkforward_signature(
+        train_years=args.wf_train_years,
+        test_months=args.wf_test_months,
+        step_months=args.wf_step_months,
+    )
+
+    started_at = utc_now_iso()
+    run_rows: list[dict[str, object]] = []
+    manifest_paths: list[Path] = []
+    prediction_paths: list[Path] = []
+    metric_rows: list[dict[str, object]] = []
+    calibration_curve_rows: list[dict[str, object]] = []
+
+    predictions_dir = args.repo_root / args.predictions_dir
+    logs_dir = args.repo_root / args.logs_dir
+
+    for fold in folds:
+        train_start = pd.Timestamp(fold["train_start_dt"])
+        train_end = pd.Timestamp(fold["train_end_dt"])
+        test_start = pd.Timestamp(fold["test_start_dt"])
+        test_end = pd.Timestamp(fold["test_end_dt"])
+
+        fold_test_df = filter_window(dataset_df, time_col=time_col, start=test_start, end=test_end)
+
+        for state in states:
+            state_df = state_partitions[(state["surface_id"], state["state_id"])]
+            state_train_df = filter_window(state_df, time_col=time_col, start=train_start, end=train_end)
+            state_test_df = filter_window(state_df, time_col=time_col, start=test_start, end=test_end)
+            threshold = train_threshold(
+                state_train_df,
+                target_col=target_col,
+                label_quantile=args.label_quantile,
+            )
+            if threshold is None:
+                continue
+
+            label_train = build_binary_labels(
+                state_train_df,
+                target_col=target_col,
+                threshold=threshold,
+            )
+            label_test = build_binary_labels(
+                state_test_df,
+                target_col=target_col,
+                threshold=threshold,
+            )
+            if label_test.empty:
+                continue
+
+            # Regime-conditioned controls (Trend/Volatility baseline)
+            regime_train_df = None
+            regime_test_df = None
+            if "regime" in state_train_df.columns and "regime" in state_test_df.columns:
+                regime_train_df = label_train.merge(
+                    state_train_df[["pair", "entry_time", "regime"]].copy(),
+                    on=["pair", "entry_time"],
+                    how="left",
+                )
+                regime_test_df = label_test.merge(
+                    state_test_df[["pair", "entry_time", "regime"]].copy(),
+                    on=["pair", "entry_time"],
+                    how="left",
+                )
+
+            train_positive_rate = float(label_train["y_true"].mean()) if not label_train.empty else None
+
+            for model in models:
+                before_parquet = snapshot_files(predictions_dir, "*.parquet")
+                before_manifest = snapshot_files(predictions_dir, "*.manifest.json")
+                before_logs = snapshot_files(logs_dir, "*.log")
+
+                command = build_training_command(
+                    trainer=model,
+                    dataset_version=args.dataset_version,
+                    dataset_variant=args.dataset_variant,
+                    surface_id=state["surface_id"],
+                    state_id=state["state_id"],
+                    feature_set=args.feature_set,
+                    target_horizon=args.target_horizon,
+                    epochs=args.epochs,
+                    hidden_dim=args.hidden_dim,
+                    lr=args.lr,
+                    label_quantile=args.label_quantile,
+                    seq_len=args.seq_len,
+                    train_pairs=args.train_pairs,
+                    predict_pairs=args.predict_pairs,
+                    export_split="test",
+                    walkforward_window={
+                        "train_start": fold["train_start_dt"],
+                        "train_end": fold["train_end_dt"],
+                        "test_start": fold["test_start_dt"],
+                        "test_end": fold["test_end_dt"],
+                    },
+                )
+
+                run_tag = (
+                    f"wf_fold{fold['fold']}_{model}_"
+                    f"{sanitize_fragment(state['surface_id'])}_{sanitize_fragment(state['state_id'])}"
+                )
+                run_log_path = experiment_dir / "logs" / f"run_{run_tag}.log"
+                result = run_training_command(
+                    command=command,
+                    repo_root=args.repo_root,
+                    log_path=run_log_path,
+                )
+
+                if result.reported_parquet_path is not None:
+                    new_parquet = [result.reported_parquet_path]
+                else:
+                    after_parquet = snapshot_files(predictions_dir, "*.parquet")
+                    new_parquet = diff_new_files(before_parquet, after_parquet)
+
+                if result.reported_manifest_path is not None:
+                    new_manifest = [result.reported_manifest_path]
+                else:
+                    after_manifest = snapshot_files(predictions_dir, "*.manifest.json")
+                    new_manifest = diff_new_files(before_manifest, after_manifest)
+
+                after_logs = snapshot_files(logs_dir, "*.log")
+                new_logs = diff_new_files(before_logs, after_logs)
+
+                copied_parquet = copy_files(new_parquet, experiment_dir / "prediction_artifacts")
+                copied_manifest = copy_files(new_manifest, experiment_dir / "manifests")
+                copy_files(new_logs, experiment_dir / "logs")
+
+                if copied_manifest:
+                    manifest_paths.extend(copied_manifest)
+                if copied_parquet:
+                    prediction_paths.extend(copied_parquet)
+
+                run_row = {
+                    "fold": int(fold["fold"]),
+                    "train_start_dt": fold["train_start_dt"],
+                    "train_end_dt": fold["train_end_dt"],
+                    "test_start_dt": fold["test_start_dt"],
+                    "test_end_dt": fold["test_end_dt"],
+                    "surface_id": state["surface_id"],
+                    "state_id": state["state_id"],
+                    "model": model,
+                    "status": "success" if result.returncode == 0 else "failed",
+                    "returncode": int(result.returncode),
+                    "started_at": result.started_at,
+                    "finished_at": result.finished_at,
+                    "duration_seconds": result.duration_seconds,
+                    "command": " ".join(shlex.quote(part) for part in command),
+                    "manifest_file": copied_manifest[0].name if copied_manifest else None,
+                    "artifact_file": copied_parquet[0].name if copied_parquet else None,
+                    "log_file": _relative_to(run_log_path, args.repo_root),
+                    "threshold": float(threshold),
+                }
+                run_rows.append(run_row)
+
+                if result.returncode != 0 or not copied_parquet:
+                    continue
+
+                artifact_path = experiment_dir / "prediction_artifacts" / copied_parquet[0].name
+                try:
+                    pred_df = pd.read_parquet(artifact_path)
+                except Exception:
+                    continue
+                y_true, y_prob = match_predictions_with_labels(pred_df, label_test)
+                behavioral_metrics = compute_predictive_metrics(y_true, y_prob)
+                calibration_summary, curve_rows = compute_calibration(
+                    y_true,
+                    y_prob,
+                    n_bins=args.calibration_bins,
+                )
+                metric_rows.append(
+                    {
+                        "metric_group": "walkforward_fold",
+                        "baseline": "behavioral_surface",
+                        "fold": int(fold["fold"]),
+                        "surface_id": state["surface_id"],
+                        "state_id": state["state_id"],
+                        "model": model,
+                        **behavioral_metrics,
+                        **calibration_summary,
+                    }
+                )
+                for curve in curve_rows:
+                    calibration_curve_rows.append(
+                        {
+                            "fold": int(fold["fold"]),
+                            "surface_id": state["surface_id"],
+                            "state_id": state["state_id"],
+                            "model": model,
+                            **curve,
+                        }
+                    )
+
+                control_rows = build_control_rows(
+                    y_true=y_true,
+                    y_prob_behavioral=y_prob,
+                    fold_id=int(fold["fold"]),
+                    model=model,
+                    surface_id=state["surface_id"],
+                    state_id=state["state_id"],
+                    train_positive_rate=train_positive_rate,
+                    regime_train_df=regime_train_df,
+                    regime_test_df=regime_test_df,
+                )
+                for row in control_rows:
+                    metric_rows.append({"metric_group": "walkforward_fold", **row})
+
+    run_df = write_summary_csv(run_rows, experiment_dir / "summary.csv")
+    fold_metrics_df = pd.DataFrame(metric_rows)
+    aggregate_rows = aggregate_metric_table(metric_rows)
+    aggregate_df = pd.DataFrame(aggregate_rows)
+
+    metrics_payload = metric_rows + [{"metric_group": "walkforward_aggregate", **row} for row in aggregate_rows]
+    metrics_df = write_metrics_csv(metrics_payload, experiment_dir / "metrics.csv")
+    calibration_curve_df = pd.DataFrame(calibration_curve_rows)
+    if not calibration_curve_df.empty:
+        calibration_curve_df.to_csv(experiment_dir / "calibration_curve.csv", index=False)
+
+    finished_at = utc_now_iso()
+    config_payload = {
+        "experiment_id": experiment_id,
+        "dataset_version": args.dataset_version,
+        "dataset_variant": args.dataset_variant,
+        "selected_surface_id": args.surface_id,
+        "models": models,
+        "feature_set": args.feature_set,
+        "target_horizon": args.target_horizon,
+        "walkforward_protocol": protocol,
+        "started_at": started_at,
+        "finished_at": finished_at,
+        "git_commit": get_git_commit(args.repo_root),
+    }
+
+    write_walkforward_report(
+        output_path=experiment_dir / "report.md",
+        experiment_id=experiment_id,
+        config_payload=config_payload,
+        run_df=run_df,
+        fold_metrics_df=fold_metrics_df,
+        aggregated_df=aggregate_df,
+        calibration_curve_df=calibration_curve_df,
+    )
+
+    experiment_manifest = {
+        "experiment_id": experiment_id,
+        "created_at": started_at,
+        "completed_at": finished_at,
+        "mode": "walkforward",
+        "success": bool((run_df["status"] == "success").all()) if not run_df.empty else False,
+        "cli": {
+            "argv": sys.argv,
+            "parsed": vars(args),
+        },
+        "dataset": {
+            "version": args.dataset_version,
+            "variant": args.dataset_variant,
+            "path": str(dataset_path),
+        },
+        "walkforward_protocol": protocol,
+        "walkforward_folds": folds,
+        "discovered_states": states,
+        "models_executed": models,
+        "git_commit": config_payload["git_commit"],
+        "runs": run_df.to_dict(orient="records"),
+        "manifest_files": [path.name for path in manifest_paths],
+        "prediction_artifacts": [path.name for path in prediction_paths],
+    }
+    (experiment_dir / "experiment_manifest.json").write_text(
+        json.dumps(experiment_manifest, indent=2, default=str),
+        encoding="utf-8",
+    )
+
+    summary = {
+        "experiment_id": experiment_id,
+        "experiment_dir": str(experiment_dir),
+        "runs": len(run_df),
+        "failures": int((run_df["status"] != "success").sum()) if not run_df.empty else 0,
+        "metrics_rows": len(metrics_df),
+        "folds": len(folds),
+    }
+    return summary
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
-    summary = run_suite(args)
+    summary = run_walkforward_suite(args) if args.mode == "walkforward" else run_suite(args)
     print(json.dumps(summary, indent=2))
     return 0 if summary["failures"] == 0 else 1
 

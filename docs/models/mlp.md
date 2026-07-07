@@ -221,6 +221,24 @@ python analysis/behavioral/run_behavioral_suite.py \
   --dataset-variant reactive_jpy_v1_core
 ```
 
+Stage 2 Predictive Validation uses the same entrypoint in walk-forward mode:
+
+```bash
+python analysis/behavioral/run_behavioral_suite.py \
+  --dataset-version 1.5.1 \
+  --dataset-variant reactive_jpy_v1_core \
+  --mode walkforward \
+  --surface reactive_jpy \
+  --models both \
+  --profile publication
+```
+
+In this mode the MLP trainer receives fold-window arguments (`--wf-train-start`,
+`--wf-train-end`, `--wf-test-start`, `--wf-test-end`) from the orchestrator.
+Stage 2 reports predictive metrics, calibration, and control-relative performance
+only; it extends Stage 1 Characterization and feeds future Stage 3 Trading
+Validation, but does not make trading claims.
+
 Example:
 
 ```

@@ -11,6 +11,8 @@ This module intentionally mirrors the MPML implementation.
 
 Changes should normally be made in MPML first and then synchronized here.
 """
+import pandas as pd
+
 #======
 # fold generator helper functions:
 #=====
