@@ -240,21 +240,28 @@ def _build_control_comparison_bullets(aggregated_df: pd.DataFrame) -> list[str]:
         merged = behavior_df.merge(
             baseline_df,
             on=["model", "surface_id", "state_id"],
-            how="inner",
+            how="left",
             suffixes=("_behavioral", "_control"),
         )
         if merged.empty:
             continue
 
+        comparable = merged[
+            merged["pr_auc_mean_control"].notna() & merged["brier_score_mean_control"].notna()
+        ].copy()
+        if comparable.empty:
+            rows.append(f"- Versus `{baseline}`: no comparable control rows were available for summary.")
+            continue
+
         pr_wins = (
-            merged["pr_auc_mean_behavioral"].astype(float)
-            > merged["pr_auc_mean_control"].astype(float)
+            comparable["pr_auc_mean_behavioral"].astype(float)
+            > comparable["pr_auc_mean_control"].astype(float)
         ).sum()
         brier_wins = (
-            merged["brier_score_mean_behavioral"].astype(float)
-            < merged["brier_score_mean_control"].astype(float)
+            comparable["brier_score_mean_behavioral"].astype(float)
+            < comparable["brier_score_mean_control"].astype(float)
         ).sum()
-        total = len(merged)
+        total = len(comparable)
         rows.append(
             f"- Versus `{baseline}`: PR-AUC is higher in {int(pr_wins)}/{total} model-state comparisons; "
             f"Brier score is lower in {int(brier_wins)}/{total} comparisons."
@@ -377,13 +384,21 @@ def write_walkforward_report(
     ]
     summary_lines.extend(_build_control_comparison_bullets(aggregated_df))
 
-    behavior_agg = aggregated_df[aggregated_df.get("baseline") == "behavioral_surface"] if not aggregated_df.empty else pd.DataFrame()
+    behavior_agg = (
+        aggregated_df[aggregated_df["baseline"] == "behavioral_surface"]
+        if (not aggregated_df.empty and "baseline" in aggregated_df.columns)
+        else pd.DataFrame()
+    )
     if not behavior_agg.empty and "pr_auc_mean" in behavior_agg.columns:
         pr_mean = _safe_float(behavior_agg["pr_auc_mean"].mean())
         if pr_mean is not None:
             summary_lines.append(f"- Behavioral Surface mean PR-AUC across model-state groups: {pr_mean:.3f}.")
 
-    behavior_fold = fold_metrics_df[fold_metrics_df.get("baseline") == "behavioral_surface"] if not fold_metrics_df.empty else pd.DataFrame()
+    behavior_fold = (
+        fold_metrics_df[fold_metrics_df["baseline"] == "behavioral_surface"]
+        if (not fold_metrics_df.empty and "baseline" in fold_metrics_df.columns)
+        else pd.DataFrame()
+    )
     if not behavior_fold.empty and "calibration_ece" in behavior_fold.columns:
         ece_mean = _safe_float(behavior_fold["calibration_ece"].mean())
         if ece_mean is not None:
