@@ -19,6 +19,8 @@ from analysis.behavioral.interpretation import (
     generate_key_observations,
 )
 
+_MAX_PLOT_LEGEND_LINES = 8
+
 def write_summary_csv(summary_rows: list[dict], output_path: Path) -> pd.DataFrame:
     df = pd.DataFrame(summary_rows)
     df.to_csv(output_path, index=False)
@@ -299,7 +301,7 @@ def _write_fold_performance_plot(
     plt.ylabel("PR-AUC")
     plt.title("Predictive Performance by Walk-forward Fold")
     plt.grid(alpha=0.3)
-    if wf_df["line_key"].nunique() <= 8:
+    if wf_df["line_key"].nunique() <= _MAX_PLOT_LEGEND_LINES:
         plt.legend(loc="best", fontsize=8)
     plt.tight_layout()
     plt.savefig(output_path, dpi=150)
@@ -325,8 +327,8 @@ def _write_calibration_curve_plot(
     grouped = (
         curve_df.groupby("bin", dropna=False)[["mean_pred", "observed_freq"]]
         .mean()
-        .reset_index(drop=True)
-        .sort_values("mean_pred")
+        .reset_index()
+        .sort_values("bin")
     )
     plt.figure(figsize=(6, 6))
     plt.plot([0, 1], [0, 1], linestyle="--", linewidth=1.0, color="gray", label="Perfect calibration")
