@@ -5,6 +5,8 @@ import hashlib
 import numpy as np
 import pandas as pd
 
+_MAX_SEED = (2 ** 32) - 1
+
 
 def resolve_time_column(df: pd.DataFrame) -> str:
     for col in ["snapshot_time", "entry_time", "timestamp", "time"]:
@@ -25,7 +27,7 @@ def resolve_target_column(df: pd.DataFrame, target_horizon: int) -> str:
 def deterministic_seed(*parts: object, base_seed: int = 42) -> int:
     payload = "|".join(str(p) for p in parts)
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
-    return (int(digest[:8], 16) + int(base_seed)) % (2 ** 32 - 1)
+    return (int(digest[:8], 16) + int(base_seed)) % _MAX_SEED
 
 
 def filter_window(

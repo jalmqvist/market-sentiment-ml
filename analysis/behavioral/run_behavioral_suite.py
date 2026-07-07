@@ -287,7 +287,7 @@ def _write_walkforward_report(
             f"- dataset_version: `{config_payload.get('dataset_version')}`",
             f"- dataset_variant: `{config_payload.get('dataset_variant')}`",
             f"- selected_surface_id: `{config_payload.get('selected_surface_id')}`",
-            f"- models: `{','.join(config_payload.get('models', []))}`",
+            f"- models: `{', '.join(config_payload.get('models', []))}`",
             f"- walkforward_protocol: `{config_payload.get('walkforward_protocol')}`",
             f"- git_commit: `{config_payload.get('git_commit')}`",
             f"- started_at: `{config_payload.get('started_at')}`",
