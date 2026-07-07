@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
@@ -16,10 +18,6 @@ from analysis.behavioral.interpretation import (
     generate_findings,
     generate_key_observations,
 )
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-
 
 def write_summary_csv(summary_rows: list[dict], output_path: Path) -> pd.DataFrame:
     df = pd.DataFrame(summary_rows)
@@ -226,7 +224,7 @@ def _build_control_comparison_bullets(aggregated_df: pd.DataFrame) -> list[str]:
     if behavior_df.empty:
         return []
 
-    rows: list[str] = []
+    comparison_bullets: list[str] = []
     for baseline in [
         "permutation",
         "base_rate",
@@ -250,7 +248,9 @@ def _build_control_comparison_bullets(aggregated_df: pd.DataFrame) -> list[str]:
             merged["pr_auc_mean_control"].notna() & merged["brier_score_mean_control"].notna()
         ].copy()
         if comparable.empty:
-            rows.append(f"- Versus `{baseline}`: no comparable control rows were available for summary.")
+            comparison_bullets.append(
+                f"- Versus `{baseline}`: no comparable control rows were available for summary."
+            )
             continue
 
         pr_wins = (
@@ -262,11 +262,11 @@ def _build_control_comparison_bullets(aggregated_df: pd.DataFrame) -> list[str]:
             < comparable["brier_score_mean_control"].astype(float)
         ).sum()
         total = len(comparable)
-        rows.append(
+        comparison_bullets.append(
             f"- Versus `{baseline}`: PR-AUC is higher in {int(pr_wins)}/{total} model-state comparisons; "
             f"Brier score is lower in {int(brier_wins)}/{total} comparisons."
         )
-    return rows
+    return comparison_bullets
 
 
 def _write_fold_performance_plot(
