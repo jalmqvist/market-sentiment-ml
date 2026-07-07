@@ -1159,7 +1159,8 @@ This PR establishes the architectural connection between Behavioral Characteriza
 
 ## Objective
 
-PR7 represents the first stage at which Behavioral Surfaces may be judged as predictive representations rather than merely behavioral representations.
+PR7 represents the first stage at which Behavioral Surfaces may be judged as
+predictive representations rather than merely behavioral representations.
 
 Previous PRs establish
 
@@ -1174,50 +1175,217 @@ PR7 introduces **predictive validation**.
 
 The central scientific question becomes
 
-> **Does partitioning the market according to Behavioral Surface states produce more predictable price behavior than existing regime-based representations?**
+> **Does partitioning the market according to Behavioral Surface states
+> produce more predictable price behavior than existing regime-based
+> representations?**
 
 This distinction is fundamental.
 
 Behavioral characterization is not behavioral validation.
 
-Observations regarding entropy, confidence, agreement or state occupancy may suggest interesting hypotheses, but they do not establish predictive usefulness.
+Observations regarding entropy, confidence, agreement or state occupancy may
+suggest interesting hypotheses, but they do not establish predictive
+usefulness.
 
 Only reproducible walk-forward evaluation may support such conclusions.
 
 ------
 
+## Walk-forward Protocol
+
+Predictive walk-forward evaluation shall reuse the existing MPML walk-forward schedule.
+
+To guarantee identical temporal partitioning between Stage 2 (Predictive Validation) and Stage 3 (Trading Validation), PR7 shall use the reference implementation located at:
+
+```
+research/utils/mpml_walkforward_reference.py
+```
+
+This module is a synchronized copy of the MPML walk-forward implementation and is treated as the authoritative definition of fold construction within MSML. Changes to fold generation should be made in MPML first and then synchronized into the reference module.
+
+Using an identical sequence of train/test folds ensures that Stage 2
+(Predictive Validation) and Stage 3 (Trading Validation) evaluate identical
+market periods, allowing predictive improvements and downstream trading
+performance to be compared without introducing differences caused solely by
+different fold definitions.
+
+Behavioral Walk-forward therefore evaluates **prediction** under the same
+temporal conditions that MPML later uses to evaluate **trading**.
+
+Walk-forward experiment manifests shall record the fold protocol (train years, test months, step months, protocol identifier) so that predictive and trading evaluations can be verified to use identical schedules.
+
+------
+
+## Metric Selection
+
+Behavioral Surfaces are expected to produce weak, noisy signals. This is an
+expected property of the research programme, not a defect to be engineered
+away.
+
+Consequently, the metrics used to evaluate walk-forward performance must be
+chosen to fairly characterize weak predictive effects rather than to reward or
+penalize them by construction.
+
+Metric selection is therefore treated as a first-class scientific decision
+rather than an implementation detail.
+
+### Principles
+
+- Metrics shall evaluate the Behavioral Surface as a predictive
+  representation, not as a trading strategy. Tradeability remains the
+  exclusive responsibility of MPML (Stage 3).
+- Metrics shall remain robust under severe class imbalance, since imbalance
+  varies materially across Behavioral Surfaces and individual Behavioral
+  States.
+- Metrics shall avoid implicit threshold selection wherever practical.
+  Choosing an operating threshold presumes a trading cost structure and
+  therefore belongs to Stage 3 rather than Stage 2.
+- Metric behaviour shall be understood and documented before adoption.
+  Metrics are selected because they answer appropriate scientific questions,
+  not because they are commonly reported.
+
+------
+
+## Class Imbalance
+
+Class imbalance is expected to vary substantially between Behavioral Surfaces
+and between individual Behavioral States.
+
+Reactive JPY already demonstrates severe imbalance, and future Behavioral
+Surfaces should be expected to exhibit different imbalance characteristics.
+
+Evaluation metrics must therefore remain informative even when minority-class
+support is limited.
+
+F1 score, while useful historically during early experimentation, exhibits
+several undesirable properties under severe imbalance:
+
+- the F1-optimal threshold may vary substantially between walk-forward folds
+  despite unchanged predictive quality
+- precision and recall are collapsed into a single quantity, obscuring the
+  underlying failure mode
+- F1 has no natural baseline; identical F1 values may represent very different
+  predictive behaviour under different class balances
+
+Accordingly,
+
+**F1 shall be retained only as a secondary diagnostic metric for historical
+continuity and shall not be interpreted as primary scientific evidence.**
+
+Primary evaluation metrics for PR7 shall include:
+
+| Metric                                     | Purpose                                                      |
+| ------------------------------------------ | ------------------------------------------------------------ |
+| **PR-AUC (Average Precision)**             | Primary threshold-free ranking metric emphasizing minority-class performance |
+| **Brier Score**                            | Measures probability quality and overall probabilistic accuracy |
+| **Calibration analysis**                   | Evaluates whether predicted probabilities correspond to observed event frequencies |
+| **Matthews Correlation Coefficient (MCC)** | Thresholded cross-check using all four confusion-matrix cells |
+| **Balanced Accuracy**                      | Simple interpretable diagnostic complement                   |
+
+Calibration quality is considered a first-class quantity because downstream
+systems (including MPML) consume calibrated prediction probabilities rather
+than binary class labels.
+
+Per-fold and per-state class balance shall always accompany reported metrics.
+
+------
+
+## Baseline Controls
+
+Absolute metric values are not scientifically interpretable in isolation.
+
+Every reported metric shall therefore be accompanied by matched reference
+baselines.
+
+Required baselines include
+
+- **Permutation baseline**
+
+  Labels are randomly permuted **independently within each walk-forward fold**,
+  preserving temporal partitioning while destroying any genuine predictive
+  relationship.
+
+- **Base-rate baseline**
+
+  Predictor matching the observed positive-class frequency within each fold.
+
+- **Random matched-partition baseline**
+
+  Random partitions matched for sample size and temporal coverage, consistent
+  with the controls introduced in PR5.
+
+Behavioral predictive effects shall be interpreted relative to these baselines
+rather than against fixed numerical thresholds.
+
+------
+
+## Reporting Requirements
+
+Consistent with the scientific-restraint principles established in PR5.1,
+walk-forward reports shall
+
+- report per-fold metrics rather than only aggregate values
+- report per-state metrics wherever practical
+- report class balance per fold and per Behavioral State
+- report calibration quality
+- report precision and recall as secondary diagnostic quantities
+- express findings relative to baseline controls using the existing Finding
+  structure
+- avoid language implying tradeability
+
+Walk-forward reports answer
+
+> **Does this Behavioral Surface improve prediction?**
+
+They intentionally do **not** answer
+
+> **Should this Behavioral Surface be traded?**
+
+------
+
 ## Deliverables
 
-- full walk-forward evaluation
-- predictive metrics
-- comparison against trend/volatility regimes
+- reproducible walk-forward evaluation
+- imbalance-robust predictive metrics
+- probability calibration analysis
+- permutation, base-rate and matched-partition controls
+- comparison against existing Trend/Volatility partitioning
+- per-fold and per-state reporting
 - reproducible reports
 
-Expected comparisons
+Expected comparisons include
 
 - Behavioral Surface vs Trend/Volatility Surface
 - Per-state predictive performance
 - Aggregate predictive performance
 - Fold stability
-- State occupancy
 - Coverage
-- Statistical significance of predictive differences
+- Calibration quality
+- Statistical significance relative to baseline controls
 
 ------
 
-## Possible outcomes
+## Possible Outcomes
 
 ### CONFIRMED
 
-Behavioral Surfaces outperform the existing market-regime partition.
+Behavioral Surface prediction consistently outperforms the existing
+Trend/Volatility representation across walk-forward folds, with improvements
+remaining distinguishable from permutation and matched baseline controls.
 
 ### INCONCLUSIVE
 
-Behavioral representation appears useful but requires refinement.
+Evidence suggests predictive benefit, but uncertainty remains too large to
+draw a robust conclusion. Additional Behavioral Surface refinement or further
+data are warranted.
 
 ### NOT CONFIRMED
 
-Behavioral partitioning does not improve prediction despite successful BSVE validation.
+Behavioral partitioning successfully characterizes market behaviour but does
+not produce reproducible predictive improvement beyond baseline controls.
+
+Negative results remain scientifically valuable and shall be preserved within
+the Behavioral Surface Registry.
 
 ------
 
@@ -1356,7 +1524,7 @@ Question
 
 Primary evidence
 
-Reproducible walk-forward evaluation — predictive comparison against trend/volatility regimes, per-state and aggregate performance, fold stability, and statistical significance of predictive differences.
+Reproducible walk-forward evaluation using the shared MPML fold protocol, enabling direct comparison between predictive and downstream trading evidence — predictive comparison against trend/volatility regimes, per-state and aggregate performance, fold stability, and statistical significance of predictive differences.
 
 This is the first stage at which a Behavioral Surface may be judged as a predictive representation rather than merely a behavioral one. Owned by PR7.
 
