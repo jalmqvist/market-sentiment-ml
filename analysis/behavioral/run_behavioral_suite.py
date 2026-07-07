@@ -41,6 +41,7 @@ from analysis.behavioral.reporting import (
     write_markdown_report,
     write_metrics_csv,
     write_summary_csv,
+    write_walkforward_report,
 )
 from analysis.behavioral.utils import (
     build_training_command,
@@ -209,93 +210,6 @@ def _relative_to(path: Path, root: Path) -> str:
         return str(path.resolve().relative_to(root.resolve()))
     except ValueError:
         return str(path.resolve())
-
-
-def _write_walkforward_report(
-    *,
-    output_path: Path,
-    experiment_id: str,
-    config_payload: dict[str, object],
-    run_df: pd.DataFrame,
-    fold_metrics_df: pd.DataFrame,
-    aggregated_df: pd.DataFrame,
-) -> None:
-    lines = [
-        f"# Behavioral Walk-forward Predictive Validation Report: {experiment_id}",
-        "",
-        "This report evaluates predictive performance only.",
-        "It does not evaluate trading suitability.",
-        "",
-        "## Executive Summary",
-        f"- total_runs: {len(run_df)}",
-        f"- successful_runs: {(run_df['status'] == 'success').sum() if not run_df.empty else 0}",
-        f"- failed_runs: {(run_df['status'] != 'success').sum() if not run_df.empty else 0}",
-        f"- folds: {run_df['fold'].nunique() if 'fold' in run_df.columns and not run_df.empty else 0}",
-    ]
-
-    if not aggregated_df.empty:
-        lines.extend(["", "## Aggregate Predictive Comparison"])
-        disp = [
-            c
-            for c in [
-                "model",
-                "surface_id",
-                "state_id",
-                "baseline",
-                "folds",
-                "pr_auc_mean",
-                "brier_score_mean",
-                "mcc_mean",
-                "balanced_accuracy_mean",
-                "precision_mean",
-                "recall_mean",
-                "f1_mean",
-            ]
-            if c in aggregated_df.columns
-        ]
-        lines.append(aggregated_df[disp].to_markdown(index=False))
-
-    if not fold_metrics_df.empty:
-        lines.extend(["", "## Per-fold Metrics"])
-        disp = [
-            c
-            for c in [
-                "fold",
-                "model",
-                "surface_id",
-                "state_id",
-                "baseline",
-                "n",
-                "positive_rate",
-                "pr_auc",
-                "brier_score",
-                "calibration_ece",
-                "mcc",
-                "balanced_accuracy",
-                "precision",
-                "recall",
-                "f1",
-            ]
-            if c in fold_metrics_df.columns
-        ]
-        lines.append(fold_metrics_df[disp].to_markdown(index=False))
-
-    lines.extend(
-        [
-            "",
-            "## Reproducibility",
-            f"- dataset_version: `{config_payload.get('dataset_version')}`",
-            f"- dataset_variant: `{config_payload.get('dataset_variant')}`",
-            f"- selected_surface_id: `{config_payload.get('selected_surface_id')}`",
-            f"- models: `{', '.join(config_payload.get('models', []))}`",
-            f"- walkforward_protocol: `{config_payload.get('walkforward_protocol')}`",
-            f"- git_commit: `{config_payload.get('git_commit')}`",
-            f"- started_at: `{config_payload.get('started_at')}`",
-            f"- finished_at: `{config_payload.get('finished_at')}`",
-        ]
-    )
-
-    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def run_suite(args: argparse.Namespace) -> dict[str, object]:
@@ -797,8 +711,9 @@ def run_walkforward_suite(args: argparse.Namespace) -> dict[str, object]:
 
     metrics_payload = metric_rows + [{"metric_group": "walkforward_aggregate", **row} for row in aggregate_rows]
     metrics_df = write_metrics_csv(metrics_payload, experiment_dir / "metrics.csv")
-    if calibration_curve_rows:
-        pd.DataFrame(calibration_curve_rows).to_csv(experiment_dir / "calibration_curve.csv", index=False)
+    calibration_curve_df = pd.DataFrame(calibration_curve_rows)
+    if not calibration_curve_df.empty:
+        calibration_curve_df.to_csv(experiment_dir / "calibration_curve.csv", index=False)
 
     finished_at = utc_now_iso()
     config_payload = {
@@ -815,13 +730,14 @@ def run_walkforward_suite(args: argparse.Namespace) -> dict[str, object]:
         "git_commit": get_git_commit(args.repo_root),
     }
 
-    _write_walkforward_report(
+    write_walkforward_report(
         output_path=experiment_dir / "report.md",
         experiment_id=experiment_id,
         config_payload=config_payload,
         run_df=run_df,
         fold_metrics_df=fold_metrics_df,
         aggregated_df=aggregate_df,
+        calibration_curve_df=calibration_curve_df,
     )
 
     experiment_manifest = {

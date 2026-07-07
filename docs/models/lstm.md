@@ -248,6 +248,24 @@ python analysis/behavioral/run_behavioral_suite.py \
   --dataset-variant reactive_jpy_v1_core
 ```
 
+Stage 2 Predictive Validation uses the same orchestrator in walk-forward mode:
+
+```bash
+python analysis/behavioral/run_behavioral_suite.py \
+  --dataset-version 1.5.1 \
+  --dataset-variant reactive_jpy_v1_core \
+  --mode walkforward \
+  --surface reactive_jpy \
+  --models both \
+  --profile publication
+```
+
+In walk-forward mode the LSTM trainer receives fold-window arguments
+(`--wf-train-start`, `--wf-train-end`, `--wf-test-start`, `--wf-test-end`) from
+the suite runner. Stage 2 evaluates predictive discrimination, calibration, and
+baseline comparisons relative to Stage 1 Characterization findings, while
+trading validation remains exclusively Stage 3 (MPML).
+
 Example:
 
 ```

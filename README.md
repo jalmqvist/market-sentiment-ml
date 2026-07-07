@@ -200,6 +200,15 @@ python analysis/behavioral/run_behavioral_suite.py \
   --dataset-version 1.5.1 \
   --dataset-variant reactive_jpy_v1_core \
   --profile publication   # 50 epochs — publication-quality results
+
+# Stage 2 predictive validation (walk-forward)
+python analysis/behavioral/run_behavioral_suite.py \
+  --dataset-version 1.5.1 \
+  --dataset-variant reactive_jpy_v1_core \
+  --mode walkforward \
+  --surface reactive_jpy \
+  --models both \
+  --profile publication
 ```
 
 The framework discovers `(surface_id, state_id)` combinations from the selected dataset variant,
@@ -228,6 +237,17 @@ rather than merely reporting what happened during the experiment. The report str
    Scientific Confidence rating, and a recommended follow-up.
 3. **Appendix** — engineering diagnostics: coverage tables, prediction metrics, baseline controls,
    manifest issues, Key Observations (legacy), and reproducibility metadata.
+
+Walk-forward mode is the Stage 2 **Predictive Validation** implementation in the same framework.
+It reuses the MPML reference fold schedule and reports predictive-only evidence:
+
+- per-fold and aggregate predictive metrics (PR-AUC, Brier, MCC, balanced accuracy, precision/recall/F1)
+- calibration quality (ECE and reliability curve)
+- comparisons against predictive controls (permutation, base-rate, random matched partition, trend/volatility)
+- fold-level stability diagnostics
+
+Stage 2 extends Stage 1 Characterization with causal out-of-sample validation, but it remains
+strictly non-trading. Trading conclusions are deferred to Stage 3 **Trading Validation** in MPML.
 
 **Scientific Interest** measures how important or novel a finding would be if confirmed.
 **Scientific Confidence** measures how strongly the finding is currently supported by evidence.

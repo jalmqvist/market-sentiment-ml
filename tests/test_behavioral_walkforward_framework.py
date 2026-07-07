@@ -132,6 +132,8 @@ def test_walkforward_suite_writes_outputs(tmp_path, monkeypatch):
     assert (exp_dir / "metrics.csv").exists()
     assert (exp_dir / "report.md").exists()
     assert (exp_dir / "experiment_manifest.json").exists()
+    assert (exp_dir / "plots" / "fold_pr_auc.png").exists()
+    assert (exp_dir / "plots" / "calibration_curve.png").exists()
 
     metrics_df = pd.read_csv(exp_dir / "metrics.csv")
     assert "pr_auc" in metrics_df.columns
@@ -148,3 +150,7 @@ def test_walkforward_suite_writes_outputs(tmp_path, monkeypatch):
 
     report_text = (exp_dir / "report.md").read_text(encoding="utf-8")
     assert "does not evaluate trading suitability" in report_text
+    assert "## Scientific Findings" in report_text
+    assert "Versus `permutation`" in report_text
+    assert "### Predictive Performance by Fold (PR-AUC)" in report_text
+    assert "### Calibration Curve" in report_text
