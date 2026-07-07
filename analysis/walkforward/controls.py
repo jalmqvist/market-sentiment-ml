@@ -48,7 +48,7 @@ def build_control_rows(
     )
 
     # Base-rate baseline: constant predictor from train fold positive frequency.
-    p_base = float(train_positive_rate) if train_positive_rate is not None else float(y_true.mean())
+    p_base = float(train_positive_rate) if train_positive_rate is not None else 0.5
     y_prob_base = _constant_baseline(p_base, y_true.size)
     rows.append(
         {

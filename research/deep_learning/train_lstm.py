@@ -324,12 +324,14 @@ def main():
         entry_meta = pd.to_datetime(meta_proto["entry_time"], errors="coerce")
         train_mask_proto = (entry_meta >= train_start) & (entry_meta <= train_end)
         test_mask_proto = (entry_meta >= test_start) & (entry_meta <= test_end)
+        train_seq_count = int(train_mask_proto.sum())
+        test_seq_count = int(test_mask_proto.sum())
         train_ret_vals = y_proto[train_mask_proto.to_numpy()]
-        if train_ret_vals.size == 0 or int(test_mask_proto.sum()) == 0:
+        if train_seq_count == 0 or test_seq_count == 0:
             logging.warning(
                 "SKIP | reason=empty_walkforward_partition | train_seqs=%d test_seqs=%d",
-                int(train_mask_proto.sum()),
-                int(test_mask_proto.sum()),
+                train_seq_count,
+                test_seq_count,
             )
             return
     else:
