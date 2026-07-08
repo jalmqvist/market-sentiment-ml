@@ -202,7 +202,7 @@ python analysis/behavioral/run_behavioral_suite.py \
   --profile publication   # 50 epochs — publication-quality results
 
 # Stage 2 predictive validation (walk-forward)
-python analysis/behavioral/run_behavioral_suite.py \
+python -m analysis.behavioral.run_behavioral_suite \
   --dataset-version 1.5.1 \
   --dataset-variant reactive_jpy_v1_core \
   --mode walkforward \
