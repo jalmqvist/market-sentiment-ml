@@ -41,6 +41,7 @@ _MODEL_LINESTYLES = {
     "mlp": "-",
     "lstm": "--",
 }
+_MAX_FINDING_EVIDENCE_LINES = 5
 
 
 def _protocol_summary_block(
@@ -557,7 +558,7 @@ def _build_walkforward_findings(
             Finding(
                 title="Predictive performance differs materially between Behavioral States",
                 description="",
-                evidence=evidence_lines[:5],
+                evidence=evidence_lines[:_MAX_FINDING_EVIDENCE_LINES],
                 interest="high",
                 confidence="high" if len(state_perf) >= 3 else "medium",
                 follow_up=(
@@ -645,7 +646,10 @@ def _build_walkforward_findings(
                 f"gap {abs(float(row['mlp']) - float(row['lstm'])):.3f}."
                 for (_, state_id), row in pivot.iterrows()
             ]
-            similar = mean_abs_diff is not None and mean_abs_diff <= 0.03
+            if mean_abs_diff is None:
+                similar = False
+            else:
+                similar = mean_abs_diff <= 0.03
             findings.append(
                 Finding(
                     title=(
@@ -654,7 +658,7 @@ def _build_walkforward_findings(
                         else "MLP and LSTM diverge by Behavioral State"
                     ),
                     description="",
-                    evidence=evidence_lines[:5],
+                    evidence=evidence_lines[:_MAX_FINDING_EVIDENCE_LINES],
                     interest="medium",
                     confidence="high" if len(pivot) >= 3 else "medium",
                     follow_up=(
@@ -786,11 +790,13 @@ def _write_fold_performance_plot(
         for model, style in _MODEL_LINESTYLES.items()
         if model in set(wf_df["model"].astype(str))
     ]
-    if len(state_handles) <= _MAX_PLOT_LEGEND_LINES:
+    has_state_legend = len(state_handles) <= _MAX_PLOT_LEGEND_LINES
+    if has_state_legend:
         state_legend = plt.legend(handles=state_handles, title="Behavioral State", loc="upper left", fontsize=8)
         plt.gca().add_artist(state_legend)
     if model_handles:
-        plt.legend(handles=model_handles, title="Model", loc="lower right", fontsize=8)
+        model_loc = "lower right" if has_state_legend else "upper right"
+        plt.legend(handles=model_handles, title="Model", loc=model_loc, fontsize=8)
     plt.tight_layout()
     plt.savefig(output_path, dpi=150)
     plt.close()

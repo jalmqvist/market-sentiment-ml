@@ -300,12 +300,14 @@ def _detect_convergence(behavior_df: pd.DataFrame, threshold: float) -> pd.DataF
         best_pr = float(pr_values[best_idx])
         deltas = np.diff(pr_values).tolist()
         plateau = len(deltas) >= 2 and all(abs(float(delta)) < threshold for delta in deltas[-2:])
-        near_best_epochs = [
-            int(epoch)
-            for epoch, pr_value in zip(epochs, pr_values)
-            if abs(best_pr - float(pr_value)) <= threshold
-        ]
-        recommended_epoch = min(near_best_epochs) if plateau and near_best_epochs else best_epoch
+        near_best_epochs: list[int] = []
+        if plateau:
+            near_best_epochs = [
+                int(epoch)
+                for epoch, pr_value in zip(epochs, pr_values)
+                if abs(best_pr - float(pr_value)) <= threshold
+            ]
+        recommended_epoch = min(near_best_epochs) if near_best_epochs else best_epoch
         rows.append(
             {
                 "surface_id": str(surface_id),
