@@ -99,6 +99,20 @@ def test_parse_args_walkforward_mode_supports_surface_alias():
     assert args.surface_id == "reactive_jpy"
 
 
+def test_parse_args_walkforward_behavioral_defaults():
+    """Behavioral walk-forward defaults should be train=3y, test=6m, step=6m."""
+    args = suite._parse_args(
+        [
+            "--dataset-version", DATASET_VERSION,
+            "--dataset-variant", DATASET_VARIANT,
+            "--mode", "walkforward",
+        ]
+    )
+    assert args.wf_train_years == 3
+    assert args.wf_test_months == 6
+    assert args.wf_step_months == 6
+
+
 def test_walkforward_suite_writes_outputs(tmp_path, monkeypatch):
     repo_root = tmp_path / "repo"
     _write_dataset(repo_root)
@@ -150,7 +164,11 @@ def test_walkforward_suite_writes_outputs(tmp_path, monkeypatch):
 
     report_text = (exp_dir / "report.md").read_text(encoding="utf-8")
     assert "does not evaluate trading suitability" in report_text
+    assert "## Walk-forward Protocol" in report_text
+    assert "Generated folds" in report_text
     assert "## Scientific Findings" in report_text
     assert "Versus `permutation`" in report_text
     assert "### Predictive Performance by Fold (PR-AUC)" in report_text
     assert "### Calibration Curve" in report_text
+    assert "## Protocol Assessment" in report_text
+    assert "Skipped Behavioral States" in report_text
