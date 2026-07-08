@@ -298,8 +298,8 @@ def _detect_convergence(behavior_df: pd.DataFrame, threshold: float) -> pd.DataF
         best_idx = int(np.argmax(pr_values))
         best_epoch = int(epochs[best_idx])
         best_pr = float(pr_values[best_idx])
-        deltas = np.diff(pr_values).tolist()
-        plateau = len(deltas) >= 2 and all(abs(float(delta)) < threshold for delta in deltas[-2:])
+        deltas = np.diff(pr_values)
+        plateau = len(deltas) >= 2 and bool(np.all(np.abs(deltas[-2:]) < threshold))
         near_best_epochs: list[int] = []
         if plateau:
             near_best_epochs = [
@@ -316,7 +316,7 @@ def _detect_convergence(behavior_df: pd.DataFrame, threshold: float) -> pd.DataF
                 "best_pr_auc": best_pr,
                 "plateau_detected": plateau,
                 "recommended_epoch": int(recommended_epoch),
-                "last_delta": float(deltas[-1]) if deltas else float("nan"),
+                "last_delta": float(deltas[-1]) if len(deltas) >= 1 else float("nan"),
                 "penultimate_delta": float(deltas[-2]) if len(deltas) >= 2 else float("nan"),
             }
         )

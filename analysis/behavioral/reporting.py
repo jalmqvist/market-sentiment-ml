@@ -554,6 +554,16 @@ def _build_walkforward_findings(
                 f"- {state_id}: mean PR-AUC {float(pr_mean):.3f}; mean relative PR-AUC vs controls "
                 f"{_format_relative_pct(rel_mean)}."
             )
+        if spread is not None:
+            state_interpretation = (
+                f"State-level discrimination is heterogeneous: `{best_state}` leads the Surface while "
+                f"`{worst_state}` trails by {spread:.3f} PR-AUC. Scientific conclusions should therefore "
+                "be framed by Behavioral State rather than by a single pooled average."
+            )
+        else:
+            state_interpretation = (
+                "State-level discrimination is heterogeneous, so conclusions should be framed by Behavioral State."
+            )
         findings.append(
             Finding(
                 title="Predictive performance differs materially between Behavioral States",
@@ -565,13 +575,7 @@ def _build_walkforward_findings(
                     f"Use `{best_state}` as the reference state for follow-up validation and investigate why "
                     f"`{worst_state}` underperforms before broadening claims across the full Surface."
                 ),
-                interpretation=(
-                    f"State-level discrimination is heterogeneous: `{best_state}` leads the Surface while "
-                    f"`{worst_state}` trails by {spread:.3f} PR-AUC. Scientific conclusions should therefore "
-                    "be framed by Behavioral State rather than by a single pooled average."
-                    if spread is not None
-                    else "State-level discrimination is heterogeneous, so conclusions should be framed by Behavioral State."
-                ),
+                interpretation=state_interpretation,
             )
         )
 
@@ -653,7 +657,7 @@ def _build_walkforward_findings(
             findings.append(
                 Finding(
                     title=(
-                        "MLP and LSTM exhibit similar predictive behaviour"
+                        "MLP and LSTM exhibit similar predictive behavior"
                         if similar
                         else "MLP and LSTM diverge by Behavioral State"
                     ),
