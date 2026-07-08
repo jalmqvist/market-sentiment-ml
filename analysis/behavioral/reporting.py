@@ -483,6 +483,13 @@ def _interest_confidence_line(interest: str, confidence: str) -> str:
     )
 
 
+def _truncate_evidence_lines(evidence_lines: list[str]) -> list[str]:
+    if len(evidence_lines) <= _MAX_FINDING_EVIDENCE_LINES:
+        return evidence_lines
+    hidden = len(evidence_lines) - _MAX_FINDING_EVIDENCE_LINES
+    return evidence_lines[:_MAX_FINDING_EVIDENCE_LINES] + [f"- … {hidden} additional evidence line(s) omitted."]
+
+
 def _build_walkforward_findings(
     *,
     aggregated_df: pd.DataFrame,
@@ -568,7 +575,7 @@ def _build_walkforward_findings(
             Finding(
                 title="Predictive performance differs materially between Behavioral States",
                 description="",
-                evidence=evidence_lines[:_MAX_FINDING_EVIDENCE_LINES],
+                evidence=_truncate_evidence_lines(evidence_lines),
                 interest="high",
                 confidence="high" if len(state_perf) >= 3 else "medium",
                 follow_up=(
@@ -593,7 +600,7 @@ def _build_walkforward_findings(
                 weighted_gap = _safe_float(
                     np.average(
                         curve["mean_pred"].astype(float) - curve["observed_freq"].astype(float),
-                        weights=curve["count"].fillna(0).astype(float).clip(lower=0.0) + 1e-9,
+                        weights=curve["count"].fillna(0).astype(float).clip(lower=0.0),
                     )
                 )
         if ece_mean is not None:
@@ -662,7 +669,7 @@ def _build_walkforward_findings(
                         else "MLP and LSTM diverge by Behavioral State"
                     ),
                     description="",
-                    evidence=evidence_lines[:_MAX_FINDING_EVIDENCE_LINES],
+                    evidence=_truncate_evidence_lines(evidence_lines),
                     interest="medium",
                     confidence="high" if len(pivot) >= 3 else "medium",
                     follow_up=(

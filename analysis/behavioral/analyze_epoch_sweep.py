@@ -294,7 +294,12 @@ def _detect_convergence(behavior_df: pd.DataFrame, threshold: float) -> pd.DataF
     )
     for (surface_id, state_id), group in state_epoch_df.groupby(["surface_id", "state_id"], dropna=False):
         epochs = group["epoch"].astype(int).tolist()
-        pr_values = group["pr_auc_mean"].astype(float).tolist()
+        pr_values = group["pr_auc_mean"].astype(float).to_numpy()
+        valid_mask = np.isfinite(pr_values)
+        if int(valid_mask.sum()) < 2:
+            continue
+        epochs = [epoch for epoch, is_valid in zip(epochs, valid_mask) if is_valid]
+        pr_values = pr_values[valid_mask]
         best_idx = int(np.argmax(pr_values))
         best_epoch = int(epochs[best_idx])
         best_pr = float(pr_values[best_idx])
