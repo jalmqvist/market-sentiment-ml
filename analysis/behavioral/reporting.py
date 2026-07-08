@@ -21,6 +21,141 @@ from analysis.behavioral.interpretation import (
 
 _MAX_PLOT_LEGEND_LINES = 8
 
+# Walk-forward folds below this threshold trigger a caution warning and
+# a brief explanation of why few folds were generated.
+_FEW_FOLDS_THRESHOLD = 3
+
+
+def _protocol_summary_block(
+    *,
+    protocol: dict[str, object],
+    n_folds: int,
+    dataset_date_range: tuple[str | None, str | None] | None,
+) -> list[str]:
+    """Return markdown lines for the Walk-forward Protocol summary table."""
+    date_min, date_max = dataset_date_range if dataset_date_range else (None, None)
+    dataset_span = f"{date_min} → {date_max}" if date_min and date_max else "unknown"
+    lines = [
+        "## Walk-forward Protocol",
+        "",
+        "| | |",
+        "|---|---|",
+        f"| Dataset span | {dataset_span} |",
+        f"| Training window | {protocol.get('train_years', '?')} years |",
+        f"| Test window | {protocol.get('test_months', '?')} months |",
+        f"| Step | {protocol.get('step_months', '?')} months |",
+        f"| Generated folds | {n_folds} |",
+    ]
+    return lines
+
+
+def _few_folds_explanation(
+    *,
+    n_folds: int,
+    protocol: dict[str, object],
+    dataset_duration_years: float | None,
+) -> list[str]:
+    """Return markdown lines explaining why few folds were generated (when applicable)."""
+    if n_folds >= _FEW_FOLDS_THRESHOLD:
+        return []
+
+    lines: list[str] = []
+
+    if n_folds == 1:
+        lines.append(
+            "> ⚠️ **Only one walk-forward fold could be generated from the available dataset "
+            "using the selected protocol. Predictive conclusions should therefore be interpreted "
+            "with caution.**"
+        )
+    elif n_folds == 0:
+        lines.append(
+            "> ⚠️ **No walk-forward folds could be generated. The dataset may be too short "
+            "for the requested training window.**"
+        )
+    else:
+        lines.append(
+            f"> ⚠️ **Only {n_folds} walk-forward folds were generated. "
+            "Predictive conclusions should be interpreted with caution given the limited evaluation window.**"
+        )
+
+    if dataset_duration_years is not None:
+        train_years = protocol.get("train_years", "?")
+        step_months = protocol.get("step_months", "?")
+        remaining = (
+            round(dataset_duration_years - float(train_years), 1)
+            if isinstance(train_years, (int, float))
+            else None
+        )
+        lines.extend([
+            "",
+            "### Why Few Folds Were Generated",
+            "",
+            "| | |",
+            "|---|---|",
+            f"| Dataset duration | {dataset_duration_years:.1f} years |",
+            f"| Requested training window | {train_years} years |",
+        ])
+        if remaining is not None:
+            lines.append(f"| Remaining data after training | {remaining:.1f} years |")
+        fold_word = "fold" if n_folds == 1 else "folds"
+        if n_folds <= 1:
+            lines.append(
+                f"| Result | Only {n_folds} {fold_word} satisfies the requested protocol. |"
+            )
+        else:
+            lines.append(
+                f"| Result | {n_folds} {fold_word} satisfy the requested protocol "
+                f"(step = {step_months} months). |"
+            )
+    return lines
+
+
+def _protocol_assessment_block(
+    *,
+    n_folds: int,
+    protocol: dict[str, object],
+    dataset_duration_years: float | None,
+) -> list[str]:
+    """Return markdown lines for the Protocol Assessment section."""
+    train_years = protocol.get("train_years", 0)
+    duration_adequate = (
+        dataset_duration_years is not None
+        and isinstance(train_years, (int, float))
+        and dataset_duration_years >= float(train_years) + 0.5
+    )
+    multiple_folds = n_folds >= 2
+    good_folds = n_folds >= _FEW_FOLDS_THRESHOLD
+
+    checks = [
+        ("Dataset duration adequate", duration_adequate),
+        ("Multiple folds generated", multiple_folds),
+        ("Fold schedule reproducible", True),
+        ("Shared MPML fold protocol", protocol.get("protocol") == "mpml_reference_v1"),
+    ]
+
+    lines = ["## Protocol Assessment", ""]
+    for label, ok in checks:
+        mark = "✓" if ok else "✗"
+        lines.append(f"{mark} {label}")
+
+    lines.append("")
+    if good_folds and duration_adequate:
+        lines.append("**Scientific adequacy: GOOD**")
+    elif multiple_folds:
+        lines.append("**Scientific adequacy: ADEQUATE**")
+        lines.append("")
+        lines.append(f"_Reason: {n_folds} walk-forward folds available; "
+                     "results should be interpreted with moderate caution._")
+    else:
+        lines.append("**Scientific adequacy: LIMITED**")
+        lines.append("")
+        if n_folds <= 1:
+            lines.append("_Reason: Only one walk-forward fold available._")
+        else:
+            lines.append(f"_Reason: {n_folds} walk-forward folds available._")
+
+    return lines
+
 def write_summary_csv(summary_rows: list[dict], output_path: Path) -> pd.DataFrame:
     df = pd.DataFrame(summary_rows)
     df.to_csv(output_path, index=False)
@@ -276,6 +411,8 @@ def _write_fold_performance_plot(
     fold_metrics_df: pd.DataFrame,
     output_path: Path,
 ) -> bool:
+    if fold_metrics_df.empty or "baseline" not in fold_metrics_df.columns:
+        return False
     wf_df = fold_metrics_df[fold_metrics_df["baseline"] == "behavioral_surface"].copy()
     if wf_df.empty or "fold" not in wf_df.columns or "pr_auc" not in wf_df.columns:
         return False
@@ -362,9 +499,15 @@ def write_walkforward_report(
     fold_metrics_df: pd.DataFrame,
     aggregated_df: pd.DataFrame,
     calibration_curve_df: pd.DataFrame | None = None,
+    n_folds: int = 0,
+    dataset_date_range: tuple[str | None, str | None] | None = None,
+    dataset_duration_years: float | None = None,
+    skipped_state_rows: list[dict[str, object]] | None = None,
 ) -> None:
     plots_dir = output_path.parent / "plots"
     plots_dir.mkdir(parents=True, exist_ok=True)
+
+    protocol = config_payload.get("walkforward_protocol") or {}
 
     fold_plot_rel = "plots/fold_pr_auc.png"
     calibration_plot_rel = "plots/calibration_curve.png"
@@ -414,6 +557,27 @@ def write_walkforward_report(
         "This report evaluates predictive discrimination, calibration, and robustness only.",
         "It does not evaluate trading suitability, returns, or strategy profitability.",
         "",
+    ]
+
+    # Walk-forward Protocol summary (always shown first)
+    lines.extend(_protocol_summary_block(
+        protocol=protocol,
+        n_folds=n_folds,
+        dataset_date_range=dataset_date_range,
+    ))
+
+    # Warning and explanation when few folds were generated
+    few_folds_lines = _few_folds_explanation(
+        n_folds=n_folds,
+        protocol=protocol,
+        dataset_duration_years=dataset_duration_years,
+    )
+    if few_folds_lines:
+        lines.append("")
+        lines.extend(few_folds_lines)
+
+    lines.extend([
+        "",
         *summary_lines,
         "",
         "## Scientific Findings",
@@ -421,7 +585,7 @@ def write_walkforward_report(
         "Predictive performance is interpreted relative to baseline controls rather than as isolated metrics.",
         "A Behavioral Surface is considered stronger only when discrimination and error metrics improve versus controls.",
         "Calibration is reported separately so discrimination gains can be interpreted together with probability reliability.",
-    ]
+    ])
 
     if has_fold_plot or has_calibration_plot:
         lines.extend(["", "## Plots"])
@@ -490,6 +654,23 @@ def write_walkforward_report(
         ]
         if disp:
             lines.append(fold_metrics_df[disp].to_markdown(index=False))
+
+    # Skipped Behavioral States
+    if skipped_state_rows:
+        lines.extend(["", "## Skipped Behavioral States", ""])
+        skipped_df = pd.DataFrame(skipped_state_rows)
+        disp_cols = [c for c in ["fold", "surface_id", "state_id", "model", "reason"] if c in skipped_df.columns]
+        lines.append(skipped_df[disp_cols].to_markdown(index=False))
+    else:
+        lines.extend(["", "## Skipped Behavioral States", "", "No behavioral states were skipped."])
+
+    # Protocol Assessment
+    lines.append("")
+    lines.extend(_protocol_assessment_block(
+        n_folds=n_folds,
+        protocol=protocol,
+        dataset_duration_years=dataset_duration_years,
+    ))
 
     lines.extend(
         [

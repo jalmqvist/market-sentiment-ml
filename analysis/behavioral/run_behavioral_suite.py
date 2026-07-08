@@ -171,9 +171,28 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--label-quantile", type=float, default=0.5)
     parser.add_argument("--seq-len", type=int, default=24)
-    parser.add_argument("--wf-train-years", type=int, default=7)
-    parser.add_argument("--wf-test-months", type=int, default=6)
-    parser.add_argument("--wf-step-months", type=int, default=6)
+    parser.add_argument(
+        "--wf-train-years",
+        type=int,
+        default=3,
+        help=(
+            "Walk-forward training window in years (default: 3, "
+            "appropriate for Behavioral Surface datasets ~2019-present). "
+            "The MPML reference default is 7."
+        ),
+    )
+    parser.add_argument(
+        "--wf-test-months",
+        type=int,
+        default=6,
+        help="Walk-forward test window in months (default: 6).",
+    )
+    parser.add_argument(
+        "--wf-step-months",
+        type=int,
+        default=6,
+        help="Walk-forward step size in months (default: 6).",
+    )
     parser.add_argument("--calibration-bins", type=int, default=10)
     parser.add_argument("--random-seed", type=int, default=42)
     parser.add_argument("--train-pairs", default=None)
@@ -512,6 +531,7 @@ def run_walkforward_suite(args: argparse.Namespace) -> dict[str, object]:
     prediction_paths: list[Path] = []
     metric_rows: list[dict[str, object]] = []
     calibration_curve_rows: list[dict[str, object]] = []
+    skipped_state_rows: list[dict[str, object]] = []
 
     predictions_dir = args.repo_root / args.predictions_dir
     logs_dir = args.repo_root / args.logs_dir
@@ -528,12 +548,32 @@ def run_walkforward_suite(args: argparse.Namespace) -> dict[str, object]:
             state_df = state_partitions[(state["surface_id"], state["state_id"])]
             state_train_df = filter_window(state_df, time_col=time_col, start=train_start, end=train_end)
             state_test_df = filter_window(state_df, time_col=time_col, start=test_start, end=test_end)
+
+            if state_train_df.empty:
+                for model in models:
+                    skipped_state_rows.append({
+                        "fold": int(fold["fold"]),
+                        "surface_id": state["surface_id"],
+                        "state_id": state["state_id"],
+                        "model": model,
+                        "reason": "empty_partition",
+                    })
+                continue
+
             threshold = train_threshold(
                 state_train_df,
                 target_col=target_col,
                 label_quantile=args.label_quantile,
             )
             if threshold is None:
+                for model in models:
+                    skipped_state_rows.append({
+                        "fold": int(fold["fold"]),
+                        "surface_id": state["surface_id"],
+                        "state_id": state["state_id"],
+                        "model": model,
+                        "reason": "insufficient_training_samples",
+                    })
                 continue
 
             label_train = build_binary_labels(
@@ -547,6 +587,14 @@ def run_walkforward_suite(args: argparse.Namespace) -> dict[str, object]:
                 threshold=threshold,
             )
             if label_test.empty:
+                for model in models:
+                    skipped_state_rows.append({
+                        "fold": int(fold["fold"]),
+                        "surface_id": state["surface_id"],
+                        "state_id": state["state_id"],
+                        "model": model,
+                        "reason": "insufficient_test_samples",
+                    })
                 continue
 
             # Regime-conditioned controls (Trend/Volatility baseline)
@@ -652,13 +700,37 @@ def run_walkforward_suite(args: argparse.Namespace) -> dict[str, object]:
                 }
                 run_rows.append(run_row)
 
-                if result.returncode != 0 or not copied_parquet:
+                if result.returncode != 0:
+                    skipped_state_rows.append({
+                        "fold": int(fold["fold"]),
+                        "surface_id": state["surface_id"],
+                        "state_id": state["state_id"],
+                        "model": model,
+                        "reason": "trainer_failure",
+                    })
+                    continue
+
+                if not copied_parquet:
+                    skipped_state_rows.append({
+                        "fold": int(fold["fold"]),
+                        "surface_id": state["surface_id"],
+                        "state_id": state["state_id"],
+                        "model": model,
+                        "reason": "artifact_generation_failure",
+                    })
                     continue
 
                 artifact_path = experiment_dir / "prediction_artifacts" / copied_parquet[0].name
                 try:
                     pred_df = pd.read_parquet(artifact_path)
                 except Exception:
+                    skipped_state_rows.append({
+                        "fold": int(fold["fold"]),
+                        "surface_id": state["surface_id"],
+                        "state_id": state["state_id"],
+                        "model": model,
+                        "reason": "artifact_generation_failure",
+                    })
                     continue
                 y_true, y_prob = match_predictions_with_labels(pred_df, label_test)
                 behavioral_metrics = compute_predictive_metrics(y_true, y_prob)
@@ -715,6 +787,12 @@ def run_walkforward_suite(args: argparse.Namespace) -> dict[str, object]:
     if not calibration_curve_df.empty:
         calibration_curve_df.to_csv(experiment_dir / "calibration_curve.csv", index=False)
 
+    dataset_date_min = str(dates.min().date()) if len(dates) > 0 else None
+    dataset_date_max = str(dates.max().date()) if len(dates) > 0 else None
+    dataset_duration_years = (
+        float((dates.max() - dates.min()).days / 365.25) if len(dates) > 1 else None
+    )
+
     finished_at = utc_now_iso()
     config_payload = {
         "experiment_id": experiment_id,
@@ -738,6 +816,10 @@ def run_walkforward_suite(args: argparse.Namespace) -> dict[str, object]:
         fold_metrics_df=fold_metrics_df,
         aggregated_df=aggregate_df,
         calibration_curve_df=calibration_curve_df,
+        n_folds=len(folds),
+        dataset_date_range=(dataset_date_min, dataset_date_max),
+        dataset_duration_years=dataset_duration_years,
+        skipped_state_rows=skipped_state_rows,
     )
 
     experiment_manifest = {

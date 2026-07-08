@@ -246,6 +246,23 @@ It reuses the MPML reference fold schedule and reports predictive-only evidence:
 - comparisons against predictive controls (permutation, base-rate, random matched partition, trend/volatility)
 - fold-level stability diagnostics
 
+The walk-forward report begins with a **Walk-forward Protocol** summary (dataset span, training
+window, test window, step, fold count) so the evaluation design is immediately visible. A
+**Protocol Assessment** section communicates whether the evaluation is scientifically adequate
+before interpreting predictive metrics. When few folds are generated the report explains why
+and issues a caution.
+
+The default walk-forward parameters are tuned for Behavioral Surface datasets (≈ 2019–present):
+
+| Parameter | Default | Description |
+|---|---|---|
+| `--wf-train-years` | 3 | Training window in years |
+| `--wf-test-months` | 6 | Test window in months |
+| `--wf-step-months` | 6 | Step size in months |
+
+These defaults typically produce multiple folds over a 2019–present dataset. The MPML reference
+default (`train_years=7`) can be restored via `--wf-train-years 7` when longer history is available.
+
 Stage 2 extends Stage 1 Characterization with causal out-of-sample validation, but it remains
 strictly non-trading. Trading conclusions are deferred to Stage 3 **Trading Validation** in MPML.
 
