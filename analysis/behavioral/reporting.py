@@ -38,8 +38,8 @@ def _protocol_summary_block(
     lines = [
         "## Walk-forward Protocol",
         "",
-        f"| | |",
-        f"|---|---|",
+        "| | |",
+        "|---|---|",
         f"| Dataset span | {dataset_span} |",
         f"| Training window | {protocol.get('train_years', '?')} years |",
         f"| Test window | {protocol.get('test_months', '?')} months |",
@@ -97,13 +97,14 @@ def _few_folds_explanation(
         ])
         if remaining is not None:
             lines.append(f"| Remaining data after training | {remaining:.1f} years |")
+        fold_word = "fold" if n_folds == 1 else "folds"
         if n_folds <= 1:
             lines.append(
-                f"| Result | Only {n_folds} fold satisfies the requested protocol. |"
+                f"| Result | Only {n_folds} {fold_word} satisfies the requested protocol. |"
             )
         else:
             lines.append(
-                f"| Result | {n_folds} folds satisfy the requested protocol "
+                f"| Result | {n_folds} {fold_word} satisfy the requested protocol "
                 f"(step = {step_months} months). |"
             )
     return lines
