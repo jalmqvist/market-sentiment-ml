@@ -248,9 +248,57 @@ It reuses the MPML reference fold schedule and reports predictive-only evidence:
 
 The walk-forward report begins with a **Walk-forward Protocol** summary (dataset span, training
 window, test window, step, fold count) so the evaluation design is immediately visible. A
-**Protocol Assessment** section communicates whether the evaluation is scientifically adequate
-before interpreting predictive metrics. When few folds are generated the report explains why
-and issues a caution.
+**Protocol Validation** section communicates only the evaluation procedure and reproducibility
+quality before interpreting predictive metrics. Scientific Findings are now evidence-first
+research statements derived from the observed results rather than methodology prose. The main
+report emphasizes:
+
+- Executive Summary
+- Scientific Findings
+- Research Recommendation
+- Plots
+
+Detailed aggregate/per-fold metric tables remain available in the appendix and CSV outputs.
+When few folds are generated the report explains why and issues a caution.
+
+Predictive interpretation should prefer **relative improvement over baseline controls** rather
+than isolated absolute scores. In practice:
+
+- use PR-AUC, MCC, balanced accuracy, and Brier score relative to controls to judge whether the
+  Behavioral Surface adds signal
+- keep raw metrics in `metrics.csv` / appendix tables for traceability
+- treat calibration as a separate reliability question even when discrimination improves
+
+To analyze repeated walk-forward runs across multiple epoch counts, use the epoch sweep utility:
+
+```bash
+python -m analysis.behavioral.analyze_epoch_sweep \
+  analysis/output/<sweep_id>/sweep_summary.csv \
+  --output-dir analysis/output/<sweep_id>/epoch_sweep_analysis
+```
+
+The sweep manifest must contain:
+
+```csv
+epoch,experiment_dir
+5,analysis/output/<experiment_5>
+10,analysis/output/<experiment_10>
+...
+```
+
+The utility reads only existing experiment outputs (`metrics.csv`, `summary.csv`,
+`experiment_manifest.json`) and generates:
+
+- `epoch_summary.csv`
+- `convergence_report.md`
+- `plots/pr_auc_vs_epoch.png`
+- `plots/relative_improvement_vs_controls.png`
+- `plots/calibration_vs_epoch.png`
+
+This keeps **walk-forward validation** and **epoch selection** linked but conceptually separate:
+walk-forward experiments establish predictive evidence under the shared MPML protocol, while the
+epoch sweep interprets where predictive performance appears to plateau. Use the sweep outputs to
+choose training duration heuristically; do not change the walk-forward protocol itself.
 
 The default walk-forward parameters are tuned for Behavioral Surface datasets (≈ 2019–present):
 

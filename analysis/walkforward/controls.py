@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from analysis.walkforward.calibration import compute_calibration
 from analysis.walkforward.evaluate import compute_predictive_metrics
 from analysis.walkforward.utils import deterministic_seed
 
@@ -39,33 +40,39 @@ def build_control_rows(
     rng = np.random.default_rng(deterministic_seed("perm", fold_id, model, surface_id, state_id))
     y_perm = y_true.copy()
     rng.shuffle(y_perm)
+    perm_calibration, _ = compute_calibration(y_perm, y_prob_behavioral)
     rows.append(
         {
             **base_meta,
             "baseline": "permutation",
             **compute_predictive_metrics(y_perm, y_prob_behavioral),
+            **perm_calibration,
         }
     )
 
     # Base-rate baseline: constant predictor from train fold positive frequency.
     p_base = float(train_positive_rate) if train_positive_rate is not None else 0.5
     y_prob_base = _constant_baseline(p_base, y_true.size)
+    base_calibration, _ = compute_calibration(y_true, y_prob_base)
     rows.append(
         {
             **base_meta,
             "baseline": "base_rate",
             **compute_predictive_metrics(y_true, y_prob_base),
+            **base_calibration,
         }
     )
 
     # Random matched-partition baseline: random probabilities matched to fold sample count.
     rng_rand = np.random.default_rng(deterministic_seed("matched", fold_id, model, surface_id, state_id))
     y_prob_rand = rng_rand.uniform(0.0, 1.0, size=y_true.size)
+    rand_calibration, _ = compute_calibration(y_true, y_prob_rand)
     rows.append(
         {
             **base_meta,
             "baseline": "random_matched_partition",
             **compute_predictive_metrics(y_true, y_prob_rand),
+            **rand_calibration,
         }
     )
 
@@ -82,11 +89,13 @@ def build_control_rows(
                 fallback = float(work_train["y_true"].mean())
                 reg_probs = work_test["regime"].map(regime_map).fillna(fallback).astype(float).to_numpy()
                 reg_true = work_test["y_true"].astype(int).to_numpy()
+                reg_calibration, _ = compute_calibration(reg_true, reg_probs)
                 rows.append(
                     {
                         **base_meta,
                         "baseline": "trend_volatility",
                         **compute_predictive_metrics(reg_true, reg_probs),
+                        **reg_calibration,
                     }
                 )
 
