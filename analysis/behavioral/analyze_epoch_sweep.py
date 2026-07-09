@@ -103,10 +103,42 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def _resolve_experiment_dir(base_dir: Path, raw_value: object) -> Path:
+    """
+    Resolve an experiment directory from a sweep manifest.
+
+    Supported path styles:
+
+      1. Absolute
+         /home/user/.../behavioral_walkforward_xxx
+
+      2. Repository-relative
+         analysis/output/behavioral_walkforward_xxx
+
+      3. Manifest-relative
+         ../behavioral_walkforward_xxx
+    """
+
     path = Path(str(raw_value))
-    if not path.is_absolute():
-        path = (base_dir / path).resolve()
-    return path
+
+    #
+    # Absolute path
+    #
+    if path.is_absolute():
+        return path
+
+    #
+    # Repository-relative path
+    #
+    repo_root = Path(__file__).resolve().parents[2]
+    repo_candidate = (repo_root / path).resolve()
+
+    if repo_candidate.exists():
+        return repo_candidate
+
+    #
+    # Manifest-relative path
+    #
+    return (base_dir / path).resolve()
 
 
 def _load_sweep_manifest(path: Path) -> pd.DataFrame:
@@ -155,6 +187,12 @@ def _aggregate_epoch_metrics(sweep_df: pd.DataFrame, manifest_dir: Path) -> tupl
     for row in sweep_df.to_dict(orient="records"):
         epoch = int(row["epoch"])
         exp_dir = _resolve_experiment_dir(manifest_dir, row["experiment_dir"])
+        if not exp_dir.exists():
+            raise FileNotFoundError(
+                f"Experiment directory not found:\n"
+                f"  requested: {row['experiment_dir']}\n"
+                f"  resolved : {exp_dir}"
+            )
         metrics_df, summary_df, manifest = _load_experiment_outputs(exp_dir)
         fold_df = _extract_fold_metrics(metrics_df)
         if fold_df.empty:
