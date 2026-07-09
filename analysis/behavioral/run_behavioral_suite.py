@@ -996,8 +996,10 @@ def run_epoch_sweep(args: argparse.Namespace) -> dict[str, object]:
     for epoch in epoch_list:
         print(f"\n--- Epoch sweep: running walk-forward with epochs={epoch} ---")
 
-        # Build a per-epoch args copy with the epoch and a derived experiment id
-        epoch_args = copy.copy(args)
+        # Build a per-epoch args copy with the epoch and a derived experiment id.
+        # Use deepcopy to ensure complete isolation between iterations for any
+        # mutable nested attributes (e.g. Path objects, nested dicts).
+        epoch_args = copy.deepcopy(args)
         epoch_args.mode = "walkforward"
         epoch_args.epochs = epoch
         epoch_args.experiment_id = f"{sweep_id}_ep{epoch}"
@@ -1041,14 +1043,17 @@ def run_epoch_sweep(args: argparse.Namespace) -> dict[str, object]:
     }
 
 
+_MODE_HANDLERS = {
+    "characterization": run_suite,
+    "walkforward": run_walkforward_suite,
+    "epoch_sweep": run_epoch_sweep,
+}
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
-    if args.mode == "walkforward":
-        summary = run_walkforward_suite(args)
-    elif args.mode == "epoch_sweep":
-        summary = run_epoch_sweep(args)
-    else:
-        summary = run_suite(args)
+    handler = _MODE_HANDLERS.get(args.mode, run_suite)
+    summary = handler(args)
     print(json.dumps(summary, indent=2))
     return 0 if summary.get("total_failures", summary.get("failures", 0)) == 0 else 1
 
