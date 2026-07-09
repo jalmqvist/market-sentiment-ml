@@ -153,6 +153,21 @@ def test_automatic_state_discovery():
     ]
 
 
+def test_state_discovery_supports_state_filter():
+    df = pd.DataFrame(
+        {
+            "surface_id": ["reactive_jpy", "reactive_jpy", "reactive_chf"],
+            "state_id": ["A", "B", "A"],
+        }
+    )
+    states = discover_behavioral_states(
+        df,
+        selected_surface_id="reactive_jpy",
+        selected_state_id="B",
+    )
+    assert states == [{"surface_id": "reactive_jpy", "state_id": "B"}]
+
+
 def test_orchestrates_both_trainers_for_each_state(tmp_path, monkeypatch):
     repo_root = tmp_path / "repo"
     _write_dataset(repo_root)
@@ -166,6 +181,40 @@ def test_orchestrates_both_trainers_for_each_state(tmp_path, monkeypatch):
     assert summary["runs"] == 4
     assert len(calls) == 4
     assert {call["model"] for call in calls} == {"mlp", "lstm"}
+
+
+def test_run_suite_respects_selected_state(tmp_path, monkeypatch):
+    repo_root = tmp_path / "repo"
+    _write_dataset(repo_root)
+
+    runner, calls = _build_fake_runner(repo_root)
+    monkeypatch.setattr(suite, "run_training_command", runner)
+
+    args = suite._parse_args(
+        [
+            "--dataset-version",
+            DATASET_VERSION,
+            "--dataset-variant",
+            DATASET_VARIANT,
+            "--models",
+            "both",
+            "--surface",
+            "reactive_jpy",
+            "--state",
+            "JPY_CONSENSUS_MATURE",
+            "--repo-root",
+            str(repo_root),
+            "--output-root",
+            str(tmp_path / "analysis_output"),
+            "--experiment-id",
+            "exp_state_filter",
+        ]
+    )
+    summary = suite.run_suite(args)
+
+    assert summary["runs"] == 2
+    assert len(calls) == 2
+    assert {call["state_id"] for call in calls} == {"JPY_CONSENSUS_MATURE"}
 
 
 def test_artifact_collection_and_layout(tmp_path, monkeypatch):

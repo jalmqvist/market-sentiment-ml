@@ -64,6 +64,7 @@ def load_dataset_for_suite(
 def discover_behavioral_states(
     df: pd.DataFrame,
     selected_surface_id: str | None = None,
+    selected_state_id: str | None = None,
 ) -> list[dict[str, str]]:
     required = {"surface_id", "state_id"}
     missing = required - set(df.columns)
@@ -73,15 +74,26 @@ def discover_behavioral_states(
     candidates = df[["surface_id", "state_id"]].dropna().drop_duplicates()
     if selected_surface_id is not None:
         candidates = candidates[candidates["surface_id"] == selected_surface_id]
+    if selected_state_id is not None:
+        candidates = candidates[candidates["state_id"] == selected_state_id]
 
     discovered = [
         {"surface_id": str(row.surface_id), "state_id": str(row.state_id)}
         for row in candidates.sort_values(["surface_id", "state_id"]).itertuples(index=False)
     ]
     if not discovered:
+        if selected_surface_id and selected_state_id:
+            raise ValueError(
+                "No behavioral states found for "
+                f"surface_id={selected_surface_id!r}, state_id={selected_state_id!r} in selected dataset"
+            )
         if selected_surface_id:
             raise ValueError(
                 f"No behavioral states found for surface_id={selected_surface_id!r} in selected dataset"
+            )
+        if selected_state_id:
+            raise ValueError(
+                f"No behavioral states found for state_id={selected_state_id!r} in selected dataset"
             )
         raise ValueError("No behavioral states found in selected dataset")
     return discovered

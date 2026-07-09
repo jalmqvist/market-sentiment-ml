@@ -201,12 +201,21 @@ python analysis/behavioral/run_behavioral_suite.py \
   --dataset-variant reactive_jpy_v1_core \
   --profile publication   # 50 epochs — publication-quality results
 
+# State-level characterization (single Behavioral State only)
+python analysis/behavioral/run_behavioral_suite.py \
+  --dataset-version 1.5.1 \
+  --dataset-variant reactive_jpy_v1_core \
+  --surface reactive_jpy \
+  --state JPY_CONSENSUS_YOUNG \
+  --profile standard
+
 # Stage 2 predictive validation (walk-forward)
 python -m analysis.behavioral.run_behavioral_suite \
   --dataset-version 1.5.1 \
   --dataset-variant reactive_jpy_v1_core \
   --mode walkforward \
   --surface reactive_jpy \
+  --state JPY_CONSENSUS_MATURING \
   --models both \
   --profile publication
 ```
@@ -290,7 +299,9 @@ This runs a full walk-forward evaluation for each epoch count in the selected gr
 - `convergence_report.md`
 - `plots/pr_auc_vs_epoch.png`
 - `plots/relative_improvement_vs_controls.png`
+- `plots/relative_improvement_vs_controls__<STATE_ID>.png` (one figure per Behavioral State)
 - `plots/calibration_vs_epoch.png`
+- `plots/peak_pr_auc_by_state.png`
 
 #### Named epoch grids
 
@@ -298,7 +309,7 @@ This runs a full walk-forward evaluation for each epoch count in the selected gr
 |---|---|---|
 | `default` | 5, 10, 25, 50, 75, 100, 125, 150, 200 | Balanced coverage for most sweeps |
 | `dense` | 5, 10, 15, 20, 25, 30, 40, 50, 75, 100 | Finer-grained early convergence |
-| `publication` | 10, 25, 50, 75, 100, 150, 200, 300, 400, 500 | Extended publication-quality sweep |
+| `publication` | 5, 10, 25, 50, 75, 100, 125, 150, 200, 300, 400, 500 | Extended publication-quality sweep |
 
 Select a named grid with `--epoch-grid`:
 
@@ -320,8 +331,9 @@ python -m analysis.behavioral.run_behavioral_suite \
     --dataset-version 1.5.1 \
     --dataset-variant reactive_jpy_v1_core \
     --surface reactive_jpy \
+    --state JPY_CONSENSUS_MATURE \
     --models mlp \
-    --epoch-list 5,10,25,50
+    --epoch-list 5,10,25,50,75,100
 ```
 
 The `analyze_epoch_sweep` utility can still be invoked standalone against an existing

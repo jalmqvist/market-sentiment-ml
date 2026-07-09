@@ -99,6 +99,19 @@ def test_parse_args_walkforward_mode_supports_surface_alias():
     assert args.surface_id == "reactive_jpy"
 
 
+def test_parse_args_walkforward_mode_supports_state_alias():
+    args = suite._parse_args(
+        [
+            "--dataset-version", DATASET_VERSION,
+            "--dataset-variant", DATASET_VARIANT,
+            "--mode", "walkforward",
+            "--state", "STATE_A",
+        ]
+    )
+    assert args.mode == "walkforward"
+    assert args.state_id == "STATE_A"
+
+
 def test_parse_args_walkforward_behavioral_defaults():
     """Behavioral walk-forward defaults should be train=3y, test=6m, step=6m."""
     args = suite._parse_args(
@@ -178,3 +191,32 @@ def test_walkforward_suite_writes_outputs(tmp_path, monkeypatch):
     assert "### Per-fold Metrics" in report_text
     assert "### Skipped Behavioral States" in report_text
     assert "Scientific adequacy" not in report_text
+
+
+def test_walkforward_suite_respects_selected_state(tmp_path, monkeypatch):
+    repo_root = tmp_path / "repo"
+    _write_dataset(repo_root)
+
+    runner, calls = _build_fake_runner(repo_root)
+    monkeypatch.setattr(suite, "run_training_command", runner)
+
+    args = suite._parse_args(
+        [
+            "--dataset-version", DATASET_VERSION,
+            "--dataset-variant", DATASET_VARIANT,
+            "--mode", "walkforward",
+            "--surface", "reactive_jpy",
+            "--state", "STATE_A",
+            "--models", "both",
+            "--repo-root", str(repo_root),
+            "--output-root", str(tmp_path / "out"),
+            "--experiment-id", "wf_state_filter",
+            "--wf-train-years", "1",
+            "--wf-test-months", "3",
+            "--wf-step-months", "3",
+        ]
+    )
+    summary = suite.run_walkforward_suite(args)
+
+    assert summary["runs"] > 0
+    assert all(_parse_flag(cmd, "--state") == "STATE_A" for cmd in calls)
