@@ -167,8 +167,14 @@ def test_walkforward_suite_writes_outputs(tmp_path, monkeypatch):
     assert "## Walk-forward Protocol" in report_text
     assert "Generated folds" in report_text
     assert "## Scientific Findings" in report_text
-    assert "Versus `permutation`" in report_text
+    assert "Relative improvement over controls" in report_text
+    assert "**Finding:**" in report_text
+    assert "## Research Recommendation" in report_text
     assert "### Predictive Performance by Fold (PR-AUC)" in report_text
     assert "### Calibration Curve" in report_text
-    assert "## Protocol Assessment" in report_text
-    assert "Skipped Behavioral States" in report_text
+    assert "## Protocol Validation" in report_text
+    assert "Protocol Quality:" in report_text
+    assert "## Appendix" in report_text
+    assert "### Per-fold Metrics" in report_text
+    assert "### Skipped Behavioral States" in report_text
+    assert "Scientific adequacy" not in report_text

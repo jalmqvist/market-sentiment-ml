@@ -105,6 +105,8 @@ def aggregate_metric_table(rows: list[dict[str, object]]) -> list[dict[str, obje
                 "folds": 0,
                 "pr_auc": [],
                 "brier_score": [],
+                "calibration_ece": [],
+                "calibration_abs_error_mean": [],
                 "mcc": [],
                 "balanced_accuracy": [],
                 "precision": [],
@@ -113,7 +115,17 @@ def aggregate_metric_table(rows: list[dict[str, object]]) -> list[dict[str, obje
             },
         )
         bucket["folds"] = int(bucket["folds"]) + 1
-        for metric in ["pr_auc", "brier_score", "mcc", "balanced_accuracy", "precision", "recall", "f1"]:
+        for metric in [
+            "pr_auc",
+            "brier_score",
+            "calibration_ece",
+            "calibration_abs_error_mean",
+            "mcc",
+            "balanced_accuracy",
+            "precision",
+            "recall",
+            "f1",
+        ]:
             value = row.get(metric)
             if value is None:
                 continue
@@ -134,7 +146,17 @@ def aggregate_metric_table(rows: list[dict[str, object]]) -> list[dict[str, obje
             "baseline": bucket["baseline"],
             "folds": bucket["folds"],
         }
-        for metric in ["pr_auc", "brier_score", "mcc", "balanced_accuracy", "precision", "recall", "f1"]:
+        for metric in [
+            "pr_auc",
+            "brier_score",
+            "calibration_ece",
+            "calibration_abs_error_mean",
+            "mcc",
+            "balanced_accuracy",
+            "precision",
+            "recall",
+            "f1",
+        ]:
             vals = bucket[metric]
             row[f"{metric}_mean"] = float(np.mean(vals)) if vals else float("nan")
         out.append(row)
