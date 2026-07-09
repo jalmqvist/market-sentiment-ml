@@ -119,7 +119,7 @@ class TestEpochGrids:
 
     def test_publication_grid_exists(self):
         assert "publication" in suite.EPOCH_GRIDS
-        assert max(suite.EPOCH_GRIDS["publication"]) >= 200
+        assert suite.EPOCH_GRIDS["publication"] == [5, 10, 25, 50, 75, 100, 125, 150, 200, 300, 400, 500]
 
     def test_all_grids_are_sorted(self):
         for name, epochs in suite.EPOCH_GRIDS.items():
@@ -388,3 +388,33 @@ def test_run_epoch_sweep_named_grid(tmp_path, monkeypatch):
     assert summary["epochs"] == [5, 10]
     manifest_df = pd.read_csv(summary["sweep_manifest"])
     assert set(manifest_df["epoch"].tolist()) == {5, 10}
+
+
+def test_run_epoch_sweep_respects_selected_state(tmp_path, monkeypatch):
+    repo_root = tmp_path / "repo"
+    _write_dataset(repo_root)
+
+    runner, calls = _build_fake_runner(repo_root)
+    monkeypatch.setattr(suite, "run_training_command", runner)
+
+    args = suite._parse_args(
+        [
+            "--dataset-version", DATASET_VERSION,
+            "--dataset-variant", DATASET_VARIANT,
+            "--mode", "epoch_sweep",
+            "--surface", "reactive_jpy",
+            "--state", "STATE_A",
+            "--models", "mlp",
+            "--repo-root", str(repo_root),
+            "--output-root", str(tmp_path / "out"),
+            "--experiment-id", "state_sweep",
+            "--epoch-list", "5,10",
+            "--wf-train-years", "1",
+            "--wf-test-months", "3",
+            "--wf-step-months", "3",
+        ]
+    )
+    summary = suite.run_epoch_sweep(args)
+
+    assert summary["epochs"] == [5, 10]
+    assert all(_parse_flag(cmd, "--state") == "STATE_A" for cmd in calls)

@@ -82,7 +82,7 @@ OUTPUT_LAYOUT_DIRS = [
 EPOCH_GRIDS: dict[str, list[int]] = {
     "default": [5, 10, 25, 50, 75, 100, 125, 150, 200],
     "dense": [5, 10, 15, 20, 25, 30, 40, 50, 75, 100],
-    "publication": [10, 25, 50, 75, 100, 150, 200, 300, 400, 500],
+    "publication": [5, 10, 25, 50, 75, 100, 125, 150, 200, 300, 400, 500],
 }
 
 _DEFAULT_EPOCH_GRID = "default"
@@ -202,6 +202,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--dataset-version", required=True)
     parser.add_argument("--dataset-variant", required=True)
     parser.add_argument("--surface-id", "--surface", dest="surface_id", default=None)
+    parser.add_argument("--state-id", "--state", dest="state_id", default=None)
     parser.add_argument(
         "--mode",
         default="characterization",
@@ -341,7 +342,11 @@ def run_suite(args: argparse.Namespace) -> dict[str, object]:
         args.dataset_variant,
         output_dir=dataset_output_dir,
     )
-    states = discover_behavioral_states(dataset_df, selected_surface_id=args.surface_id)
+    states = discover_behavioral_states(
+        dataset_df,
+        selected_surface_id=args.surface_id,
+        selected_state_id=args.state_id,
+    )
 
     started_at = utc_now_iso()
     run_rows: list[dict[str, object]] = []
@@ -519,6 +524,7 @@ def run_suite(args: argparse.Namespace) -> dict[str, object]:
         "dataset_version": args.dataset_version,
         "dataset_variant": args.dataset_variant,
         "selected_surface_id": args.surface_id,
+        "selected_state_id": args.state_id,
         "models": models,
         "feature_set": args.feature_set,
         "target_horizon": args.target_horizon,
@@ -595,7 +601,11 @@ def run_walkforward_suite(args: argparse.Namespace) -> dict[str, object]:
         args.dataset_variant,
         output_dir=dataset_output_dir,
     )
-    states = discover_behavioral_states(dataset_df, selected_surface_id=args.surface_id)
+    states = discover_behavioral_states(
+        dataset_df,
+        selected_surface_id=args.surface_id,
+        selected_state_id=args.state_id,
+    )
     time_col = resolve_time_column(dataset_df)
     target_col = resolve_target_column(dataset_df, args.target_horizon)
     state_partitions: dict[tuple[str, str], pd.DataFrame] = {}
@@ -893,6 +903,7 @@ def run_walkforward_suite(args: argparse.Namespace) -> dict[str, object]:
         "dataset_version": args.dataset_version,
         "dataset_variant": args.dataset_variant,
         "selected_surface_id": args.surface_id,
+        "selected_state_id": args.state_id,
         "models": models,
         "feature_set": args.feature_set,
         "target_horizon": args.target_horizon,

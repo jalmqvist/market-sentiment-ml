@@ -102,7 +102,10 @@ def test_analyze_epoch_sweep_generates_outputs(tmp_path, capsys):
     assert Path(summary["convergence_report"]).exists()
     assert (output_dir / "plots" / "pr_auc_vs_epoch.png").exists()
     assert (output_dir / "plots" / "relative_improvement_vs_controls.png").exists()
+    assert (output_dir / "plots" / "relative_improvement_vs_controls__STATE_A.png").exists()
+    assert (output_dir / "plots" / "relative_improvement_vs_controls__STATE_B.png").exists()
     assert (output_dir / "plots" / "calibration_vs_epoch.png").exists()
+    assert (output_dir / "plots" / "peak_pr_auc_by_state.png").exists()
 
     epoch_summary_df = pd.read_csv(output_dir / "epoch_summary.csv")
     assert "pr_auc_relative_pct_vs_permutation" in epoch_summary_df.columns
@@ -112,8 +115,10 @@ def test_analyze_epoch_sweep_generates_outputs(tmp_path, capsys):
 
     report_text = (output_dir / "convergence_report.md").read_text(encoding="utf-8")
     assert "## Research Recommendation" in report_text
+    assert "## Cross-architecture agreement" in report_text
+    assert "## Scientific interpretation" in report_text
     assert "STATE_A" in report_text
-    assert "extend the sweep to 40 epochs" in report_text
+    assert "Convergence class" in report_text
 
     stdout = capsys.readouterr().out
     assert "Epoch Sweep Analysis" in stdout
