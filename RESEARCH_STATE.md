@@ -133,6 +133,20 @@ and retained only within the archived research documentation.
 This document therefore records the current state of knowledge rather than every experiment performed
 during the evolution of the project.
 
+---
+
+### Behavioral Surface Predictive Learning (July 2026)
+
+The first predictive evaluation of the frozen Reactive-JPY Behavioral Surface has now been completed using independent walk-forward validation across both MLP and LSTM architectures. Epoch-sweep experiments produced several consistent findings.
+
+Both architectures demonstrated reproducible improvements over multiple control baselines, including permutation, random partitioning, trend/volatility partitioning and base-rate controls. While the magnitude of improvement varied between architectures, the qualitative ordering of behavioral states remained remarkably consistent.
+
+The experiments further suggest that individual behavioral states exhibit distinct learning dynamics. Some states converge rapidly and remain largely insensitive to training duration, whereas others continue to accumulate predictive signal over extended training or exhibit substantially more complex optimization behaviour. These differences were reproduced across independent neural architectures, indicating that they are more likely to reflect intrinsic properties of the Behavioral Surface than optimizer-specific artefacts.
+
+Taken together, these results provide the first evidence that independently validated Behavioral Surfaces not only represent meaningful behavioral organization, but also simplify downstream predictive learning. Although the current findings are limited to the Reactive-JPY ontology and require replication on additional Behavioral Surfaces, they represent an important milestone in the project's transition from behavioral representation discovery to predictive validation.
+
+---
+
 ### Retail Sentiment
 
 Early research investigated retail positioning as a direct predictive signal.
