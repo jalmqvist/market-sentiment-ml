@@ -1343,6 +1343,18 @@ They intentionally do **not** answer
 
 ------
 
+### State-level Predictive Analysis
+
+Walk-forward evaluation shall support both Behavioral Surface-level and Behavioral State-level analyses.
+
+Behavioral Surfaces aggregate multiple Behavioral States that may exhibit substantially different predictive characteristics and learning dynamics. Aggregate metrics therefore remain useful for evaluating overall surface quality, while state-level analyses provide the primary evidence for understanding predictive mechanisms.
+
+When evaluating Behavioral States individually, the framework shall support selective execution of a single state as well as state-specific reporting, convergence analysis, and comparison against baseline controls.
+
+Reports should clearly distinguish conclusions supported by aggregate surface behaviour from conclusions supported by individual Behavioral States.
+
+---
+
 ## Deliverables
 
 - reproducible walk-forward evaluation
@@ -1352,6 +1364,8 @@ They intentionally do **not** answer
 - comparison against existing Trend/Volatility partitioning
 - per-fold and per-state reporting
 - reproducible reports
+- epoch sweep analysis
+- convergence report
 
 Expected comparisons include
 
