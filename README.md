@@ -269,31 +269,69 @@ than isolated absolute scores. In practice:
 - keep raw metrics in `metrics.csv` / appendix tables for traceability
 - treat calibration as a separate reliability question even when discrimination improves
 
-To analyze repeated walk-forward runs across multiple epoch counts, use the epoch sweep utility:
+### Epoch Sweep
+
+To sweep across epoch counts and automatically detect convergence, use the integrated
+`epoch_sweep` mode:
 
 ```bash
-python -m analysis.behavioral.analyze_epoch_sweep \
-  analysis/output/<sweep_id>/sweep_summary.csv \
-  --output-dir analysis/output/<sweep_id>/epoch_sweep_analysis
+python -m analysis.behavioral.run_behavioral_suite \
+    --mode epoch_sweep \
+    --dataset-version 1.5.1 \
+    --dataset-variant reactive_jpy_v1_core \
+    --surface reactive_jpy \
+    --models mlp
 ```
 
-The sweep manifest must contain:
-
-```csv
-epoch,experiment_dir
-5,analysis/output/<experiment_5>
-10,analysis/output/<experiment_10>
-...
-```
-
-The utility reads only existing experiment outputs (`metrics.csv`, `summary.csv`,
-`experiment_manifest.json`) and generates:
+This runs a full walk-forward evaluation for each epoch count in the selected grid, writes a
+`sweep_summary.csv` manifest, and automatically invokes convergence analysis to produce:
 
 - `epoch_summary.csv`
 - `convergence_report.md`
 - `plots/pr_auc_vs_epoch.png`
 - `plots/relative_improvement_vs_controls.png`
 - `plots/calibration_vs_epoch.png`
+
+#### Named epoch grids
+
+| Grid | Epochs | Description |
+|---|---|---|
+| `default` | 5, 10, 25, 50, 75, 100, 125, 150, 200 | Balanced coverage for most sweeps |
+| `dense` | 5, 10, 15, 20, 25, 30, 40, 50, 75, 100 | Finer-grained early convergence |
+| `publication` | 10, 25, 50, 75, 100, 150, 200, 300, 400, 500 | Extended publication-quality sweep |
+
+Select a named grid with `--epoch-grid`:
+
+```bash
+python -m analysis.behavioral.run_behavioral_suite \
+    --mode epoch_sweep \
+    --dataset-version 1.5.1 \
+    --dataset-variant reactive_jpy_v1_core \
+    --surface reactive_jpy \
+    --models mlp \
+    --epoch-grid dense
+```
+
+Or provide an explicit list with `--epoch-list`:
+
+```bash
+python -m analysis.behavioral.run_behavioral_suite \
+    --mode epoch_sweep \
+    --dataset-version 1.5.1 \
+    --dataset-variant reactive_jpy_v1_core \
+    --surface reactive_jpy \
+    --models mlp \
+    --epoch-list 5,10,25,50
+```
+
+The `analyze_epoch_sweep` utility can still be invoked standalone against an existing
+`sweep_summary.csv` manifest when needed:
+
+```bash
+python -m analysis.behavioral.analyze_epoch_sweep \
+  analysis/output/<sweep_id>/sweep_summary.csv \
+  --output-dir analysis/output/<sweep_id>/epoch_sweep_analysis
+```
 
 This keeps **walk-forward validation** and **epoch selection** linked but conceptually separate:
 walk-forward experiments establish predictive evidence under the shared MPML protocol, while the

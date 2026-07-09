@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import shlex
 import sys
@@ -29,6 +30,7 @@ if __package__ in {None, ""}:
     if str(_REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(_REPO_ROOT))
 
+from analysis.behavioral.analyze_epoch_sweep import analyze_epoch_sweep
 from analysis.behavioral.analyze_manifests import summarize_manifests
 from analysis.behavioral.compare_predictions import (
     compare_mlp_lstm_predictions,
@@ -66,6 +68,24 @@ OUTPUT_LAYOUT_DIRS = [
     "plots",
     "logs",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Named epoch grids
+# ---------------------------------------------------------------------------
+
+#: Named epoch grids for ``--mode epoch_sweep``.
+#:
+#: * ``default``     — balanced coverage suitable for most Behavioral Surface sweeps
+#: * ``dense``       — finer-grained sampling useful when convergence is expected early
+#: * ``publication`` — extended range for thorough publication-quality sweeps
+EPOCH_GRIDS: dict[str, list[int]] = {
+    "default": [5, 10, 25, 50, 75, 100, 125, 150, 200],
+    "dense": [5, 10, 15, 20, 25, 30, 40, 50, 75, 100],
+    "publication": [10, 25, 50, 75, 100, 150, 200, 300, 400, 500],
+}
+
+_DEFAULT_EPOCH_GRID = "default"
 
 
 # ---------------------------------------------------------------------------
@@ -132,6 +152,37 @@ def _apply_profile(args: argparse.Namespace) -> argparse.Namespace:
     return args
 
 
+def _resolve_epoch_list(args: argparse.Namespace) -> list[int]:
+    """Return the ordered, deduplicated epoch list for an epoch_sweep run.
+
+    Priority:
+    1. ``--epoch-list`` (explicit comma-separated values)
+    2. ``--epoch-grid`` (named grid lookup)
+    """
+    raw_list = getattr(args, "epoch_list", None)
+    if raw_list is not None:
+        parts = [p.strip() for p in str(raw_list).split(",") if p.strip()]
+        if not parts:
+            raise ValueError("--epoch-list is empty; provide at least one epoch count.")
+        try:
+            epochs = [int(p) for p in parts]
+        except ValueError:
+            raise ValueError(
+                f"--epoch-list must be comma-separated integers; got: {raw_list!r}"
+            )
+        bad = [e for e in epochs if e < 1]
+        if bad:
+            raise ValueError(f"All epoch counts must be >= 1; got: {bad}")
+        return sorted(set(epochs))
+
+    grid_name = getattr(args, "epoch_grid", _DEFAULT_EPOCH_GRID) or _DEFAULT_EPOCH_GRID
+    grid = EPOCH_GRIDS.get(grid_name)
+    if grid is None:
+        known = ", ".join(EPOCH_GRIDS)
+        raise ValueError(f"Unknown epoch grid '{grid_name}'. Known grids: {known}.")
+    return list(grid)
+
+
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -139,7 +190,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "Named profiles control the default training intensity:\n"
             "  smoke       — 2 epochs, pipeline smoke-test only\n"
             "  standard    — 10 epochs, initial scientific characterization (default)\n"
-            "  publication — 50 epochs, publication-quality results"
+            "  publication — 50 epochs, publication-quality results\n\n"
+            "Execution modes:\n"
+            "  characterization — single-pass characterization run\n"
+            "  walkforward      — walk-forward predictive validation\n"
+            "  epoch_sweep      — repeated walk-forward across a range of epoch counts\n"
+            "                     with automatic convergence analysis"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -149,7 +205,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--mode",
         default="characterization",
-        choices=["characterization", "walkforward"],
+        choices=["characterization", "walkforward", "epoch_sweep"],
     )
     parser.add_argument("--models", default="both", help="mlp, lstm, or both")
     parser.add_argument("--feature-set", default="price_trend")
@@ -165,7 +221,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument("--epochs", type=int, default=None,
-                        help="Training epochs (overrides --profile default).")
+                        help="Training epochs (overrides --profile default). "
+                             "In epoch_sweep mode, use --epoch-list instead.")
     parser.add_argument("--hidden-dim", type=int, default=None,
                         help="Hidden layer dimension (overrides --profile default).")
     parser.add_argument("--lr", type=float, default=1e-3)
@@ -203,6 +260,38 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--predictions-dir", type=Path, default=Path("data/output/dl_predictions"))
     parser.add_argument("--logs-dir", type=Path, default=Path("logs"))
     parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
+    # epoch_sweep-specific arguments
+    parser.add_argument(
+        "--epoch-grid",
+        default=_DEFAULT_EPOCH_GRID,
+        choices=list(EPOCH_GRIDS),
+        dest="epoch_grid",
+        help=(
+            f"Named epoch grid for --mode epoch_sweep (default: {_DEFAULT_EPOCH_GRID}). "
+            "Ignored when --epoch-list is provided. "
+            "Available grids: "
+            + ", ".join(
+                f"{name} [{','.join(str(e) for e in epochs)}]"
+                for name, epochs in EPOCH_GRIDS.items()
+            )
+            + "."
+        ),
+    )
+    parser.add_argument(
+        "--epoch-list",
+        default=None,
+        dest="epoch_list",
+        help=(
+            "Explicit comma-separated epoch counts for --mode epoch_sweep "
+            "(e.g. '5,10,25,50'). Overrides --epoch-grid."
+        ),
+    )
+    parser.add_argument(
+        "--plateau-threshold",
+        type=float,
+        default=0.005,
+        help="PR-AUC plateau threshold for convergence analysis in epoch_sweep mode (default: 0.005).",
+    )
     args = parser.parse_args(argv)
     return _apply_profile(args)
 
@@ -213,7 +302,12 @@ def _build_experiment_id(args: argparse.Namespace) -> str:
         return args.experiment_id
     timestamp = pd.Timestamp.now(tz="UTC").strftime("%Y%m%dT%H%M%SZ")
     variant = sanitize_fragment(args.dataset_variant)
-    prefix = "behavioral_walkforward" if args.mode == "walkforward" else "behavioral_suite"
+    if args.mode == "walkforward":
+        prefix = "behavioral_walkforward"
+    elif args.mode == "epoch_sweep":
+        prefix = "behavioral_epoch_sweep"
+    else:
+        prefix = "behavioral_suite"
     return f"{prefix}_{args.dataset_version}_{variant}_{timestamp}"
 
 
@@ -862,11 +956,106 @@ def run_walkforward_suite(args: argparse.Namespace) -> dict[str, object]:
     return summary
 
 
+def run_epoch_sweep(args: argparse.Namespace) -> dict[str, object]:
+    """Run repeated walk-forward evaluations across a range of epoch counts.
+
+    For each epoch count in the resolved grid, this function runs a full
+    walk-forward suite (``run_walkforward_suite``) with that epoch count.
+    After all walk-forward runs are complete it writes a ``sweep_summary.csv``
+    manifest and automatically invokes ``analyze_epoch_sweep`` to produce the
+    convergence report and plots.
+
+    Returns a summary dict with keys:
+
+    - ``sweep_id``            — the top-level sweep experiment id
+    - ``sweep_dir``           — path to the sweep output directory
+    - ``epochs``              — list of evaluated epoch counts
+    - ``walkforward_summaries`` — per-epoch walk-forward summary dicts
+    - ``sweep_manifest``      — path to the generated sweep_summary.csv
+    - ``convergence_report``  — path to the convergence_report.md
+    - ``epoch_summary``       — path to the epoch_summary.csv
+    - ``plots_dir``           — path to the plots directory
+    - ``total_failures``      — total walk-forward failures across all epochs
+    """
+    epoch_list = _resolve_epoch_list(args)
+    if not epoch_list:
+        raise ValueError("Epoch list is empty; cannot run epoch sweep.")
+
+    sweep_id = _build_experiment_id(args)
+    sweep_dir = args.output_root / sweep_id
+    sweep_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"Starting epoch sweep: {sweep_id}")
+    print(f"Epochs: {epoch_list}")
+    print(f"Output: {sweep_dir}")
+
+    walkforward_summaries: list[dict[str, object]] = []
+    sweep_manifest_rows: list[dict[str, object]] = []
+    total_failures = 0
+
+    for epoch in epoch_list:
+        print(f"\n--- Epoch sweep: running walk-forward with epochs={epoch} ---")
+
+        # Build a per-epoch args copy with the epoch and a derived experiment id.
+        # Use deepcopy to ensure complete isolation between iterations for any
+        # mutable nested attributes (e.g. Path objects, nested dicts).
+        epoch_args = copy.deepcopy(args)
+        epoch_args.mode = "walkforward"
+        epoch_args.epochs = epoch
+        epoch_args.experiment_id = f"{sweep_id}_ep{epoch}"
+        epoch_args.output_root = sweep_dir / "runs"
+
+        wf_summary = run_walkforward_suite(epoch_args)
+        walkforward_summaries.append({"epoch": epoch, **wf_summary})
+        total_failures += int(wf_summary.get("failures", 0))
+        sweep_manifest_rows.append(
+            {
+                "epoch": epoch,
+                "experiment_dir": wf_summary["experiment_dir"],
+            }
+        )
+
+    # Write the sweep_summary.csv manifest
+    sweep_manifest_path = sweep_dir / "sweep_summary.csv"
+    pd.DataFrame(sweep_manifest_rows).to_csv(sweep_manifest_path, index=False)
+    print(f"\nSweep manifest written: {sweep_manifest_path}")
+
+    # Automatically run convergence analysis
+    print("\nRunning convergence analysis...")
+    analysis_output_dir = sweep_dir / "epoch_sweep_analysis"
+    plateau_threshold = getattr(args, "plateau_threshold", 0.005)
+    convergence_summary = analyze_epoch_sweep(
+        sweep_manifest=sweep_manifest_path,
+        output_dir=analysis_output_dir,
+        plateau_threshold=plateau_threshold,
+    )
+
+    return {
+        "sweep_id": sweep_id,
+        "sweep_dir": str(sweep_dir),
+        "epochs": epoch_list,
+        "walkforward_summaries": walkforward_summaries,
+        "sweep_manifest": str(sweep_manifest_path),
+        "convergence_report": convergence_summary.get("convergence_report"),
+        "epoch_summary": convergence_summary.get("epoch_summary"),
+        "plots_dir": convergence_summary.get("plots_dir"),
+        "total_failures": total_failures,
+    }
+
+
+_MODE_HANDLERS = {
+    "characterization": run_suite,
+    "walkforward": run_walkforward_suite,
+    "epoch_sweep": run_epoch_sweep,
+}
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
-    summary = run_walkforward_suite(args) if args.mode == "walkforward" else run_suite(args)
+    handler = _MODE_HANDLERS.get(args.mode, run_suite)
+    summary = handler(args)
     print(json.dumps(summary, indent=2))
-    return 0 if summary["failures"] == 0 else 1
+    return 0 if summary.get("total_failures", summary.get("failures", 0)) == 0 else 1
 
 
 if __name__ == "__main__":
