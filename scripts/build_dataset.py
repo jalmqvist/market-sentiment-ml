@@ -133,9 +133,15 @@ def main(argv=None):
 
             df = pd.read_csv(path)
 
+            # L-11 fix: vol_12b, vol_48b now strictly causal
             df = vol_module.add_volatility_features(df)
+
+            # Regime features: uses the corrected (causal) vol_12b
+            # build_fx_sentiment_dataset.add_regime_features() depends only on
+            # vol_12b and trend_12b; with vol_12b now causal, regime is causal
             df = builder.add_regime_features(df)
 
+            # L-11 fix: target_cls now uses corrected (causal) vol_48b
             if "ret_48b" in df.columns and "vol_48b" in df.columns:
                 threshold = 0.1 * df["vol_48b"]
                 df["target_cls"] = (df["ret_48b"] > threshold).astype(int)
@@ -157,8 +163,18 @@ def main(argv=None):
             manifest["features_added"] = {
                 "version": args.version,
                 "volatility": ["vol_12b", "vol_48b"],
-                "regime": ["trend_vol_adj_strength", "is_trending", "is_high_vol"],
+                "regime": ["trend_vol_adj_strength", "is_trending", "is_high_vol", "regime"],
                 "target": ["target_cls"],
+                "leakage_fixes": {
+                    "L-11": (
+                        "vol_12b/vol_48b now computed from pure backward returns "
+                        "(entry_close.pct_change(1)), not from ret_1b which was a "
+                        "forward return. This removes the one-bar future price leak "
+                        "that affected ~39% of regime labels in prior versions. "
+                        "See leakage_audit.md and scripts/diagnose_vol_leakage.py "
+                        "for diagnostic history."
+                    ),
+                },
             }
 
             with open(manifest_path, "w") as f:

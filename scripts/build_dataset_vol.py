@@ -8,7 +8,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-# Ensure project root is on sys.path when run directly
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import config as cfg
@@ -17,9 +16,6 @@ from utils.io import setup_logging
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------
 def _parse_args(argv=None):
     p = argparse.ArgumentParser(
         description="Build a versioned master FX sentiment research dataset (with volatility).",
@@ -38,10 +34,22 @@ def _parse_args(argv=None):
 
 
 # ---------------------------------------------------------------------
-# Volatility computation (SAFE)
+# Volatility computation (CAUSAL - L-11 fix)
 # ---------------------------------------------------------------------
 def add_volatility_features(df: pd.DataFrame) -> pd.DataFrame:
-    logger.info("Adding volatility features (vol_12b, vol_48b)")
+    """Add strictly causal volatility features.
+
+    L-11 fix: Previous versions computed volatility from ret_1b, which is
+    itself a forward return (ret_1b[T] = close[T+1]/close[T] - 1). This
+    caused every vol_12b/vol_48b value to transitively leak one bar of
+    future price information.
+
+    This corrected version computes volatility from pure backward returns:
+    bwd_ret_1b[T] = close[T]/close[T-1] - 1, with no forward shift ever.
+
+    Columns produced: vol_12b, vol_48b (both strictly causal)
+    """
+    logger.info("Adding volatility features (CAUSAL - L-11 fix)")
 
     df = df.copy()
 
@@ -51,41 +59,40 @@ def add_volatility_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.sort_values(["pair", "snapshot_time"])
 
     # -----------------------------------------------------------------
-    # Ensure return column exists
+    # Require price column for backward returns
     # -----------------------------------------------------------------
-    if "ret_1b" not in df.columns:
-        raise ValueError("Expected 'ret_1b' column not found in dataset")
+    if "entry_close" not in df.columns:
+        raise ValueError(
+            "Expected 'entry_close' column not found in dataset "
+            "(required for causal volatility computation)"
+        )
 
     # -----------------------------------------------------------------
-    # Rolling volatility (STRICTLY BACKWARD LOOKING)
+    # Pure backward return: no forward shift, ever
+    # -----------------------------------------------------------------
+    df["bwd_ret_1b"] = df.groupby("pair")["entry_close"].pct_change(1)
+
+    # -----------------------------------------------------------------
+    # Rolling volatility (strictly backward-looking)
     # -----------------------------------------------------------------
     df["vol_12b"] = (
-        df.groupby("pair")["ret_1b"]
+        df.groupby("pair")["bwd_ret_1b"]
         .rolling(window=12, min_periods=12)
         .std()
         .reset_index(level=0, drop=True)
     )
 
     df["vol_48b"] = (
-        df.groupby("pair")["ret_1b"]
+        df.groupby("pair")["bwd_ret_1b"]
         .rolling(window=48, min_periods=48)
         .std()
         .reset_index(level=0, drop=True)
     )
 
-    # -----------------------------------------------------------------
-    # Safety checks
-    # -----------------------------------------------------------------
     logger.info(
-        "Volatility stats (12b): mean=%.6f std=%.6f",
-        df["vol_12b"].mean(),
-        df["vol_12b"].std(),
-    )
-
-    logger.info(
-        "Volatility stats (48b): mean=%.6f std=%.6f",
-        df["vol_48b"].mean(),
-        df["vol_48b"].std(),
+        "vol_12b: mean=%.6f std=%.6f  |  vol_48b: mean=%.6f std=%.6f",
+        df["vol_12b"].mean(), df["vol_12b"].std(),
+        df["vol_48b"].mean(), df["vol_48b"].std(),
     )
 
     return df
@@ -114,9 +121,6 @@ def main(argv=None) -> None:
         logger.error("Could not import dataset builder")
         sys.exit(1)
 
-    # -----------------------------------------------------------------
-    # Build base dataset
-    # -----------------------------------------------------------------
     master = builder.build_master_dataset(
         sentiment_dir=args.sentiment_dir,
         price_dir=args.price_dir,
@@ -127,33 +131,20 @@ def main(argv=None) -> None:
 
     logger.info("Base dataset built: %d rows", len(master))
 
-    # -----------------------------------------------------------------
-    # ADD VOLATILITY FEATURES
-    # -----------------------------------------------------------------
     master = add_volatility_features(master)
 
-    # ------------------------------------------------------------
-    # OVERWRITE DATASET WITH VOLATILITY FEATURES
-    # ------------------------------------------------------------
     logger.info("Overwriting dataset files with volatility features")
 
     full_path = output_dir / "master_research_dataset.csv"
     core_path = output_dir / "master_research_dataset_core.csv"
 
-    # Save full
     master.to_csv(full_path, index=False)
 
-    # Rebuild core (drop NaNs)
     core = master.dropna().copy()
     core.to_csv(core_path, index=False)
 
     logger.info("Saved dataset with volatility features")
 
-    # -----------------------------------------------------------------
-    # Save (overwrite existing structure)
-    # -----------------------------------------------------------------
-    full_path = output_dir / "master_research_dataset.csv"
-    core_path = output_dir / "master_research_dataset_core.csv"
     extended_path = output_dir / "master_research_dataset_extended.csv"
     manifest_path = output_dir / "DATASET_MANIFEST.json"
 
@@ -165,9 +156,6 @@ def main(argv=None) -> None:
     logger.info("    Extended : %s", extended_path)
     logger.info("    Manifest : %s", manifest_path)
 
-    # -----------------------------------------------------------------
-    # Update latest symlink
-    # -----------------------------------------------------------------
     latest_link = cfg.OUTPUT_DIR / "latest"
     try:
         if latest_link.is_symlink() or latest_link.exists():
