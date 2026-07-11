@@ -765,29 +765,14 @@ def build_master_dataset(
 
 
     # ============================================
-    # REGIME V2: ACCELERATION
+    # REGIME V2: ACCELERATION (continuous only — see docs/LEAKAGE_FIXES.md L-02)
     # ============================================
+    # acceleration_bucket removed 2026-07-11 (L-02): its boundaries were
+    # global quantiles over the full dataset. sentiment_change_6h itself is
+    # causal (diff(6)) and is retained.
 
     master_valid["sentiment_change_6h"] = (
         master_valid.groupby("pair")["net_sentiment"].diff(6)
-    )
-
-    q_low = master_valid["sentiment_change_6h"].quantile(0.33)
-    q_high = master_valid["sentiment_change_6h"].quantile(0.66)
-
-    def bucket_acceleration(x):
-        if pd.isna(x):
-            return None
-        elif x <= q_low:
-            return "decreasing"
-        elif x >= q_high:
-            return "increasing"
-        else:
-            return "stable"
-
-    master_valid["acceleration_bucket"] = (
-        master_valid["sentiment_change_6h"]
-        .apply(bucket_acceleration).fillna("unknown")
     )
 
     # ============================================
@@ -815,22 +800,6 @@ def build_master_dataset(
     master_valid["is_long_crowd"] = master_valid["crowd_side"] == 1
     master_valid["is_short_crowd"] = master_valid["crowd_side"] == -1
 
-    # --------------------------------
-    # Trend strength buckets (v1)
-    # --------------------------------
-
-    for h in [12, 48]:
-        col = f"trend_strength_{h}b"
-        bucket_col = f"trend_strength_bucket_{h}b"
-
-        # avoid NaNs / extreme outliers
-        valid = master_valid[col].notna()
-
-        master_valid.loc[valid, bucket_col] = pd.qcut(
-            master_valid.loc[valid, col],
-            q=4,
-            labels=["weak", "medium", "strong", "extreme"]
-        )
 
     # Split into filtered datasets
     master_core = master_valid[master_valid["pair"].isin(core_pairs)].copy()
