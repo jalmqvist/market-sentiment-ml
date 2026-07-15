@@ -84,7 +84,15 @@ import pandas as pd
 SCHEMA_VERSION = "dl_signals_h1_v1"
 EXPORT_FREQUENCY = "H1"
 
-UNIQUE_KEY_COLS = ["pair", "entry_time", "model", "dl_regime", "target_horizon", "feature_set"]
+UNIQUE_KEY_COLS = [
+    "pair",
+    "entry_time",
+    "model",
+    "surface_id",
+    "state_id",
+    "target_horizon",
+    "feature_set",
+]
 
 # Allowed producer-side regime labels (DL taxonomy)
 VALID_DL_REGIMES = {"HVTF", "LVTF", "HVR", "LVR"}
@@ -107,7 +115,14 @@ PROVENANCE_COLS = {
 # target_horizon is handled separately: Int64 (nullable); pd.NA when absent/unparseable
 
 # Surface grain columns for monotonicity check in consolidated cube
-SURFACE_GRAIN_COLS = ["pair", "model", "dl_regime", "target_horizon", "feature_set"]
+SURFACE_GRAIN_COLS = [
+    "pair",
+    "model",
+    "surface_id",
+    "state_id",
+    "target_horizon",
+    "feature_set",
+]
 
 # Final output column order
 OUTPUT_COLS = [
@@ -126,6 +141,11 @@ OUTPUT_COLS = [
     "signal_strength_missing",
     # Provenance
     "model",
+    "surface_id",
+    "surface_version",
+    "state_id",
+    "behavioral_surface",
+    "behavioral_state",
     "dl_regime",
     "target_horizon",
     "feature_set",

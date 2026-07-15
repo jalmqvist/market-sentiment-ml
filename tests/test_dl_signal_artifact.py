@@ -476,6 +476,5 @@ class TestSchemaV1Updates:
 
     def test_surface_grain_cols_defined(self):
         """SURFACE_GRAIN_COLS constant must be defined and contain expected cols."""
-        expected = {"pair", "model", "dl_regime", "target_horizon", "feature_set"}
+        expected = {"pair", "model", "surface_id", "state_id", "target_horizon", "feature_set"}
         assert expected == set(SURFACE_GRAIN_COLS)
-

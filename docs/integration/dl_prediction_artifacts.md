@@ -1,4 +1,4 @@
-# DL prediction artifacts (v1.1)
+# DL prediction artifacts (v1.2)
 
 This document specifies the standardized row-level DL prediction export artifacts produced by `market-sentiment-ml`.
 
@@ -158,18 +158,20 @@ scripts/write_dl_prediction_artifact.py
 
 A DL signal surface is identified by:
 
-| field            | description                                                           |
-| ---------------- | --------------------------------------------------------------------- |
-| `model`          | DL architecture (`mlp`, `lstm`, etc.)                                 |
-| `target_horizon` | prediction horizon measured in bars                                   |
-| `feature_set`    | feature-set identifier                                                |
-| `dl_regime`      | producer-side regime taxonomy (`HVTF`, `LVTF`, `HVR`, `LVR`, `MIXED`) |
+| field             | description                                                           |
+| ----------------- | --------------------------------------------------------------------- |
+| `surface_id`      | canonical Behavioral Surface identifier (`trend_vol`, `reactive_jpy`, …) |
+| `surface_version` | Behavioral Surface version used during training/export                |
+| `state_id`        | canonical Behavioral State identifier                                 |
+| `model`           | DL architecture (`mlp`, `lstm`, etc.)                                 |
+| `target_horizon`  | prediction horizon measured in bars                                   |
+| `feature_set`     | feature-set identifier                                                |
+| `dl_regime`       | deprecated compatibility alias (retained for legacy tooling)          |
 
 These fields define the operational signal stream.
 
-In Behavioral Surface mode, `dl_regime` is disambiguated as
-`<surface_id>:<state_id>` (for example `reactive_jpy:JPY_CONSENSUS_YOUNG`) to
-guarantee unique artifact identity per behavioral state.
+`surface_id + state_id` is the authoritative Behavioral Surface identity.
+`dl_regime` remains available for backward compatibility only.
 
 They are distinct from:
 
@@ -555,16 +557,20 @@ Missing provenance fields are tracked separately:
 Current convention:
 
 ```text
-<model>__<dl_regime>__<target_horizon>__<feature_set>__<timestamp>Z
+<model>__<surface_id>__<state_id>__<target_horizon>__<feature_set>__<timestamp>Z
 ```
 
 Example:
 
 ```text
-mlp__HVR__24__price_trend__20260510T204302Z
+mlp__trend_vol__HVR__24__price_trend__20260510T204302Z
 ```
 
 Consumers must treat `run_id` as opaque and rely on manifest/parquet contents for semantics.
+
+Canonical behavioral interface definitions are documented in:
+
+`docs/behavioral/behavioral_surface_contract.md`
 
 ---
 
@@ -574,10 +580,12 @@ Consumers must treat `run_id` as opaque and rely on manifest/parquet contents fo
 
 ```python
 DL_SIGNAL_SURFACE = {
+    "surface_id": "trend_vol",
+    "state_id": "HVR",
     "model": "mlp",
     "target_horizon": 24,
     "feature_set": "price_trend",
-    "dl_regime": "HVR",
+    "dl_regime": "HVR",  # deprecated compatibility alias
 }
 ```
 

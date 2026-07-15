@@ -60,6 +60,9 @@ def _minimal_df(n: int = 4, pair: str = "eur-usd") -> pd.DataFrame:
 def _identity(model="MLP", regime="LVTF", horizon=24, fset="price_vol_sentiment"):
     return {
         "model": model,
+        "surface_id": "trend_vol",
+        "surface_version": "unknown",
+        "state_id": regime,
         "dl_regime": regime,
         "target_horizon": horizon,
         "feature_set": fset,
@@ -118,6 +121,10 @@ class TestLoadRunArtifact:
         df = _load_run_artifact(pq, mf)
         assert "model" in df.columns
         assert (df["model"] == "MLP").all()
+        assert "surface_id" in df.columns
+        assert (df["surface_id"] == "trend_vol").all()
+        assert "state_id" in df.columns
+        assert (df["state_id"] == "LVTF").all()
         assert "dl_regime" in df.columns
         assert (df["dl_regime"] == "LVTF").all()
         assert "target_horizon" in df.columns
@@ -177,6 +184,8 @@ class TestConsolidateDlPredictions:
             pred_dir, tmp_path / "pq", tmp_path / "mf"
         )
         assert (cube["model"] == "MLP").all()
+        assert (cube["surface_id"] == "trend_vol").all()
+        assert (cube["state_id"] == "LVTF").all()
         assert (cube["dl_regime"] == "LVTF").all()
         assert (cube["target_horizon"] == 24).all()
         assert cube["target_horizon"].dtype == "Int64"
