@@ -40,14 +40,15 @@ Time-series payload (from per-run parquet):
     pred_direction, confidence, prediction_timestamp
 
 Identity / provenance (injected from per-run manifest):
-    model, dl_regime, target_horizon (Int64, bars), feature_set,
+    model, surface_id, surface_version, state_id, dl_regime,
+    target_horizon (Int64, bars), feature_set,
     dataset_version, model_version
 
 Schema constant:
     schema_version
 
 Uniqueness contract (enforced, hard fail on violation):
-    (pair, entry_time, model, dl_regime, target_horizon, feature_set)
+    (pair, entry_time, model, surface_id, state_id, target_horizon, feature_set)
 """
 
 from __future__ import annotations
@@ -85,6 +86,22 @@ PREDICTIONS_DIR_DEFAULT = Path("data/output/dl_predictions")
 SIGNALS_DIR_DEFAULT = Path("data/output/dl_signals")
 OUTPUT_PARQUET_DEFAULT = SIGNALS_DIR_DEFAULT / "dl_signals_h1_v1.parquet"
 OUTPUT_MANIFEST_DEFAULT = SIGNALS_DIR_DEFAULT / "DL_SIGNAL_MANIFEST_h1_v1.json"
+
+
+def _derive_behavioral_identity(identity: dict) -> tuple[str, str, str]:
+    surface_id = identity.get("surface_id")
+    state_id = identity.get("state_id")
+    surface_version = identity.get("surface_version")
+    if surface_id and state_id:
+        return str(surface_id), str(surface_version or "unknown"), str(state_id)
+
+    dl_regime = str(identity.get("dl_regime", "unknown"))
+    if ":" in dl_regime:
+        inferred_surface, inferred_state = dl_regime.split(":", 1)
+        return str(inferred_surface), str(surface_version or "unknown"), str(inferred_state)
+    if dl_regime in VALID_DL_REGIMES or dl_regime == "MIXED":
+        return "trend_vol", str(surface_version or "unknown"), dl_regime
+    return "unknown", str(surface_version or "unknown"), dl_regime
 
 # ---------------------------------------------------------------------------
 # Loading per-run artifacts
@@ -196,12 +213,19 @@ def _load_run_artifact(parquet_path: Path, manifest_path: Path) -> pd.DataFrame:
         )
 
     # Inject identity columns
+    surface_id, surface_version, state_id = _derive_behavioral_identity(identity)
     df["model"] = str(identity["model"])
+    df["surface_id"] = surface_id
+    df["surface_version"] = surface_version
+    df["state_id"] = state_id
     df["dl_regime"] = str(identity["dl_regime"])
     df["target_horizon"] = pd.array(
         [int(identity["target_horizon"])] * len(df), dtype="Int64"
     )
     df["feature_set"] = str(identity["feature_set"])
+    # Compatibility aliases requested by behavioral contract migration.
+    df["behavioral_surface"] = surface_id
+    df["behavioral_state"] = state_id
 
     # Inject optional provenance
     df["dataset_version"] = str(provenance.get("dataset_version") or "unknown")
@@ -421,8 +445,20 @@ def consolidate_dl_predictions(
         combined["prediction_timestamp"] = pd.to_datetime(
             combined["prediction_timestamp"], errors="coerce"
         )
-    for col in ["pair", "model", "dl_regime", "feature_set",
-                "dataset_version", "model_version", "schema_version"]:
+    for col in [
+        "pair",
+        "model",
+        "surface_id",
+        "surface_version",
+        "state_id",
+        "behavioral_surface",
+        "behavioral_state",
+        "dl_regime",
+        "feature_set",
+        "dataset_version",
+        "model_version",
+        "schema_version",
+    ]:
         if col in combined.columns:
             combined[col] = combined[col].astype(str)
 

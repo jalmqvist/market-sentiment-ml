@@ -519,12 +519,18 @@ def main():
     signal_strength = (2.0 * export_pred_prob_up) - 1.0
 
     dl_regime = partition["dl_regime"]
+    surface_id = str(partition["surface"])
+    state_id = str(partition["state"])
+    surface_version = str(partition.get("surface_version") or "unknown")
+    # Default from partition metadata; behavioral provenance below is authoritative when present.
     model_name = "lstm"
     target_horizon = int(args.target_horizon)
     feature_set = str(args.feature_set)
     logging.info(
-        "resolved_artifact_identity: model=%s dl_regime=%s target_horizon=%s feature_set=%s",
+        "resolved_artifact_identity: model=%s surface_id=%s state_id=%s dl_regime=%s target_horizon=%s feature_set=%s",
         model_name,
+        surface_id,
+        state_id,
         dl_regime,
         target_horizon,
         feature_set,
@@ -537,6 +543,9 @@ def main():
         "signal_strength": signal_strength.astype("float64"),
         "model": model_name,
         "feature_set": feature_set,
+        "surface_id": surface_id,
+        "surface_version": surface_version,
+        "state_id": state_id,
         "dl_regime": dl_regime,
         "target_horizon": target_horizon,
         "prediction_timestamp": prediction_timestamp,
@@ -551,6 +560,9 @@ def main():
             "signal_strength": "mean",
             "model": "first",
             "feature_set": "first",
+            "surface_id": "first",
+            "surface_version": "first",
+            "state_id": "first",
             "dl_regime": "first",
             "target_horizon": "first",
             "prediction_timestamp": "first",
@@ -602,6 +614,9 @@ def main():
         "signal_strength": signal_strength.astype("float64"),
         "prediction_timestamp": prediction_timestamp,
         "model": model_name,
+        "surface_id": surface_id,
+        "surface_version": surface_version,
+        "state_id": state_id,
         "dl_regime": dl_regime,
         "target_horizon": target_horizon,
         "feature_set": feature_set,
@@ -616,12 +631,6 @@ def main():
             f"Non-monotonic entry_time for pair {_pair!r}"
         )
 
-    identity = {
-        "model": model_name,
-        "dl_regime": dl_regime,
-        "target_horizon": target_horizon,
-        "feature_set": feature_set,
-    }
     provenance = {
         "dataset_version": args.dataset_version,
         "dataset_variant": args.dataset_variant,
@@ -637,15 +646,30 @@ def main():
         "availability_shuffle_seed": cfg.DL_AVAILABILITY_SHUFFLE_SEED,
     }
     if partition["mode"] == "behavioral":
-        provenance.update(
-            resolve_behavioral_provenance(
-                df=df,
-                dataset_version=args.dataset_version,
-                dataset_variant=args.dataset_variant,
-                selected_surface_id=partition["surface"],
-                selected_state_id=partition["state"],
-            )
+        behavioral_provenance = resolve_behavioral_provenance(
+            df=df,
+            dataset_version=args.dataset_version,
+            dataset_variant=args.dataset_variant,
+            selected_surface_id=partition["surface"],
+            selected_state_id=partition["state"],
         )
+        provenance.update(behavioral_provenance)
+        surface_version = str(behavioral_provenance.get("surface_version") or "unknown")
+        # Prefer BSVE-origin provenance over partition defaults.
+        pred_df["surface_version"] = surface_version
+    provenance["surface_id"] = surface_id
+    provenance["surface_version"] = surface_version
+    provenance["state_id"] = state_id
+
+    identity = {
+        "model": model_name,
+        "surface_id": surface_id,
+        "surface_version": surface_version,
+        "state_id": state_id,
+        "dl_regime": dl_regime,
+        "target_horizon": target_horizon,
+        "feature_set": feature_set,
+    }
 
     if (args.export_after_year is not None) or (args.export_before_year is not None):
         pred_df["entry_time"] = pd.to_datetime(pred_df["entry_time"])

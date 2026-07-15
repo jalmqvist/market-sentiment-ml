@@ -207,8 +207,12 @@ def test_behavioral_filter_and_provenance(monkeypatch, tmp_path):
 
     assert len(captured["df"]) == 120
     assert captured["identity"]["dl_regime"] == "reactive_jpy:JPY_CONSENSUS_YOUNG"
+    assert captured["identity"]["surface_id"] == "reactive_jpy"
+    assert captured["identity"]["state_id"] == "JPY_CONSENSUS_YOUNG"
+    assert captured["identity"]["surface_version"] == "unknown"
     assert captured["provenance"]["surface_id"] == "reactive_jpy"
     assert captured["provenance"]["state_id"] == "JPY_CONSENSUS_YOUNG"
+    assert captured["provenance"]["surface_version"] == "unknown"
     assert captured["provenance"]["dataset_variant"] == "core"
     assert captured["provenance"]["dataset_version"] == "test"
     assert captured["provenance"]["ontology_version"] is None
@@ -247,4 +251,12 @@ def test_behavioral_states_create_distinct_artifacts(monkeypatch, tmp_path):
     assert manifest_dl_regimes == {
         "reactive_jpy:JPY_CONSENSUS_YOUNG",
         "reactive_jpy:JPY_CONSENSUS_MATURE",
+    }
+    manifest_surface_state = set()
+    for path in manifest_files:
+        identity = json.loads(path.read_text(encoding="utf-8"))["identity"]
+        manifest_surface_state.add((identity["surface_id"], identity["state_id"]))
+    assert manifest_surface_state == {
+        ("reactive_jpy", "JPY_CONSENSUS_YOUNG"),
+        ("reactive_jpy", "JPY_CONSENSUS_MATURE"),
     }

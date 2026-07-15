@@ -46,8 +46,9 @@ def resolve_partition(regime: str | None, surface: str | None, state: str | None
         return {
             "mode": "regime",
             "regime": regime,
-            "surface": None,
-            "state": None,
+            "surface": "trend_vol",
+            "state": regime,
+            "surface_version": None,
             "dl_regime": regime,
             "log_tag": regime.strip().lower(),
         }
@@ -57,14 +58,16 @@ def resolve_partition(regime: str | None, surface: str | None, state: str | None
             "regime": None,
             "surface": surface,
             "state": state,
+            "surface_version": None,
             "dl_regime": f"{surface}:{state}",
             "log_tag": f"{surface.strip().lower()}-{state.strip().lower()}",
         }
     return {
         "mode": "none",
         "regime": None,
-        "surface": None,
-        "state": None,
+        "surface": "trend_vol",
+        "state": "MIXED",
+        "surface_version": None,
         "dl_regime": "MIXED",
         "log_tag": "all",
     }
@@ -104,6 +107,7 @@ def resolve_behavioral_provenance(
 
     return {
         "surface_id": selected_surface_id,
+        "surface_version": ontology_version,
         "state_id": selected_state_id,
         "dataset_variant": dataset_variant,
         "dataset_version": dataset_version,

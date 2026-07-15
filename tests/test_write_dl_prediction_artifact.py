@@ -62,6 +62,9 @@ def _minimal_df(n: int = 4) -> pd.DataFrame:
 def _valid_identity() -> dict:
     return {
         "model": "MLP",
+        "surface_id": "trend_vol",
+        "surface_version": "unknown",
+        "state_id": "LVTF",
         "dl_regime": "LVTF",
         "target_horizon": 24,
         "feature_set": "price_vol_sentiment",
@@ -145,6 +148,9 @@ class TestWriteDlPredictionArtifact:
         )
         manifest = json.loads(mf.read_text())
         assert manifest["identity"]["model"] == "MLP"
+        assert manifest["identity"]["surface_id"] == "trend_vol"
+        assert manifest["identity"]["surface_version"] == "unknown"
+        assert manifest["identity"]["state_id"] == "LVTF"
         assert manifest["identity"]["dl_regime"] == "LVTF"
         assert manifest["identity"]["target_horizon"] == 24
         assert manifest["identity"]["feature_set"] == "price_vol_sentiment"
@@ -183,7 +189,22 @@ class TestWriteDlPredictionArtifact:
         assert pq.stem == mf.stem.replace(".manifest", "").replace("manifest", "")
         # run_id stem encodes identity fragments
         assert "MLP" in pq.stem
+        assert "trend_vol" in pq.stem
         assert "LVTF" in pq.stem
+
+    def test_legacy_identity_is_backward_compatible(self, tmp_path):
+        legacy_identity = {
+            "model": "MLP",
+            "dl_regime": "reactive_jpy:JPY_CONSENSUS_MATURE",
+            "target_horizon": 24,
+            "feature_set": "price_vol_sentiment",
+        }
+        _, mf = write_dl_prediction_artifact(
+            _minimal_df(), legacy_identity, output_dir=tmp_path, run_id="legacy_identity"
+        )
+        manifest = json.loads(mf.read_text())
+        assert manifest["identity"]["surface_id"] == "reactive_jpy"
+        assert manifest["identity"]["state_id"] == "JPY_CONSENSUS_MATURE"
 
     def test_pred_direction_tristate(self, tmp_path):
         df = _minimal_df(4)

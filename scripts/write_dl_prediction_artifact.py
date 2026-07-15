@@ -70,7 +70,7 @@ Per-run Manifest schema
 -----------------------
 Required:
     schema_version, export_frequency, generated_at_utc, signal_definition,
-    identity (model, dl_regime, target_horizon, feature_set),
+    identity (model, surface_id, surface_version, state_id, dl_regime, target_horizon, feature_set),
     calibration, train_period, warnings, missing_provenance_counts,
     row_count, pairs, entry_time_min/max, git_commit
 Optional provenance:
@@ -146,6 +146,9 @@ REQUIRED_PARQUET_COLS = [
     DL_GENERATED_TS_COL,
     DL_ARTIFACT_CREATED_COL,
     "model",
+    "surface_id",
+    "surface_version",
+    "state_id",
     "dl_regime",
     "target_horizon",
     "feature_set",
@@ -171,6 +174,8 @@ RUN_PARQUET_COLS = [
 
 PREDICTIONS_DIR_DEFAULT = Path("data/output/dl_predictions")
 VALID_CONTROL_MODES = {"normal", "constant_presence", "availability_shuffle"}
+
+TREND_VOL_SURFACE_ID = "trend_vol"
 
 # ---------------------------------------------------------------------------
 # Core logic
@@ -431,12 +436,21 @@ def _build_run_payload(df: pd.DataFrame, semantics_config: dict[str, Any]) -> pd
 
 def _validate_identity(identity: dict) -> None:
     """Validate the required identity fields."""
-    required = {"model", "dl_regime", "target_horizon", "feature_set"}
+    required = {
+        "model",
+        "surface_id",
+        "surface_version",
+        "state_id",
+        "dl_regime",
+        "target_horizon",
+        "feature_set",
+    }
     missing = required - set(identity.keys())
     if missing:
         raise ValueError(
             f"identity dict is missing required keys: {sorted(missing)}\n"
-            f"Required: model, dl_regime, target_horizon (int), feature_set"
+            "Required: model, surface_id, surface_version, state_id, "
+            "dl_regime, target_horizon (int), feature_set"
         )
     # target_horizon must be a non-negative integer
     th = identity["target_horizon"]
@@ -455,6 +469,34 @@ def _validate_identity(identity: dict) -> None:
             UserWarning,
             stacklevel=4,
         )
+
+
+def _derive_behavioral_identity_from_legacy_dl_regime(dl_regime: Any) -> tuple[str, str]:
+    regime = str(dl_regime)
+    if ":" in regime:
+        surface_id, state_id = regime.split(":", 1)
+        return str(surface_id), str(state_id)
+    if regime in VALID_DL_REGIMES or regime == "MIXED":
+        return TREND_VOL_SURFACE_ID, regime
+    return "unknown", regime
+
+
+def _normalize_identity(identity: dict[str, Any], provenance: dict[str, Any] | None = None) -> dict[str, Any]:
+    out = dict(identity)
+    dl_regime = str(out.get("dl_regime", "unknown"))
+
+    default_surface_id, default_state_id = _derive_behavioral_identity_from_legacy_dl_regime(
+        dl_regime
+    )
+    out["surface_id"] = str(out.get("surface_id") or default_surface_id)
+    out["state_id"] = str(out.get("state_id") or default_state_id)
+
+    surface_version = out.get("surface_version")
+    if surface_version is None and provenance is not None:
+        surface_version = provenance.get("surface_version") or provenance.get("ontology_version")
+    out["surface_version"] = str(surface_version) if surface_version is not None else "unknown"
+    out["dl_regime"] = dl_regime
+    return out
 
 
 def _build_run_manifest(
@@ -529,7 +571,17 @@ def _build_run_manifest(
         DL_ARTIFACT_CREATED_COL: artifact_created_ts,  # v2 canonical key
         "prediction_horizon_hours": prediction_horizon_hours,
         "feature_surface": str(identity["feature_set"]),
+        "surface_id": str(identity["surface_id"]),
+        "surface_version": str(identity["surface_version"]),
+        "state_id": str(identity["state_id"]),
         "dl_regime": str(identity["dl_regime"]),
+        "behavioral_surface": {
+            "surface_id": str(identity["surface_id"]),
+            "surface_version": str(identity["surface_version"]),
+        },
+        "behavioral_state": {
+            "state_id": str(identity["state_id"]),
+        },
         "availability_semantics": availability_semantics,
         "missing_indicator_mode": missing_indicator_mode,
         "imputation_mode": imputation_mode,
@@ -550,6 +602,17 @@ def _build_run_manifest(
             ),
         },
     }
+
+    timestamp_min = (
+        payload["timestamp"].min().isoformat()
+        if not payload["timestamp"].isna().all()
+        else None
+    )
+    timestamp_max = (
+        payload["timestamp"].max().isoformat()
+        if not payload["timestamp"].isna().all()
+        else None
+    )
 
     return {
         "schema_version": DL_SCHEMA_VERSION,
@@ -575,6 +638,9 @@ def _build_run_manifest(
         },
         "identity": {
             "model": str(identity["model"]),
+            "surface_id": str(identity["surface_id"]),
+            "surface_version": str(identity["surface_version"]),
+            "state_id": str(identity["state_id"]),
             "dl_regime": str(identity["dl_regime"]),
             "target_horizon": int(identity["target_horizon"]),
             "feature_set": str(identity["feature_set"]),
@@ -617,16 +683,12 @@ def _build_run_manifest(
         "git_commit": _get_git_commit_hash(),
         "row_count": int(len(payload)),
         "pairs": sorted(payload["pair"].unique().tolist()),
-        "timestamp_min": (
-            payload["timestamp"].min().isoformat()
-            if not payload["timestamp"].isna().all()
-            else None
-        ),
-        "timestamp_max": (
-            payload["timestamp"].max().isoformat()
-            if not payload["timestamp"].isna().all()
-            else None
-        ),
+        "timestamp_min": timestamp_min,
+        # Backward-compatible aliases retained for existing tooling.
+        "entry_time_min": timestamp_min,
+        "timestamp_max": timestamp_max,
+        # Backward-compatible aliases retained for existing tooling.
+        "entry_time_max": timestamp_max,
         "pair_stats": pair_stats,
         "signal_stats": {
             "pred_prob_up_mean": float(payload["pred_prob_up"].mean()),
@@ -645,10 +707,11 @@ def _make_run_id(identity: dict) -> str:
     """Generate a run_id from identity + timestamp if not user-supplied."""
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     model = str(identity.get("model", "unknown")).replace(" ", "_")
-    regime = str(identity.get("dl_regime", "unknown"))
+    surface_id = str(identity.get("surface_id", "unknown")).replace(" ", "_")
+    state_id = str(identity.get("state_id", "unknown")).replace(" ", "_")
     horizon = str(identity.get("target_horizon", "unk"))
     fset = str(identity.get("feature_set", "unknown")).replace(" ", "_")[:20]
-    return f"{model}__{regime}__{horizon}__{fset}__{ts}"
+    return f"{model}__{surface_id}__{state_id}__{horizon}__{fset}__{ts}"
 
 
 def _attach_identity_columns(payload: pd.DataFrame, identity: dict) -> pd.DataFrame:
@@ -661,6 +724,9 @@ def _attach_identity_columns(payload: pd.DataFrame, identity: dict) -> pd.DataFr
     out = payload.copy()
     out["schema_version"] = DL_SCHEMA_VERSION
     out["model"] = str(identity["model"])
+    out["surface_id"] = str(identity["surface_id"])
+    out["surface_version"] = str(identity["surface_version"])
+    out["state_id"] = str(identity["state_id"])
     out["dl_regime"] = str(identity["dl_regime"])
     out["feature_set"] = str(identity["feature_set"])
 
@@ -808,6 +874,7 @@ def write_dl_prediction_artifact(
             f"Required: {sorted(required)}"
         )
 
+    identity = _normalize_identity(identity, provenance)
     _validate_identity(identity)
     semantics_config = _resolve_semantics_config(provenance)
 
@@ -878,7 +945,17 @@ def write_dl_prediction_artifact(
 
         "prediction_horizon_hours": int(identity["target_horizon"]),
         "feature_surface": str(identity["feature_set"]),
+        "surface_id": str(identity["surface_id"]),
+        "surface_version": str(identity["surface_version"]),
+        "state_id": str(identity["state_id"]),
         "dl_regime": str(identity["dl_regime"]),
+        "behavioral_surface": json.dumps({
+            "surface_id": str(identity["surface_id"]),
+            "surface_version": str(identity["surface_version"]),
+        }),
+        "behavioral_state": json.dumps({
+            "state_id": str(identity["state_id"]),
+        }),
 
         "availability_semantics": (
             "visibility_by_control_mode"
@@ -973,8 +1050,25 @@ def _parse_args(argv=None):
     p.add_argument(
         "--dl-regime",
         required=True,
-        choices=sorted(VALID_DL_REGIMES),
-        help="Producer-side regime: HVTF | LVTF | HVR | LVR.",
+        help=(
+            "Deprecated compatibility field. For trend_vol use HVTF|LVTF|HVR|LVR. "
+            "For behavioral surfaces this may be any legacy alias."
+        ),
+    )
+    p.add_argument(
+        "--surface-id",
+        default=None,
+        help="Behavioral Surface identifier (canonical).",
+    )
+    p.add_argument(
+        "--surface-version",
+        default=None,
+        help="Behavioral Surface version (canonical).",
+    )
+    p.add_argument(
+        "--state-id",
+        default=None,
+        help="Behavioral State identifier (canonical).",
     )
     p.add_argument(
         "--target-horizon",
@@ -1059,6 +1153,9 @@ if __name__ == "__main__":
 
     identity = {
         "model": args.model,
+        "surface_id": args.surface_id,
+        "surface_version": args.surface_version,
+        "state_id": args.state_id,
         "dl_regime": args.dl_regime,
         "target_horizon": args.target_horizon,
         "feature_set": args.feature_set,
