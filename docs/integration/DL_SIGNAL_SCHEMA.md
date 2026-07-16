@@ -131,6 +131,9 @@ The manifest is a JSON file with the **same stem** as the parquet.
   },
   "identity": {
     "model": "MLP",
+    "surface_id": "trend_vol",
+    "surface_version": "unknown",
+    "state_id": "LVTF",
     "dl_regime": "LVTF",
     "target_horizon": 24,
     "feature_set": "price_vol_sentiment"
@@ -140,6 +143,9 @@ The manifest is a JSON file with the **same stem** as the parquet.
     "export_timestamp": "2024-01-15T10:30:00+00:00",
     "prediction_horizon_hours": 24,
     "feature_surface": "price_vol_sentiment",
+    "surface_id": "trend_vol",
+    "surface_version": "unknown",
+    "state_id": "LVTF",
     "dl_regime": "LVTF",
     "availability_semantics": "sparse_observed_only",
     "timestamp_semantics": {
@@ -305,27 +311,26 @@ Type: `Int64` (nullable integer).
 
 ---
 
-## DL regime taxonomy (producer-side)
+## Behavioral Surface identity (canonical)
 
-The `dl_regime` column uses the **producer taxonomy** from
-`market-sentiment-ml`:
+The canonical behavioral identity of each prediction artifact is defined by
+`surface_id`, `surface_version`, and `state_id`.  These are the authoritative
+fields for validation and consumption by `market-phase-ml`.
 
-| Label | Meaning |
-|---|---|
-| `HVTF` | High-volatility trend-following regime |
-| `LVTF` | Low-volatility trend-following regime |
-| `HVR` | High-volatility ranging regime |
-| `LVR` | Low-volatility ranging regime |
+Registered surfaces and their canonical states are documented in:
 
-The **consumer** (`market-phase-ml`) may optionally map these to its own
-internal labels via `mpml_regime_equiv`:
+```
+docs/behavioral/behavioral_surface_contract.md
+```
 
-| Producer (`dl_regime`) | Consumer equiv (`mpml_regime_equiv`) |
-|---|---|
-| `HVTF` | `HVTF` |
-| `LVTF` | `LVTF` |
-| `HVR` | `HVMR` |
-| `LVR` | `LVMR` |
+### `dl_regime` — deprecated compatibility alias
+
+The `dl_regime` column is retained for backward compatibility with older
+tooling.  It is **not** used for validation.
+
+For `trend_vol` artifacts, `dl_regime` carries the Trend/Vol state label
+(`HVTF`, `LVTF`, `HVR`, `LVR`).  For other Behavioral Surfaces it carries
+the legacy `surface_id:state_id` format or a surface-specific label.
 
 The `dl_regime` column is **never modified** in this artifact.
 
@@ -360,7 +365,10 @@ The `dl_regime` column is **never modified** in this artifact.
 | Column | Type | Default | Description |
 |---|---|---|---|
 | `model` | string | — | Model architecture / identifier, e.g. `"MLP"`, `"LSTM"` |
-| `dl_regime` | string | — | Producer-side regime label; see taxonomy table above |
+| `surface_id` | string | — | Behavioral Surface identifier, e.g. `"trend_vol"`, `"reactive_jpy"` |
+| `surface_version` | string | `"unknown"` | Behavioral Surface version used during training |
+| `state_id` | string | — | Behavioral State identifier, e.g. `"LVTF"`, `"JPY_CONSENSUS_YOUNG"` |
+| `dl_regime` | string | — | Deprecated compatibility alias; see §Behavioral Surface identity above |
 | `target_horizon` | Int64 | — | Prediction horizon in bars (numeric; not a string) |
 | `feature_set` | string | — | Feature set used, e.g. `"price_vol_sentiment"` |
 | `dataset_version` | string | `"unknown"` | Dataset version string, e.g. `"1.1.0"` |
@@ -377,7 +385,7 @@ The `dl_regime` column is **never modified** in this artifact.
 ## Unique key
 
 ```
-(pair, entry_time, model, dl_regime, target_horizon, feature_set)
+(pair, entry_time, model, surface_id, state_id, target_horizon, feature_set)
 ```
 
 This key is enforced as a hard invariant in the consolidation step.  Duplicate
@@ -394,10 +402,12 @@ The consolidator enforces the following checks:
 3. **pred_prob_up range**: All values are in [0, 1].
 4. **signal_strength range**: All values are in [−1, 1].
 5. **Per-surface monotonic**: Within each surface
-   `(pair, model, dl_regime, target_horizon, feature_set)`, `entry_time` is
+   `(pair, model, surface_id, state_id, target_horizon, feature_set)`, `entry_time` is
    monotonically non-decreasing.
-6. **dl_regime taxonomy**: Values are checked against
-   `{HVTF, LVTF, HVR, LVR}`; non-standard values produce a warning.
+6. **Behavioral Surface identity**: `surface_id` and `state_id` are validated
+   against the Behavioral Surface Registry
+   (`docs/behavioral/behavioral_surface_contract.md`).
+   Unknown surfaces or states produce a warning but do not abort.
 
 ---
 
@@ -427,6 +437,8 @@ The consolidator enforces the following checks:
 python scripts/write_dl_prediction_artifact.py \
     --input-csv path/to/predictions.csv \
     --model MLP \
+    --surface-id trend_vol \
+    --state-id LVTF \
     --dl-regime LVTF \
     --target-horizon 24 \
     --feature-set price_vol_sentiment \
@@ -447,7 +459,10 @@ pq_path, mf_path = write_dl_prediction_artifact(
     df=predictions_df,
     identity={
         "model": "MLP",
-        "dl_regime": "LVTF",
+        "surface_id": "trend_vol",
+        "surface_version": "unknown",
+        "state_id": "LVTF",
+        "dl_regime": "LVTF",   # deprecated compatibility alias; still required
         "target_horizon": 24,
         "feature_set": "price_vol_sentiment",
     },
@@ -490,7 +505,8 @@ surface = {
     "model": "MLP",
     "target_horizon": 24,
     "feature_set": "price_vol_sentiment",
-    "dl_regime": "LVTF",   # optional; omit to select all regimes
+    "surface_id": "trend_vol",  # filter by Behavioral Surface
+    "state_id": "LVTF",         # filter by Behavioral State
 }
 ```
 

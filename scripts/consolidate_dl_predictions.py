@@ -76,7 +76,6 @@ from build_dl_signal_artifact import (  # noqa: E402
     SCHEMA_VERSION,
     SURFACE_GRAIN_COLS,
     UNIQUE_KEY_COLS,
-    VALID_DL_REGIMES,
     _get_git_commit_hash,
     _run_qa,
     _write_manifest,
@@ -99,7 +98,8 @@ def _derive_behavioral_identity(identity: dict) -> tuple[str, str, str]:
     if ":" in dl_regime:
         inferred_surface, inferred_state = dl_regime.split(":", 1)
         return str(inferred_surface), str(surface_version or "unknown"), str(inferred_state)
-    if dl_regime in VALID_DL_REGIMES or dl_regime == "MIXED":
+    from behavioral_ontology import BEHAVIORAL_SURFACES
+    if dl_regime in BEHAVIORAL_SURFACES.get("trend_vol", set()):
         return "trend_vol", str(surface_version or "unknown"), dl_regime
     return "unknown", str(surface_version or "unknown"), dl_regime
 
