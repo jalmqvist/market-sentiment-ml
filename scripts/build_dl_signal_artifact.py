@@ -94,7 +94,16 @@ UNIQUE_KEY_COLS = [
     "feature_set",
 ]
 
-# Allowed producer-side regime labels (DL taxonomy)
+# ---------------------------------------------------------------------------
+# Backward-compatibility alias for VALID_DL_REGIMES.
+#
+# These labels are the canonical states of the ``trend_vol`` Behavioral Surface
+# (see docs/behavioral/behavioral_surface_contract.md).
+#
+# This constant is retained solely for external callers that still import it.
+# Do NOT use it for validation — use behavioral_ontology.validate_behavioral_identity
+# instead, which covers all registered Behavioral Surfaces.
+# ---------------------------------------------------------------------------
 VALID_DL_REGIMES = {"HVTF", "LVTF", "HVR", "LVR"}
 
 OUTPUT_DIR_DEFAULT = Path("data/output/dl_signals")
@@ -163,7 +172,7 @@ _SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-
+from behavioral_ontology import validate_behavioral_identity  # noqa: E402
 def _get_git_commit_hash() -> str | None:
     try:
         from subprocess import PIPE, run
@@ -443,18 +452,37 @@ def _run_qa(df: pd.DataFrame) -> None:
             f"{non_monotonic_surfaces}"
         )
 
-    # 6) dl_regime taxonomy check
-    unknown_regimes = set(df["dl_regime"].unique()) - VALID_DL_REGIMES - {"unknown"}
-    if unknown_regimes:
-        print(
-            f"  ⚠ dl_regime contains non-standard values: {sorted(unknown_regimes)}\n"
-            f"    Valid producer taxonomy: {sorted(VALID_DL_REGIMES)}\n"
-            "    (These rows will be preserved but may be skipped by the consumer loader.)"
-        )
-    elif "unknown" in df["dl_regime"].values:
-        print("  ℹ dl_regime is 'unknown' for some rows (provenance not recorded in input).")
+    # 6) Behavioral Surface identity check
+    #    Validate surface_id / state_id when they are present (they are injected
+    #    by consolidate_dl_predictions.py; they may be absent/NaN in artifacts
+    #    produced by the deprecated CSV consolidator).
+    if "surface_id" in df.columns and df["surface_id"].notna().any():
+        unknown_surfaces = []
+        unknown_states = []
+        for (sid, stid), _ in df.groupby(
+            [df["surface_id"].fillna("unknown"), df["state_id"].fillna("unknown")],
+            dropna=False,
+        ):
+            issues = validate_behavioral_identity(str(sid), str(stid))
+            for issue in issues:
+                if "surface_id" in issue:
+                    unknown_surfaces.append(sid)
+                else:
+                    unknown_states.append((sid, stid))
+
+        if unknown_surfaces or unknown_states:
+            for sid in set(unknown_surfaces):
+                print(
+                    f"  ⚠ surface_id={sid!r} is not in the Behavioral Surface Registry."
+                )
+            for sid, stid in set(unknown_states):
+                print(
+                    f"  ⚠ state_id={stid!r} is not a known state for surface {sid!r}."
+                )
+        else:
+            print("  ✓ Behavioral Surface identity valid")
     else:
-        print("  ✓ dl_regime taxonomy valid")
+        print("  ℹ surface_id not present; skipping Behavioral Surface identity check.")
 
     # 7) availability semantics column sanity (optional for old artifacts)
     if "dl_feature_available" in df.columns:
@@ -516,20 +544,18 @@ def _write_manifest(
         warnings_list.append(
             f"model defaulted to 'unknown' for {missing_provenance_counts['model']:,} rows"
         )
-    if missing_provenance_counts.get("dl_regime", 0) > 0:
-        warnings_list.append(
-            f"dl_regime defaulted to 'unknown' for {missing_provenance_counts['dl_regime']:,} rows"
-        )
     if missing_provenance_counts.get("target_horizon", 0) > 0:
         warnings_list.append(
             f"target_horizon missing for {missing_provenance_counts['target_horizon']:,} rows"
         )
-    unknown_regimes = set(df["dl_regime"].unique()) - VALID_DL_REGIMES - {"unknown"}
-    if unknown_regimes:
-        warnings_list.append(
-            f"non-standard dl_regime values found (will be skipped by consumer): "
-            f"{sorted(unknown_regimes)}"
-        )
+    # Validate Behavioral Surface identity when columns are present
+    if "surface_id" in df.columns and df["surface_id"].notna().any():
+        for (sid, stid), _ in df.groupby(
+            [df["surface_id"].fillna("unknown"), df["state_id"].fillna("unknown")],
+            dropna=False,
+        ):
+            issues = validate_behavioral_identity(str(sid), str(stid))
+            warnings_list.extend(issues)
 
     # Serialize target_horizons_present safely (Int64 may contain pd.NA)
     th_values = df["target_horizon"].dropna().unique().tolist()
@@ -572,17 +598,17 @@ def _write_manifest(
         "unique_key": {
             "columns": UNIQUE_KEY_COLS,
             "description": (
-                "Each (pair, entry_time, model, dl_regime, target_horizon, feature_set) "
-                "must be unique. Multiple surfaces (regimes/horizons/models) may share "
-                "the same (pair, entry_time)."
+                "Each (pair, entry_time, model, surface_id, state_id, "
+                "target_horizon, feature_set) must be unique. Multiple surfaces "
+                "may share the same (pair, entry_time)."
             ),
         },
-        "dl_regime_taxonomy": {
-            "producer": sorted(VALID_DL_REGIMES),
+        "behavioral_surface_taxonomy": {
             "note": (
-                "DL producer taxonomy: HVTF=high-vol trend, LVTF=low-vol trend, "
-                "HVR=high-vol range, LVR=low-vol range. "
-                "Consumer (market-phase-ml) may optionally map HVR→HVMR, LVR→LVMR."
+                "Behavioral Surface identity is the canonical validation target. "
+                "See docs/behavioral/behavioral_surface_contract.md for registered "
+                "surfaces and states. "
+                "The dl_regime column is a deprecated compatibility alias."
             ),
         },
         "time_semantics": {

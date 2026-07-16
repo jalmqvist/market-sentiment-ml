@@ -104,12 +104,15 @@ if str(_REPO_ROOT) not in sys.path:
 from build_dl_signal_artifact import (  # noqa: E402
     EXPORT_FREQUENCY,
     SCHEMA_VERSION,
-    VALID_DL_REGIMES,
     _get_git_commit_hash,
     _normalize_entry_time,
     _normalize_pair,
 )
 import config as cfg  # noqa: E402
+from behavioral_ontology import (  # noqa: E402
+    BEHAVIORAL_SURFACES,
+    validate_behavioral_identity,
+)
 from schemas.dl_artifact_schema import (  # noqa: E402
     DL_SCHEMA_VERSION,
     DL_AVAILABLE_TS_COL,
@@ -459,16 +462,19 @@ def _validate_identity(identity: dict) -> None:
             f"identity['target_horizon'] must be a non-negative integer (bars). "
             f"Got: {th!r} (type={type(th).__name__})"
         )
-    # dl_regime should be from the known taxonomy (warn only)
-    if identity["dl_regime"] not in VALID_DL_REGIMES:
-        import warnings
-
-        warnings.warn(
-            f"dl_regime={identity['dl_regime']!r} is not in the known producer taxonomy "
-            f"{sorted(VALID_DL_REGIMES)}. This run artifact will still be written.",
-            UserWarning,
-            stacklevel=4,
-        )
+    # Validate Behavioral Surface identity (warn only — artifact is still written).
+    bsid_issues = validate_behavioral_identity(
+        str(identity.get("surface_id", "unknown")),
+        str(identity.get("state_id", "unknown")),
+    )
+    if bsid_issues:
+        import warnings as _warnings
+        for issue in bsid_issues:
+            _warnings.warn(
+                issue + " This run artifact will still be written.",
+                UserWarning,
+                stacklevel=4,
+            )
 
 
 def _derive_behavioral_identity_from_legacy_dl_regime(dl_regime: Any) -> tuple[str, str]:
@@ -476,7 +482,7 @@ def _derive_behavioral_identity_from_legacy_dl_regime(dl_regime: Any) -> tuple[s
     if ":" in regime:
         surface_id, state_id = regime.split(":", 1)
         return str(surface_id), str(state_id)
-    if regime in VALID_DL_REGIMES or regime == "MIXED":
+    if regime in BEHAVIORAL_SURFACES.get("trend_vol", set()):
         return TREND_VOL_SURFACE_ID, regime
     return "unknown", regime
 
@@ -522,11 +528,11 @@ def _build_run_manifest(
 
     # Warnings
     warnings_list: list[str] = []
-    if identity.get("dl_regime") not in VALID_DL_REGIMES:
-        warnings_list.append(
-            f"dl_regime={identity.get('dl_regime')!r} is not in known producer taxonomy "
-            f"{sorted(VALID_DL_REGIMES)}"
-        )
+    bsid_issues = validate_behavioral_identity(
+        str(identity.get("surface_id", "unknown")),
+        str(identity.get("state_id", "unknown")),
+    )
+    warnings_list.extend(bsid_issues)
     if payload["prediction_timestamp"].isna().all():
         warnings_list.append("prediction_timestamp not recorded (all null)")
     if semantics_config["control_mode"] != "normal":

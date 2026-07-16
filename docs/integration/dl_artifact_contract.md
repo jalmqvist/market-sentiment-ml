@@ -87,7 +87,10 @@ The `schema_version` field in manifests and parquet metadata **must** equal
 | `prediction_generated_timestamp` | datetime | Yes | **NEW** | Wall-clock inference time (diagnostics only) |
 | `artifact_created_timestamp` | datetime | No | **NEW** | Wall-clock export time; same for all rows |
 | `model` | string | No | — | Model identifier (e.g. `"MLP"`) |
-| `dl_regime` | string | No | — | Producer regime label (HVTF/LVTF/HVR/LVR) |
+| `surface_id` | string | No | — | Behavioral Surface identifier (e.g. `"trend_vol"`, `"reactive_jpy"`) |
+| `surface_version` | string | No | — | Behavioral Surface version used during training |
+| `state_id` | string | No | — | Behavioral State identifier (e.g. `"LVTF"`, `"JPY_CONSENSUS_YOUNG"`) |
+| `dl_regime` | string | No | — | Deprecated compatibility alias for `state_id` (Trend/Vol surfaces) |
 | `target_horizon` | Int64 | No | — | Prediction horizon in bars |
 | `feature_set` | string | No | — | Feature set identifier |
 | `dl_feature_available` | Int64 | No | — | Availability flag (1 = real, 0 = synthetic) |
@@ -103,6 +106,9 @@ The `schema_version` field in manifests and parquet metadata **must** equal
   "git_commit": "<sha>",
   "identity": {
     "model": "...",
+    "surface_id": "...",
+    "surface_version": "...",
+    "state_id": "...",
     "dl_regime": "...",
     "target_horizon": 24,
     "feature_set": "..."
