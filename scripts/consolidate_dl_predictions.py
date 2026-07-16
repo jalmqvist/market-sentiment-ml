@@ -80,6 +80,7 @@ from build_dl_signal_artifact import (  # noqa: E402
     _run_qa,
     _write_manifest,
 )
+from behavioral_ontology import BEHAVIORAL_SURFACES  # noqa: E402
 
 PREDICTIONS_DIR_DEFAULT = Path("data/output/dl_predictions")
 SIGNALS_DIR_DEFAULT = Path("data/output/dl_signals")
@@ -98,7 +99,6 @@ def _derive_behavioral_identity(identity: dict) -> tuple[str, str, str]:
     if ":" in dl_regime:
         inferred_surface, inferred_state = dl_regime.split(":", 1)
         return str(inferred_surface), str(surface_version or "unknown"), str(inferred_state)
-    from behavioral_ontology import BEHAVIORAL_SURFACES
     if dl_regime in BEHAVIORAL_SURFACES.get("trend_vol", set()):
         return "trend_vol", str(surface_version or "unknown"), dl_regime
     return "unknown", str(surface_version or "unknown"), dl_regime

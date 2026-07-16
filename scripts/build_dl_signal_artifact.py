@@ -172,7 +172,7 @@ _SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-
+from behavioral_ontology import validate_behavioral_identity  # noqa: E402
 def _get_git_commit_hash() -> str | None:
     try:
         from subprocess import PIPE, run
@@ -457,8 +457,6 @@ def _run_qa(df: pd.DataFrame) -> None:
     #    by consolidate_dl_predictions.py; they may be absent/NaN in artifacts
     #    produced by the deprecated CSV consolidator).
     if "surface_id" in df.columns and df["surface_id"].notna().any():
-        from behavioral_ontology import validate_behavioral_identity
-
         unknown_surfaces = []
         unknown_states = []
         for (sid, stid), _ in df.groupby(
@@ -552,8 +550,6 @@ def _write_manifest(
         )
     # Validate Behavioral Surface identity when columns are present
     if "surface_id" in df.columns and df["surface_id"].notna().any():
-        from behavioral_ontology import validate_behavioral_identity
-
         for (sid, stid), _ in df.groupby(
             [df["surface_id"].fillna("unknown"), df["state_id"].fillna("unknown")],
             dropna=False,

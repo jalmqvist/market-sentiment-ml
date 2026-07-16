@@ -109,6 +109,10 @@ from build_dl_signal_artifact import (  # noqa: E402
     _normalize_pair,
 )
 import config as cfg  # noqa: E402
+from behavioral_ontology import (  # noqa: E402
+    BEHAVIORAL_SURFACES,
+    validate_behavioral_identity,
+)
 from schemas.dl_artifact_schema import (  # noqa: E402
     DL_SCHEMA_VERSION,
     DL_AVAILABLE_TS_COL,
@@ -459,7 +463,6 @@ def _validate_identity(identity: dict) -> None:
             f"Got: {th!r} (type={type(th).__name__})"
         )
     # Validate Behavioral Surface identity (warn only — artifact is still written).
-    from behavioral_ontology import validate_behavioral_identity
     bsid_issues = validate_behavioral_identity(
         str(identity.get("surface_id", "unknown")),
         str(identity.get("state_id", "unknown")),
@@ -479,7 +482,6 @@ def _derive_behavioral_identity_from_legacy_dl_regime(dl_regime: Any) -> tuple[s
     if ":" in regime:
         surface_id, state_id = regime.split(":", 1)
         return str(surface_id), str(state_id)
-    from behavioral_ontology import BEHAVIORAL_SURFACES
     if regime in BEHAVIORAL_SURFACES.get("trend_vol", set()):
         return TREND_VOL_SURFACE_ID, regime
     return "unknown", regime
@@ -526,7 +528,6 @@ def _build_run_manifest(
 
     # Warnings
     warnings_list: list[str] = []
-    from behavioral_ontology import validate_behavioral_identity
     bsid_issues = validate_behavioral_identity(
         str(identity.get("surface_id", "unknown")),
         str(identity.get("state_id", "unknown")),
