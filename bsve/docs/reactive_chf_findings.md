@@ -1,3 +1,7 @@
+> **Post-leakage verification (Dataset 1.6.1).** Following correction of the volatility leakage identified in Dataset 1.5.1, Studies -1 through 0D were repeated using Dataset 1.6.1. Although numerical volatility thresholds changed substantially due to the corrected volatility calculation, the principal qualitative findings were reproduced. In particular, the inverse relationship between volatility and persistence, the concentration of ultra-persistent episodes within low-volatility environments, and the absence of a strong direct volatility–outcome relationship all remained present. The exploratory conclusions therefore appear robust to the leakage correction.
+
+---
+
 ### CHF Null Hypothesis (Pre-Study)
 
 **H0:** Volatility context does not predict crowd-state persistence duration or crowd-failure probability in CHF pairs within the 2019–2026 sentiment-data window.
@@ -18,7 +22,7 @@ This differs from the Reactive-JPY sequence. In Reactive-JPY, the maturity ontol
 
 The CHF hypothesis is structurally different. Rather than focusing on episode lifecycle, it proposes that volatility context may influence how crowd states form, persist, and eventually fail. Before constructing a volatility-conditioned ontology, it is therefore necessary to establish whether volatility contains meaningful behavioral information at all.
 
-The purpose of Studies 0A–0C is to determine whether volatility should be treated as an ontology variable, a calibration variable, a proxy for another mechanism, or not used at all.
+The purpose of Studies 0A–0C is to determine whether volatility provides meaningful behavioral organization within CHF markets. In particular, the studies evaluate whether volatility acts as (i) a primary behavioral variable, (ii) a conditioning variable governing persistence dynamics, (iii) a proxy for another underlying mechanism, or (iv) a variable with little independent behavioral relevance. The objective is therefore not to establish a volatility ontology a priori, but to determine how volatility participates in the observed behavioral organization.
 
 Importantly, these studies are exploratory but falsifiable. The objective is not to confirm the existence of a CHF ontology. The objective is to determine whether the data supports one.
 
@@ -419,6 +423,8 @@ volatility
    outcomes
 ```
 
+> The post-leakage replication strengthened this interpretation. While the volatility–persistence relationship remained qualitatively unchanged, direct volatility–outcome relationships remained weak across repeated analyses. This suggests that volatility primarily provides behavioral context within which persistence develops, rather than acting as an independent determinant of crowd success or failure.
+
 Volatility strongly influences persistence duration (Studies 0A–0B), but does not appear to exert an independent influence on crowd-failure rates.
 
 The primary outcome discovery from Study 0C is therefore not a volatility effect but a persistence-duration effect.
@@ -431,9 +437,21 @@ At present this finding should be treated as an exploratory outcome family rathe
 
 ## Current Status
 
+### **Post-Leakage Replication (Dataset 1.6.1)**
+
+> Following correction of the volatility leakage identified in Dataset 1.5.1, Studies -1 through 0D were repeated using Dataset 1.6.1. Although the corrected volatility calculation substantially changed the numerical volatility scale and regime calibration, the principal qualitative findings were reproduced. In particular:
+>
+> - the inverse volatility–persistence relationship remained present;
+> - ultra-persistent episodes remained concentrated in low-volatility environments;
+> - `vol_48b` continued to outperform `vol_12b`;
+> - little evidence was found for a direct volatility–crowd-failure relationship;
+> - persistence remained more strongly associated with behavioral outcomes than volatility itself.
+>
+> The exploratory interpretation of Reactive-CHF therefore appears robust to the leakage correction, although all volatility thresholds reported in earlier analyses should be regarded as superseded by Dataset 1.6.1.
+
 Studies -1, 0A, 0B and 0C have now been completed.
 
-The evidence consistently supports a volatility-conditioned persistence mechanism in CHF pairs.
+The evidence consistently supports a strong empirical relationship between volatility context and persistence dynamics.
 
 Key findings include:
 
@@ -444,7 +462,7 @@ Key findings include:
 - The effect is observed independently in both EURCHF and USDCHF.
 - Multiple independent analyses support a strong volatility → persistence relationship.
 - No meaningful evidence was found that volatility directly predicts crowd-failure probability.
-- The strongest outcome-family discovery is a persistence-duration effect, in which episodes lasting approximately 3–5 bars exhibit substantially lower crowd-failure rates than very short 1–2 bar episodes.
+- The strongest outcome-family discovery is a persistence-duration effect, in which episodes lasting approximately 3–5 bars exhibit substantially lower crowd-failure rates than very short 1–2 bar episodes. Follow-up temporal diagnostics showed that these 3–5 bar episodes occurred across multiple years and in both CHF pairs rather than being confined to a single historical interval, reducing concern that the effect reflects a localized historical artifact. Nevertheless, the finding remains exploratory pending replication on additional data.
 
 Taken together, the results suggest that volatility primarily influences CHF behavior through persistence rather than through direct effects on crowd outcomes.
 
@@ -454,15 +472,17 @@ The principal remaining questions concern ontology synthesis, external validatio
 
 ---
 
-### Additional Caveat: Sentiment-Regime Discontinuity
+## Additional Caveat: Late-2024 Sentiment Discontinuity
 
-A post-hoc audit of the raw sentiment archive revealed evidence of a structural discontinuity occurring during a period of missing sentiment coverage between late 2024 and early 2025.
+A post-hoc audit of the underlying sentiment archive identified two substantial interruptions in data collection spanning late 2024 and early 2025. These outages occur near the end of the available observation window and overlap a period during which CHF-cross sentiment becomes almost exclusively crowd-long. Similar changes were observed in several JPY control pairs, suggesting that the phenomenon is not unique to CHF. 
 
-Prior to the outage, CHF-cross sentiment was generally crowd-long but remained capable of producing meaningful numbers of crowd-short observations. After the outage, CHF-cross sentiment became almost exclusively crowd-long. Control-pair analysis demonstrated that the phenomenon was not unique to CHF; several JPY pairs simultaneously became strongly crowd-short.
+Follow-up diagnostics (Study 0D) were conducted to determine whether the available data support the existence of a discrete CHF behavioral transition. The analyses did **not** provide convincing evidence for such a transition. Although the final negative-sentiment observations across most CHF pairs occur within a narrow interval in late October 2024, the transition itself falls largely within the period of missing data and is therefore not directly observed. The available evidence cannot distinguish between a genuine market-wide behavioral change, a change in the sentiment provider or source population, or other explanations. 
 
-This finding suggests that a broader sentiment-regime transition may have occurred during the missing-data interval. Because the transition itself is not directly observed, its origin cannot presently be established.
+An important consequence is that the final persistence episode observed in each CHF pair remains active until the end of the dataset. From a statistical perspective these episodes should therefore be regarded as **right-censored** rather than completed persistence episodes. Their observed durations represent lower bounds rather than true completed durations.
 
-Importantly, this observation does not invalidate the volatility–persistence findings reported in Studies -1, 0A and 0B. The persistence relationship remains visible throughout the observed sample and across both CHF pairs. However, the sentiment-regime discontinuity introduces uncertainty regarding the interpretation of the most extreme persistence episodes observed after 2024.
+Importantly, this limitation does **not** materially affect the principal conclusions of the CHF exploratory studies. The volatility–persistence relationship identified in Studies -1, 0A and 0B is present throughout the observed sample and was reproduced after correction of the volatility leakage in Dataset 1.6.1. Likewise, Study 0C continued to find little evidence for a direct volatility–crowd-failure relationship while identifying persistence duration as the more informative behavioral variable. The uncertainty introduced by the late-2024 discontinuity therefore concerns the interpretation of the final persistence episodes rather than the broader exploratory conclusions regarding volatility and persistence.
+
+Accordingly, future work should avoid interpreting the prolonged post-2024 crowd-long state as evidence for a permanent CHF behavioral regime. Instead, it should be treated as an unresolved observational limitation until additional historical sentiment data or independent sentiment sources become available.
 
 ---
 
@@ -481,21 +501,9 @@ Completed:
 
 ---
 
-### Working Interpretation (Tentative)
+## **Revised Working Interpretation**
 
-The CHF studies suggest that volatility functions primarily as a persistence-conditioning variable rather than as a direct outcome variable.
-
-Across both EURCHF and USDCHF, low-volatility environments consistently permit longer-lived crowd states, while elevated-volatility environments suppress persistence. This relationship survives multiple analytical approaches and represents the most stable finding of the CHF program.
-
-A plausible interpretation is that volatility acts as a constraint on crowd-state durability. Low-volatility environments appear capable of supporting both short-lived and extremely persistent crowd states, whereas high-volatility environments largely prevent the formation of ultra-persistent episodes. In this view, volatility does not determine whether a crowd will ultimately be correct or incorrect. Instead, it determines how long a crowd state can survive before resolution.
-
-The outcome analyses support this interpretation. Study 0C found little evidence that volatility directly predicts crowd-failure probability. Instead, the strongest outcome signal emerged from persistence itself. Episodes lasting approximately 3–5 bars exhibited substantially lower crowd-failure rates than very short 1–2 bar episodes, while longer-duration episodes did not display a simple monotonic improvement in outcomes.
-
-This suggests that persistence may contain multiple behavioral regimes rather than representing a single continuous process. Very short episodes may reflect rapid crowd rejection, while 3–5 bar episodes may represent a distinct class of short-lived crowd confirmation events. Longer-lived episodes appear increasingly heterogeneous and may combine multiple underlying mechanisms.
-
-EURCHF and USDCHF nevertheless exhibit meaningful structural differences. EURCHF displays a largely monotonic volatility–persistence relationship consistent with the original CHF hypothesis. USDCHF shows evidence of a secondary persistence concentration at intermediate volatility levels, suggesting that volatility may interact with broader macroeconomic drivers differently across the two instruments.
-
-At present, the simplest interpretation is that CHF behavior is best described as volatility-conditioned persistence rather than volatility-conditioned outcomes. Volatility appears to govern the environments in which persistent crowd states can emerge, while persistence itself appears more closely linked to subsequent crowd outcomes.
+The current evidence suggests that volatility primarily organizes the environments in which persistent crowd states emerge rather than defining behavioral states directly. Low-volatility environments consistently permit unusually long persistence episodes, while elevated-volatility environments suppress the upper tail of the persistence distribution. Crowd outcomes appear more closely related to persistence than to volatility itself, indicating that persistence may mediate much of the observable behavioral effect. Consequently, the present evidence favors interpreting volatility as contextual information governing persistence dynamics rather than as the primary ontological variable.
 
 ---
 
@@ -505,13 +513,13 @@ The following findings are considered sufficiently stable to carry forward:
 
 1. CHF volatility distributions are largely unimodal and do not naturally partition into discrete volatility regimes.
 2. Despite the absence of natural clustering, volatility contains substantial information about crowd-state persistence.
-3. Low-volatility environments permit extremely persistent crowd states, while high-volatility environments strongly suppress long-duration persistence.
+3. Low-volatility environments consistently support substantially longer persistence tails than elevated-volatility environments.ates, while high-volatility environments strongly suppress long-duration persistence.
 4. Ultra-long persistence episodes (>100 bars) occur almost exclusively within the lowest volatility environments.
 5. No meaningful evidence was found that volatility directly predicts crowd-failure probability.
-6. The strongest outcome-family discovery is a persistence-duration effect in which 3–5 bar episodes exhibit substantially lower crowd-failure rates than very short 1–2 bar episodes.
+6. The strongest outcome-family discovery is a persistence-duration effect in which 3–5 bar episodes exhibit substantially lower crowd-failure rates than very short 1–2 bar episodes. 
 7. Current evidence supports a volatility → persistence relationship more strongly than a volatility → crowd-failure relationship.
 
-Accordingly, volatility currently appears more suitable as a persistence-conditioning variable than as a direct outcome variable within a CHF ontology.
+Current evidence consistently supports treating volatility as a persistence-conditioning variable rather than a direct outcome variable within any future CHF behavioral representation.
 
 ---
 

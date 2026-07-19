@@ -234,7 +234,7 @@ Reactive-CHF remains under active investigation.
 
 Current exploratory studies indicate that:
 
-- volatility appears to organize behavior more strongly than consensus maturity,
+- volatility strongly organizes persistence behaviour, while persistence appears more closely associated with crowd outcomes than volatility itself,
 - behavioral transitions appear continuous rather than discretely separated,
 - volatility-derived behavioral representations remain promising,
 - deterministic ontology construction appears feasible.
