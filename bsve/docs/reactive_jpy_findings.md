@@ -476,3 +476,51 @@ The ontology remains frozen. No recalibration or post-hoc modification will be p
 The behavioral phase of the research program is therefore considered complete. Subsequent work moves from behavioral validation to predictive validation, where the Behavioral Surface will be evaluated under full walk-forward validation within the MSML-MPML framework. The objective of that stage is no longer to re-test the behavioral hypothesis, but to determine whether the Reactive-JPY behavioral representation improves predictive performance relative to the existing LVTF/HVTF/LVR/HVR market-regime partition under repeated out-of-sample evaluation.
 
 A second independent replication remains planned using the separate broker sentiment dataset, collection of which began in July 2026. Because sufficient history will require substantial time to accumulate, this replication is treated as a future confirmatory study rather than a prerequisite for advancing the current research program.
+
+---
+
+# Predictive Validation (MSML)
+
+## Stage 2 Summary (July 2026)
+
+Following completion of the BSVE validation programme, the frozen Reactive-JPY Behavioral Surface was evaluated using the MSML Behavioral Prediction Framework under repeated walk-forward validation.
+
+Two independent neural architectures (MLP and LSTM) were trained across multiple epoch schedules and compared against four matched predictive controls:
+
+- Base-rate
+- Permutation
+- Random matched partition
+- Trend/volatility partition
+
+The principal findings were:
+
+- Both architectures consistently outperformed the matched control baselines.
+- Architecture agreement was high despite substantial architectural differences.
+- Predictive improvements varied systematically across Behavioral States rather than across neural architectures.
+- Epoch-sweep experiments demonstrated that Behavioral States possess distinct learning dynamics.
+
+Rather than converging toward a common optimum, individual Behavioral States exhibited reproducible convergence classes. Some states learned rapidly and became largely insensitive to additional training, whereas others continued to improve over extended training or exhibited substantially more complex optimization behaviour.
+
+This observation was reproduced independently by both MLP and LSTM models, providing the strongest evidence so far that the learning dynamics arise from the Behavioral Surface itself rather than from the choice of predictive architecture.
+
+Current interpretation:
+
+> Behavioral States appear to represent prediction problems of differing intrinsic complexity rather than simply subsets of the same prediction problem.
+
+These findings establish the first predictive evidence supporting the Reactive-JPY Behavioral Surface and motivate continued investigation of state-specific predictive mechanisms.
+
+## Stage 3 – Downstream MPML Integration (Preliminary)
+
+Following completion of predictive validation within MSML, the first downstream integration experiments were performed using the MPML adaptive strategy-selection framework.
+
+Main observations:
+
+- Behavioral Prediction Artifacts were successfully exported from MSML and consumed by MPML through the standardized artifact interface.
+
+- Behavioral routing correctly affected only Reactive-JPY currency pairs. AUDJPY, which does not belong to the Reactive-JPY Behavioral Surface, produced identical results across all behavioral-state experiments and served as an internal negative control.
+
+- All three Reactive-JPY pairs (EURJPY, GBPJPY and USDJPY) exhibited state-dependent changes in downstream performance, indicating that behavioral specialization influences adaptive strategy selection.
+
+- The strongest preliminary improvements were observed for the Mature and Young behavioral states, while Maturing produced weaker gains. Because identical training schedules (300 epochs) were intentionally used for every state, these differences should not yet be interpreted as intrinsic differences in predictive value.
+
+- These experiments represent proof of downstream behavioral utility rather than optimized predictive performance.
