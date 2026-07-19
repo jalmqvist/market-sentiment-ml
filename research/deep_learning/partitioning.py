@@ -41,33 +41,42 @@ def validate_partition_args(
         )
 
 
-def resolve_partition(regime: str | None, surface: str | None, state: str | None) -> dict[str, Any]:
+def resolve_partition(
+    regime: str | None,
+    surface: str |None,
+    state: str | None,
+) -> dict[str, Any]:
+    TREND_VOL_VERSION = "1.0.0"
+
     if regime is not None:
         return {
             "mode": "regime",
             "regime": regime,
             "surface": "trend_vol",
             "state": regime,
-            "surface_version": None,
+            "surface_version": TREND_VOL_VERSION,
             "dl_regime": regime,
             "log_tag": regime.strip().lower(),
         }
+
     if surface is not None and state is not None:
         return {
             "mode": "behavioral",
             "regime": None,
             "surface": surface,
             "state": state,
+            # Behavioral surface version is resolved later from BSVE provenance.
             "surface_version": None,
             "dl_regime": f"{surface}:{state}",
             "log_tag": f"{surface.strip().lower()}-{state.strip().lower()}",
         }
+
     return {
         "mode": "none",
         "regime": None,
         "surface": "trend_vol",
         "state": "MIXED",
-        "surface_version": None,
+        "surface_version": TREND_VOL_VERSION,
         "dl_regime": "MIXED",
         "log_tag": "all",
     }
