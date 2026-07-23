@@ -517,6 +517,66 @@ and mechanistic explanation remains one of the long-term scientific objectives o
 
 ---
 
+## Near-Term Research Roadmap
+
+The project has completed the transition from behavioral representation discovery toward predictive evaluation. The next phase focuses on determining how validated behavioral representations can be generalized, compared and ultimately explained.
+
+### Phase 1 — Behavioral Surface Expansion
+
+Continue construction and independent validation of additional Behavioral Surfaces beyond Reactive-JPY, with Reactive-CHF representing the current priority.
+
+Objectives:
+
+- complete Reactive-CHF,
+- revisit Persistent family ontology,
+- investigate additional behavioral organizations.
+
+------
+
+### Phase 2 — Cross-Representation Evaluation
+
+Develop methodologies for comparing multiple independently validated Behavioral Surfaces within a common predictive framework.
+
+Representative questions include:
+
+- Which representations encode complementary predictive information?
+- How should competing representations be compared?
+- How much predictive diversity exists between Behavioral Surfaces?
+
+------
+
+### Phase 3 — Adaptive Representation Selection
+
+Extend downstream adaptive evaluation beyond strategy selection toward behavioral representation selection.
+
+Representative questions include:
+
+- Which Behavioral Surface should be used under current market conditions?
+- Can representation selection itself become adaptive?
+- How should multiple Behavioral Surfaces cooperate?
+
+------
+
+### Phase 4 — Behavioral Ontology
+
+Generalize individual Behavioral Surfaces into a coherent behavioral ontology capable of describing multiple forms of market organization.
+
+Long-term objectives include:
+
+- reusable ontology construction methodology,
+- relationships between behavioral families,
+- hierarchical behavioral organization.
+
+------
+
+### Phase 5 — Mechanistic Explanation
+
+Investigate whether empirically observed behavioral organization emerges naturally from interacting market participants.
+
+The objective is no longer merely to reproduce empirical findings, but to explain why validated behavioral representations exist.
+
+---
+
 ## Concluding Remarks
 
 Market Sentiment ML began as an investigation into retail foreign exchange sentiment. Through successive
