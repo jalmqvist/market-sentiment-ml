@@ -620,6 +620,27 @@ def _build_run_manifest(
         else None
     )
 
+    # ------------------------------------------------------------------
+    # Legacy compatibility.
+    #
+    # Older tooling expects a top-level train_period block.
+    # Prefer explicit legacy fields if supplied; otherwise derive them
+    # from the richer walk-forward provenance exported by the DL trainers.
+    # ------------------------------------------------------------------
+
+    walkforward = provenance.get("walkforward", {})
+
+    train_period = {
+        "start": (
+            provenance.get("train_period_start")
+            or walkforward.get("train_start")
+        ),
+        "end": (
+            provenance.get("train_period_end")
+            or walkforward.get("train_end")
+        ),
+    }
+
     return {
         "schema_version": DL_SCHEMA_VERSION,
         "export_frequency": EXPORT_FREQUENCY,
@@ -682,10 +703,7 @@ def _build_run_manifest(
             "method": "none",
             "notes": "raw model probability; no post-hoc calibration applied",
         },
-        "train_period": {
-            "start": provenance.get("train_period_start", None),
-            "end": provenance.get("train_period_end", None),
-        },
+        "train_period": train_period,
         "git_commit": _get_git_commit_hash(),
         "row_count": int(len(payload)),
         "pairs": sorted(payload["pair"].unique().tolist()),
