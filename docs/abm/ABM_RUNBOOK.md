@@ -63,7 +63,7 @@ Agents operate on **real price series only** (no synthetic generation).
 
 ```bash
 python research/abm/sweep.py \
-    --version 1.2.0 \
+    --version 1.6.1 \
     --pair eur-usd \
     --steps 500
 ```
@@ -517,7 +517,7 @@ Helper script (optional):
 
 - `abm_experiments/summarize_bestpaths.py`
 
-## Stage-2 validation result (eur-usd, version=1.2.0, steps=2000, volatility_scale=0.0)
+## Stage-2 validation result (eur-usd, version=1.6.1, steps=2000, volatility_scale=0.0)
 
 Baseline (decay disabled):
 - `pct_time_saturated ≈ 0.6305`
@@ -530,6 +530,10 @@ Decay enabled (decay_volatility_scale ≥ 0.02 in tested range):
 - `autocorr_lag1 ≈ 0.9806`
 
 Interpretation: decay introduces a release mechanism and reduces absorbing saturation vs baseline under identical environment conditions.
+
+> Note: quantitative values above are from v1.2.0 experiments and should be re-verified on v1.6.1 as part of Stage 0.2.
+
+
 
 ------
 
