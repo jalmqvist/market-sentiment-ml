@@ -662,16 +662,44 @@ def main():
     provenance = {
         "dataset_version": args.dataset_version,
         "dataset_variant": args.dataset_variant,
+
         "training_pairs": training_pairs_provenance,
         "inference_pairs": inference_pairs_provenance,
+
         "export_split": args.export_split,
         "prediction_horizon_hours": int(args.target_horizon),
+
         "availability_semantics": "sparse_observed_only",
         "control_mode": cfg.DL_EXPORT_CONTROL_MODE,
         "dl_add_missing_indicators": cfg.DL_ADD_MISSING_INDICATORS,
         "dl_impute_optional_features": cfg.DL_IMPUTE_OPTIONAL_FEATURES,
         "dl_imputation_value": cfg.DL_IMPUTATION_VALUE,
         "availability_shuffle_seed": cfg.DL_AVAILABILITY_SHUFFLE_SEED,
+
+        # --------------------------------------------------------
+        # Training provenance
+        # --------------------------------------------------------
+
+        "training": {
+            "architecture": "mlp",
+            "epochs": int(args.epochs),
+            "hidden_dim": int(args.hidden_dim),
+            "learning_rate": float(args.lr),
+            "label_quantile": float(args.label_quantile),
+            "label_threshold": float(threshold),
+        },
+
+        # --------------------------------------------------------
+        # Walk-forward provenance
+        # --------------------------------------------------------
+
+        "walkforward": {
+            "train_start": args.wf_train_start,
+            "train_end": args.wf_train_end,
+            "test_start": args.wf_test_start,
+            "test_end": args.wf_test_end,
+            "enabled": walkforward_mode,
+        },
     }
     if partition["mode"] == "behavioral":
         behavioral_provenance = resolve_behavioral_provenance(
@@ -691,10 +719,13 @@ def main():
 
     identity = {
         "model": model_name,
+        "architecture": "mlp",
+
         "surface_id": surface_id,
         "surface_version": surface_version,
         "state_id": state_id,
         "dl_regime": dl_regime,
+
         "target_horizon": target_horizon,
         "feature_set": feature_set,
     }
