@@ -646,7 +646,7 @@ def print_bsve_report(
               f"(MATURING > MATURE, but ENTRY ordering not strict)")
     else:
         print(f"  Result  : H4 NOT SUPPORTED")
-        
+
     if h4_verdict.get("cautious"):
         low = ", ".join(
             f"{s} (n={aggregated[s]['n_mean']:.0f})"

@@ -193,19 +193,45 @@ shock (a fraction of agents simultaneously pushed toward one side)
 will increase episode formation rate and produce a more realistic
 formation-speed distribution.
 
-### H4 — The Reactive-JPY predictive gradient is a lifecycle artifact
+### H4 — The Reactive-JPY predictive gradient is an endogenous lifecycle artifact
 
 The DL finding (JPY_CONSENSUS_MATURING is the most predictive state,
-confirmed by both MLP and LSTM) is interpretable as a consequence of
-lifecycle position: during maturation, the crowd is increasingly
-positioned against the direction of accumulating price pressure, and
-the hazard rate of dissolution is rising. This creates a structurally
-predictable contrarian setup invisible to instantaneous classifiers.
+confirmed by both MLP and LSTM, F-003/F-007) is interpretable as a
+consequence of lifecycle position within an endogenously generated
+crowd dynamic — not as a response to exogenous news shocks.
 
-This hypothesis predicts that ABM-generated sentiment during the
-MATURING maturity band will show stronger forward-return correlation
-than during ENTRY or MATURE, even in a model with no predictive
-training — purely as a consequence of the lifecycle dynamics.
+The mechanism: during maturation, episodes that have survived early
+dissolution have selected for the most entrenched crowd positions.
+The rising dissolution hazard in the maturation zone means an
+increasing fraction of the crowd is positioned against imminent
+reversal pressure. This creates a structurally predictable contrarian
+setup that is invisible to instantaneous classifiers but recoverable
+from lifecycle position alone.
+
+Two independent lines of evidence support the endogenous interpretation:
+
+1. **News-shock null (F-008):** Scheduled JPY news events (high +
+   medium impact, 6,379 events, 2007–2026) show no meaningful
+   association with episode exits. REVERSAL and THRESHOLD exits have
+   near-identical news proximity distributions, both at or below the
+   Poisson base rate for the observed news calendar density. Observable
+   macro shocks are not the primary dissolution trigger.
+
+2. **ABM Stage 3 result:** The MATURING > ENTRY forward-return
+   correlation gradient is reproduced by the persistence + decay
+   mechanism alone, without any shock injection, at the calibrated
+   parameter point (anchor=0.25, beta=0.02). H4 is confirmed on
+   GBP-JPY (full gradient) and partially supported on EUR-JPY and
+   USD-JPY (MATURING > ENTRY direction holds on 2/3 pairs; MATURE
+   cell n=54–89 is statistically unreliable).
+
+This hypothesis predicts that adding a shock mechanism (H3) will
+improve episode *formation rate and speed* to better match empirical
+BSVE diagnostics, but will not materially strengthen the MATURING
+predictive gradient — because that gradient arises from the
+dissolution dynamics, not the formation mechanism. The shock stage
+should therefore be evaluated against episode formation quality
+metrics (H3), not against the H4 correlation gradient.
 
 ---
 
