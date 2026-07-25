@@ -11,12 +11,11 @@ Constraints (per repository request):
 
 Baseline command (unchanged pipeline reference):
 
-    python research/abm/sweep.py --version 1.2.0 --pair eur-usd --steps 500
+    python research/abm/sweep.py --version 1.6.1 --pair eur-usd --steps 500
 
 This experiment command (new):
 
     python abm_experiments/sweep_with_volatility.py \
-        --version 1.2.0 \
         --pair eur-usd \
         --steps 500 \
         --volatility-scale 1.0
@@ -363,7 +362,11 @@ def _parse_args(argv=None) -> argparse.Namespace:
         description="ABM sweep with volatility-scaled price environment.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    p.add_argument("--version", required=True, help="Dataset version (e.g. '1.2.0')")
+    p.add_argument(
+        "--version",
+        default="1.6.1",
+        help="Dataset version (e.g. '1.6.1')",
+    )
     p.add_argument(
         "--variant",
         default="core",

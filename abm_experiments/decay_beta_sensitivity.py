@@ -76,7 +76,11 @@ def _parse_args(argv=None) -> argparse.Namespace:
         description="Fixed-config sensitivity harness for Stage-2 decay beta.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    p.add_argument("--version", required=True, help="Dataset version (e.g. '1.2.0')")
+    p.add_argument(
+        "--version",
+        default="1.6.1",
+        help="Dataset version (e.g. '1.6.1')",
+    )
     p.add_argument("--pair", required=True, help="FX pair (e.g. 'eur-usd')")
     p.add_argument("--steps", type=int, default=2000)
     p.add_argument("--beta", type=float, required=True, help="decay_volatility_scale")
