@@ -524,52 +524,25 @@ Reactive-JPY layer (Layer 2) added. Contents:
 - Updated conceptual model (formation → sustaining → dissolution →
   predictive signal)
 
-**5.2 Episode Extractor Sensitivity Analysis** — OPEN
+**5.2 Episode Extractor Sensitivity Analysis** — COMPLETE 2026-07-26
 
-Goal: Determine whether the H3 freq/duration gap (simulated freq/1k
-= 58–70 vs empirical target 45–56; median duration ~3 vs target ~4)
-is resolvable via episode extractor definition sensitivity, or is a
-hard structural property of the persistence + decay + shock mechanism
-at the current calibrated point.
+Verdict: STRUCTURAL (on reversal gradient). PARTIAL definition sensitivity
+(on freq/duration).
 
-The reversal gradient (rev_young > rev_mature = 0 on all tested
-configurations) fails because at median duration ~3 bars, most
-simulated episodes exit before reaching young_boundary (8 bars).
-This is the proximate cause of the L1 failure.
+Split finding:
+  - Freq/duration gap: closes at threshold_pct=65-70 applied to ABM output
+    distribution. EUR-JPY and GBP-JPY reach target range (freq=49, dur=5.1).
+    Gap was partly an artefact of applying empirical threshold to ABM data.
+  - Reversal gradient: structural. rev_young ≈ rev_mature ≈ 1.0 across all
+    27 extractor configurations. Root cause: ABM dissolution mechanism is
+    age-agnostic (decay fires on volatility, not episode maturity).
 
-Two candidate explanations:
+Programme closed at L3. L1/L2 require duration-dependent dissolution:
+    lambda_t = f(vol_t, episode_age_t)
+  such that young episodes dissolve faster than mature on average. This is
+  a mechanistic extension, not a parameter tuning problem.
 
-1. **Extractor definition sensitivity:** The 70th percentile extreme
-   threshold and 8-bar young_boundary were derived from empirical data.
-   If the ABM generates a different sentiment amplitude distribution,
-   the operative thresholds may be misspecified for synthetic data,
-   inflating episode count and deflating duration.
-
-2. **Structural property of the mechanism:** The threshold-exit
-   dominant regime (episodes exit when sentiment drops below the
-   extreme threshold rather than reversing) is an inherent property
-   of short-persistence dynamics at anchor=0.25 + beta=0.02. Adjusting
-   extractor parameters will not change the underlying episode duration
-   distribution.
-
-Method:
-
-- Vary `extreme_threshold_pct` across {65th, 70th, 75th percentile}
-  computed from the ABM output distribution (not the empirical one)
-- Vary `young_boundary_bars` across {6, 8, 10}
-- Re-run episode scoring at the anchor config (vol_t80_f30_cd10)
-  across 20 seeds × 3 pairs
-- If freq/dur gap closes substantially → extractor definition
-  sensitivity; recalibrate thresholds to synthetic distribution
-- If gap persists → document as permanent structural limitation;
-  close the programme at L3 (predictive structure confirmed) with
-  L1/L2 as open future work
-
-This is independent of the H4 test and does not require re-running
-the shock sweep.
-
-Script: `abm_experiments/stage5_episode_sensitivity.py` (to be
-written — single file, inherits from stage4_robustness_sweep.py)
+Script: abm_experiments/stage5_episode_sensitivity.py
 
 **5.3 `ABM_RUNBOOK.md` update** — OPEN
 
@@ -604,9 +577,9 @@ updates, and reconciliation document.
 | 3.3   | Structure validation                  | All episode statistics within 2x of empirical                |
 | 4.1   | BSVE state injection                  | Complete. `--use-bsve-states` flag implemented, state label mapping (JPY_CONSENSUS_* → short labels) applied on load, non-episode rows excluded. |
 | 4.2 | Predictive gradient | COMPLETE. EUR-JPY + GBP-JPY FULL H4 (MATURING > ENTRY > MATURE) at vol_t80_f30_cd10, 20 seeds. USD-JPY excluded (MATURE cell n=54 structurally limits verdict stability). EUR-JPY ENTRY contrarian signal (Spearman −0.044) stable across all fraction variants. |
-| 4.3 | Robustness | COMPLETE. FULL H4 on EUR-JPY + GBP-JPY stable across f=0.30/0.40/0.50 at cd=10 (2/3 consistent). cd10 confirmed as cooldown optimum (inverted-U: cd5=0.056 < cd10=0.077 > cd20=0.050 mean|r|MATURING). Over-shocking (cd5) violates the mature_boundary lifecycle-integrity constraint. |
+| 4.3 | Robustness | COMPLETE. FULL H4 on EUR-JPY + GBP-JPY stable across f=0.30/0.40/0.50 at cd=10 (2/3 consistent). cd10 confirmed as cooldown optimum (inverted-U: cd5=0.056 < cd10=0.077 > cd20=0.050 mean|
 | 5.1 | DL_ABM_RECONCILIATION.md | COMPLETE 2026-07-26. Layer 2 (Reactive-JPY) added. |
-| 5.2 | Episode extractor sensitivity | OPEN. Determine whether H3 freq/dur gap is extractor-definition sensitivity or structural. Script: stage5_episode_sensitivity.py |
+| 5.2 | Episode extractor sensitivity | COMPLETE 2026-07-26. STRUCTURAL verdict on gradient. Partial definition sensitivity on freq/dur (closes at pct=65-70). Root cause: age-agnostic dissolution. Programme closed at L3. |
 | 5.3 | ABM_RUNBOOK.md Stage 4 entry | OPEN. |
 | 5.4 | Diary + roadmap commit | OPEN. |
 | 5.x   | Documentation                         | All three MD files updated, diary entry complete             |

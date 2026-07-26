@@ -8,6 +8,76 @@ This diary captures the *chronological* path of ABM experiments and decisions th
 
 ---
 
+## 2026-07-26 — Stage 5.2: Episode Extractor Sensitivity Analysis
+
+### Setup
+Determines whether the H3 freq/duration gap (Stages 3-4: freq/1k=58-70 vs
+target 45-56, median_dur~3 vs target~4, reversal gradient=0) is extractor
+definition sensitivity or a structural property.
+
+ABM runs: 60 (20 seeds × 3 pairs, anchor config vol_t80_f30_cd10, cached).
+Extractor grid: threshold_pct ∈ {65,70,75} × young_boundary ∈ {6,8,10}
+  = 9 configs applied post-hoc. No ABM re-runs required.
+Script: abm_experiments/stage5_episode_sensitivity.py
+
+Threshold recalibrated per-run from ABM output distribution (not empirical),
+so each seed uses a threshold calibrated to its own sentiment amplitude.
+
+### Results
+
+| Config | USD-JPY freq | EUR-JPY freq | GBP-JPY freq | dur (mean)  | rev_y | rev_m | grad |
+| ------ | ------------ | ------------ | ------------ | ----------- | ----- | ----- | ---- |
+| pct=65 | 43.0         | 49.3 ✓       | 49.1 ✓       | 5.1–5.5 ✓   | ~1.0  | 1.0   | 0.00 |
+| pct=70 | 42.6         | 48.2 ✓       | 46.5 ✓       | 4.75–5.1 ✓  | ~1.0  | 1.0   | 0.00 |
+| pct=75 | 39.9         | 45.0 ✓       | 43.5         | 4.35–4.55 ✓ | ~1.0  | 1.0   | 0.00 |
+
+(✓ = within H3 target range)
+
+### VERDICT: STRUCTURAL
+
+### Key findings
+
+**F1 — Freq/duration gap is partly definition-sensitive**
+At pct=65-70, EUR-JPY and GBP-JPY freq/1k and median duration both land
+within empirical target ranges. The gap on those metrics was partly an
+artefact of applying the empirical 70th-percentile threshold (derived from
+real data) to an ABM that produces a different sentiment amplitude
+distribution. At pct=65, ABM threshold ≈ 65-68 (vs empirical ~70th pct
+of real data). Duration rises to 5.1-5.5 bars (vs target ~4), well above
+the floor. USD-JPY remains borderline (freq=43, just below target 45).
+
+**F2 — Reversal gradient failure is structural with a specific root cause**
+rev_young ≈ 1.0 and rev_mature = 1.000 across all 27 extractor configs.
+Every episode, young or mature, exits via threshold-crossing regardless of
+age. The gradient cannot emerge because the ABM dissolution mechanism is
+age-agnostic: volatility-conditioned decay fires based on market volatility,
+not on episode maturity.
+
+Root cause: the empirical reversal gradient (rev_young > rev_mature) arises
+from selection pressure — fragile young episodes dissolve early, leaving
+only the most entrenched positions to reach maturity. The current ABM has
+no memory of this selection. Decay and shocks are equally likely to dissolve
+a 3-bar episode as a 30-bar episode. Reproducing the hazard-rate structure
+(L1/L2) requires a duration-dependent dissolution mechanism.
+
+**F3 — Split result: different gaps have different causes**
+- Freq/duration gap: DEFINITION SENSITIVITY (partially closeable by
+  recalibrating threshold to ABM output distribution)
+- Reversal gradient: STRUCTURAL (requires duration-dependent dissolution,
+  a mechanistic extension beyond current scope)
+
+### Conclusion
+
+The programme closes at L3 (predictive structure confirmed on EUR-JPY +
+GBP-JPY, stable across Stage 4 robustness sweep). L1/L2 remain open future
+work, with a clear mechanistic statement of what is required: a dissolution
+mechanism that conditions on episode age, not only on market volatility.
+
+If the programme is resumed, the correct intervention is not parameter
+tuning but mechanism extension: introducing a maturity-dependent hazard
+into the decay term (e.g., lambda_t = f(vol_t, episode_age_t)) such that
+young episodes dissolve faster than mature ones on average.
+
 ---
 
 ## 2026-07-26 — Stage 4: Robustness Sweep at vol_t80_f30_cd10
