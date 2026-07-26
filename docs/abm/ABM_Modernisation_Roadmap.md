@@ -391,7 +391,13 @@ This is the calibration target for the "persistence + decay" mechanism alone, wi
 
 ### Stage 3 — Shock-Driven Episode Formation
 
-*Extends Stage 2 with new agent mechanism. No changes to research/abm/sweep.py.*
+> **Stage 3 (shock mechanism): COMPLETE.**
+> Best config: vol_t80_f30_cd10 (volatility trigger, thresh=0.80,
+> frac=0.30, cooldown=10, ~62 shocks/run at cd10).
+> H4 FULL on EUR-JPY and GBP-JPY (20 seeds). H4 NOT SUPPORTED on
+> USD-JPY (structural: MATURE cell n=54). H3 frequency target not
+> met (freq=58-66/1k vs target 45-56; dur~3 vs target 4 — structural
+> gap, not parameter-resolvable). See Stage 4 robustness results.
 
 **3.1 Mechanism design: exogenous crowd-alignment shock**
 
@@ -435,87 +441,149 @@ This is the "full mechanism" calibration: shock formation + persistence sustaini
 
 ------
 
-### Stage 4 — Predictive Structure Reproduction
+### Stage 4 — Robustness Sweep and Predictive Structure Confirmation
 
-*Extends regime_hierarchy_test.py with BSVE state injection.*
+*COMPLETE — 2026-07-26*
 
 **4.1 BSVE state label injection**
 
-Extend `abm_experiments/regime_hierarchy_test.py` to accept an external state label file. The state labels are the real BSVE Reactive-JPY state assignments (ENTRY / MATURING / MATURE) for the same price series used in the ABM simulation.
-
-New CLI parameters:
-
-- `--bsve-states-path` (path to CSV with columns: `timestamp`, `bsve_state` where state ∈ {`ENTRY`, `MATURING`, `MATURE`, `NEUTRAL`})
-- `--use-bsve-states` (flag to use BSVE classification instead of price-only LVTF/HVTF/LVR/HVR)
-
-When `--use-bsve-states` is set, the regime classification function replaces the price-only logic with a lookup into the BSVE state file. The rest of the analysis (forward-return correlation by regime) runs unchanged.
+Complete. `--use-bsve-states` flag implemented in
+`abm_experiments/regime_hierarchy_test.py`. State label mapping
+(JPY_CONSENSUS_* → ENTRY / MATURING / MATURE) applied on load.
+Non-episode rows (JPY_NON_EXTREME) excluded from all H4 analysis.
 
 **4.2 Predictive gradient test**
 
-Run the ABM with the calibrated (shock, anchor, beta) configuration from Stage 3. Inject real BSVE state labels. Compute forward-return correlation for:
+Confirmed on EUR-JPY and GBP-JPY (FULL H4) at the calibrated
+parameter point with vol_t80_f30_cd10 shock configuration.
+USD-JPY structurally excluded from primary H4 surface (MATURE
+cell n=54 produces high verdict variance across seeds).
 
-- `ENTRY` windows
-- `MATURING` windows
-- `MATURE` windows
+The EUR-JPY ENTRY contrarian signal (Spearman −0.044, negative-signed,
+MATURING direction stronger in absolute magnitude) is consistent
+across all 20-seed runs and all fraction variants tested in Stage 4.
 
-The empirical DL finding (confirmed by MSML experiments) is: **MATURING > ENTRY > MATURE** in predictive power.
+**4.3 Robustness sweep**
 
-The mechanistic hypothesis (H4) predicts that ABM-generated sentiment will show the same ordering, without any predictive training, purely as a consequence of the lifecycle dynamics.
+Complete. Script: `abm_experiments/stage4_robustness_sweep.py`
+5 configs × 3 pairs × 20 seeds = 300 runs.
 
-**4.3 Sensitivity and robustness**
+Key findings:
 
-Test the predictive gradient under:
+- **cd10 is a genuine cooldown optimum.** Inverted-U gradient
+  (mean |r|MATURING: cd5=0.056 < cd10=0.077 > cd20=0.050).
+  Over-shocking at cd5 (~113/run, mean inter-shock interval ~13 bars)
+  violates the mature_boundary (24 bars) and disrupts lifecycle
+  completion. Under-shocking at cd20 (~36/run) loses EUR-JPY and
+  GBP-JPY FULL verdicts entirely.
 
-- Different (anchor, beta) combinations near the calibrated optimum
-- Different shock configurations (trigger type, fraction, threshold)
-- Different random seeds
+- **Fraction is not a meaningful lever (0.30–0.50 insensitive).**
+  FULL H4 pair count = 2/3 across f=0.30, 0.40, 0.50 at cd=10.
+  Mean |r|MATURING declines monotonically but shallowly
+  (0.077 → 0.071 → 0.068). Fraction provides no tuning advantage
+  within this range.
 
-The gradient should be robust to modest parameter variations if the mechanism is genuinely explanatory rather than overfitted.
+- **USD-JPY H4 gated by MATURE cell noise.** The only config that
+  achieves FULL H4 on USD-JPY (cd10_f50) does so by suppressing
+  |r|MATURE to 0.019, not by strengthening |r|MATURING. This is
+  noise-driven variance in a 54-row cell, not a mechanistic result.
+
+- **H3 frequency gap is structural.** freq/1k = 55–70 across all
+  5 configs. cd10_f40 brings USD-JPY to 54.9 (within target) but
+  EUR-JPY and GBP-JPY remain at 67 and 65. Median duration ~3 bars
+  at all configs. Gap is not resolvable by shock parameter tuning.
+  Resolution deferred to Stage 5.2.
+
+**Confirmed anchor config (locked):**
+
+```text
+shock_trigger        = volatility
+shock_vol_threshold  = 0.80
+shock_fraction       = 0.30
+shock_cooldown       = 10
+anchor_strength      = 0.25
+beta                 = 0.02
+```
 
 ------
 
 ### Stage 5 — Documentation and Programme Integration
 
-*Update all ABM documentation to reflect the new programme.*
+**5.1 `DL_ABM_RECONCILIATION.md` update** — COMPLETE 2026-07-26
 
-**5.1 `DL_ABM_RECONCILIATION.md` update**
+Reactive-JPY layer (Layer 2) added. Contents:
+- F-007 as mechanistic constraint (T/V and Reactive-JPY independence
+  explained by the two layers operating on different mechanistic objects)
+- The lifecycle hypothesis: predictability arises from hazard-rate
+  position, not instantaneous regime
+- Three-level success criteria (L1 episode statistics, L2 hazard
+  structure, L3 predictive structure) with current status
+- Mechanistic constraint: shock cadence must exceed mature_boundary
+  (24 bars) to preserve lifecycle integrity
+- Known structural limitation: H3 freq/duration gap
+- Updated conceptual model (formation → sustaining → dissolution →
+  predictive signal)
 
-The existing document reconciles T/V regimes with ABM. Add a second layer reconciling Reactive-JPY lifecycle states with the shock + persistence + decay mechanistic model.
+**5.2 Episode Extractor Sensitivity Analysis** — OPEN
 
-Key additions:
+Goal: Determine whether the H3 freq/duration gap (simulated freq/1k
+= 58–70 vs empirical target 45–56; median duration ~3 vs target ~4)
+is resolvable via episode extractor definition sensitivity, or is a
+hard structural property of the persistence + decay + shock mechanism
+at the current calibrated point.
 
-- F-007 as a mechanistic constraint (independence from T/V)
-- The lifecycle hypothesis: predictability arises from hazard-rate position, not instantaneous regime
-- The three-level success criteria (statistics → hazard → predictive)
-- Updated conceptual model:
+The reversal gradient (rev_young > rev_mature = 0 on all tested
+configurations) fails because at median duration ~3 bars, most
+simulated episodes exit before reaching young_boundary (8 bars).
+This is the proximate cause of the L1 failure.
 
-```
-market regime (trend/vol) → governs shock frequency
-    shock + price direction → episode formation (rapid, directional)
-    persistence + anchoring → episode sustaining (characteristic duration)
-    decay (vol-conditioned) → episode dissolution (hazard-rate structure)
-        ↓
-    consensus lifecycle position → weak predictive signal
-        (MATURING most predictive, per empirical DL)
-```
+Two candidate explanations:
 
-**5.2 `ABM_RUNBOOK.md` update**
+1. **Extractor definition sensitivity:** The 70th percentile extreme
+   threshold and 8-bar young_boundary were derived from empirical data.
+   If the ABM generates a different sentiment amplitude distribution,
+   the operative thresholds may be misspecified for synthetic data,
+   inflating episode count and deflating duration.
 
-Add Stage 3 definition (Episode Calibration) with:
+2. **Structural property of the mechanism:** The threshold-exit
+   dominant regime (episodes exit when sentiment drops below the
+   extreme threshold rather than reversing) is an inherent property
+   of short-persistence dynamics at anchor=0.25 + beta=0.02. Adjusting
+   extractor parameters will not change the underlying episode duration
+   distribution.
 
-- New calibration targets (episode structure, not sentiment statistics)
-- New experiment scripts (`reactive_jpy_episode_calibration.py`, `sweep_with_shocks.py`)
-- Updated success criteria referencing BSVE sign-off conditions
-- Parameter grid recommendations for (anchor, beta, shock) exploration
+Method:
 
-**5.3 `ABM_EXPERIMENT_DIARY.md` new entry**
+- Vary `extreme_threshold_pct` across {65th, 70th, 75th percentile}
+  computed from the ABM output distribution (not the empirical one)
+- Vary `young_boundary_bars` across {6, 8, 10}
+- Re-run episode scoring at the anchor config (vol_t80_f30_cd10)
+  across 20 seeds × 3 pairs
+- If freq/dur gap closes substantially → extractor definition
+  sensitivity; recalibrate thresholds to synthetic distribution
+- If gap persists → document as permanent structural limitation;
+  close the programme at L3 (predictive structure confirmed) with
+  L1/L2 as open future work
 
-Capture the July 2026 pivot:
+This is independent of the H4 test and does not require re-running
+the shock sweep.
 
-- Motivation: F-006, F-007, Reactive-JPY integration into MPML
-- Realisation: ABM calibrated against wrong target (statistics vs episodes)
-- Reinterpretation: JPY sign-lock as episode phenomenology, not bug
-- New programme: Stage 3 episode calibration, Stage 4 shock mechanism, Stage 5 predictive reconciliation
+Script: `abm_experiments/stage5_episode_sensitivity.py` (to be
+written — single file, inherits from stage4_robustness_sweep.py)
+
+**5.3 `ABM_RUNBOOK.md` update** — OPEN
+
+Add Stage 4 entry documenting:
+- Shock robustness sweep methodology
+- Confirmed anchor config
+- Cooldown optimum finding and the lifecycle-integrity constraint
+- USD-JPY structural exclusion rationale
+- Known limitation: H3 freq/duration gap
+
+**5.4 Commit diary and roadmap** — OPEN
+
+Final commit capturing Stages 3 and 4 diary entries, roadmap
+updates, and reconciliation document.
 
 ------
 
@@ -535,8 +603,12 @@ Capture the July 2026 pivot:
 | 3.2   | Integration                           | Shock + persistence + decay runs without error               |
 | 3.3   | Structure validation                  | All episode statistics within 2x of empirical                |
 | 4.1   | BSVE state injection                  | Complete. `--use-bsve-states` flag implemented, state label mapping (JPY_CONSENSUS_* → short labels) applied on load, non-episode rows excluded. |
-| 4.2  | Predictive gradient                    | NOT MET at calibrated point without shocks.                               EUR-JPY ENTRY contrarian signal confirmed                               (Spearman -0.0585, 20-seed stable).                               MATURING gradient requires shock mechanism (H3). Proceed to Stage 3 (shock injection). |
-| 4.3   | Robustness                            | Gradient stable across seeds and modest parameter variation  |
+| 4.2 | Predictive gradient | COMPLETE. EUR-JPY + GBP-JPY FULL H4 (MATURING > ENTRY > MATURE) at vol_t80_f30_cd10, 20 seeds. USD-JPY excluded (MATURE cell n=54 structurally limits verdict stability). EUR-JPY ENTRY contrarian signal (Spearman −0.044) stable across all fraction variants. |
+| 4.3 | Robustness | COMPLETE. FULL H4 on EUR-JPY + GBP-JPY stable across f=0.30/0.40/0.50 at cd=10 (2/3 consistent). cd10 confirmed as cooldown optimum (inverted-U: cd5=0.056 < cd10=0.077 > cd20=0.050 mean|r|MATURING). Over-shocking (cd5) violates the mature_boundary lifecycle-integrity constraint. |
+| 5.1 | DL_ABM_RECONCILIATION.md | COMPLETE 2026-07-26. Layer 2 (Reactive-JPY) added. |
+| 5.2 | Episode extractor sensitivity | OPEN. Determine whether H3 freq/dur gap is extractor-definition sensitivity or structural. Script: stage5_episode_sensitivity.py |
+| 5.3 | ABM_RUNBOOK.md Stage 4 entry | OPEN. |
+| 5.4 | Diary + roadmap commit | OPEN. |
 | 5.x   | Documentation                         | All three MD files updated, diary entry complete             |
 
 ------

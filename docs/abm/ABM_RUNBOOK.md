@@ -546,4 +546,82 @@ Interpretation: decay introduces a release mechanism and reduces absorbing satur
 
 ------
 
+# 17. Stage 4 Extension (Shock Mechanism Robustness)
+
+## Goal
+
+Confirm that the vol_t80_f30_cd10 shock configuration identified in Stage 3
+is a genuine optimum, and characterise sensitivity along the cooldown and
+fraction axes.
+
+## Confirmed anchor configuration
+
+```text
+shock_trigger        = volatility
+shock_vol_threshold  = 0.80
+shock_fraction       = 0.30
+shock_cooldown       = 10
+anchor_strength      = 0.25   (ABM_ANCHOR_STRENGTH override)
+beta                 = 0.02   (decay_volatility_scale)
+decay_base           = 0.00
+decay_clip_max       = 0.50
+n_trend              = 50
+n_contrarian         = 50
+n_noise              = 0
+momentum_window      = 3
+persistence          = 0.10
+threshold            = 0.05
+```
+
+## Tooling
+
+```
+python abm_experiments/stage4_robustness_sweep.py \
+    --bsve-states-path data/output/1.6.1/master_research_dataset_reactive_jpy_v1_core.csv \
+    --output-dir abm_experiments/results/stage4/robustness \
+    --runs 20 \
+    --steps 1500 \
+    --seed 1
+```
+
+## Stage 4 findings (summary)
+
+**Cooldown optimum (inverted-U confirmed):**
+
+| Cooldown | Shocks/run | mean\|r\|MATURING | FULL pairs |
+| -------- | ---------- | ----------------- | ---------- |
+| cd=5     | ~103       | 0.056             | 1/3        |
+| cd=10    | ~62        | 0.077             | 2/3        |
+| cd=20    | ~36        | 0.050             | 0/3        |
+
+cd=10 is the optimum. Over-shocking at cd=5 degrades the MATURING signal because the mean inter-shock interval (~13 bars) falls below the `mature_boundary` (24 bars), disrupting lifecycle completion.
+
+**Lifecycle-integrity constraint (design rule for future shock mechanisms):**
+
+> Mean inter-shock interval must exceed `mature_boundary_bars` (24) to preserve the episode lifecycle structure required for H4.
+
+**Fraction insensitivity:**
+
+FULL H4 count = 2/3 across f=0.30, 0.40, 0.50 at cd=10. Fraction is not a meaningful tuning axis within this range.
+
+**USD-JPY structural exclusion:**
+
+USD-JPY MATURE cell (n=54) produces high H4 verdict variance across seeds. USD-JPY should not be used as a primary H4 test surface. The reliable test surface is EUR-JPY + GBP-JPY.
+
+**H3 frequency gap (known structural limitation):**
+
+Simulated freq/1k = 58–70 at all tested configurations vs empirical target 45–56. Median duration ~3 bars vs target ~4. Reversal gradient (rev_young > rev_mature) = 0 at all configurations. This gap is not resolvable by shock parameter tuning. See Stage 5.2 for resolution path.
+
+## Status
+
+✔ Anchor config confirmed and locked
+
+✔ Cooldown optimum characterised with mechanistic explanation
+
+✔ Fraction sensitivity confirmed negligible
+
+✔ USD-JPY structural limitation documented ⚠ H3 freq/duration gap: structural, deferred to Stage 5.2
+
+---
+
 # End of Runbook
