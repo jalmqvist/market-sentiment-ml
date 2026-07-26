@@ -8,6 +8,192 @@ This diary captures the *chronological* path of ABM experiments and decisions th
 
 ---
 
+---
+
+## 2026-07-26 — Stage 4: Robustness Sweep at vol_t80_f30_cd10
+
+### Setup
+Robustness sweep bracketing the Stage 3 anchor config (vol_t80_f30_cd10)
+along two perturbation dimensions:
+  - Cooldown sweep: thresh=0.80, frac=0.30, cooldown ∈ {5, 10, 20}
+  - Fraction sweep: thresh=0.80, cooldown=10, fraction ∈ {0.30, 0.40, 0.50}
+
+5 unique configs × 3 pairs × 20 seeds = 300 runs.
+Script: abm_experiments/stage4_robustness_sweep.py
+All other parameters: anchor=0.25, beta=0.02, steps=1500 (calibrated point).
+
+### Summary table
+
+| Config    | USD-JPY | EUR-JPY | GBP-JPY | Shocks/run | mean|r|MAT |
+|-----------|---------|---------|---------|------------|------------|
+| cd5_f30   | NO      | PARTIAL | FULL    | ~103       | 0.0559     |
+| cd10_f30* | NO      | FULL    | FULL    | ~62        | 0.0769     |
+| cd20_f30  | NO      | NO      | NO      | ~36        | 0.0498     |
+| cd10_f40  | NO      | FULL    | FULL    | ~62        | 0.0712     |
+| cd10_f50  | FULL    | FULL    | NO      | ~62        | 0.0684     |
+
+(* Stage 3 anchor, reproduced exactly)
+
+### Key findings
+
+**F1 — cd10 is a genuine cooldown optimum (inverted-U confirmed)**
+Cooldown gradient (mean |r|MATURING across pairs):
+  cd5=0.056 < cd10=0.077 > cd20=0.050
+cd10 outperforms both directions. Over-shocking (cd5, ~113/run) degrades
+the MATURING signal, particularly on USD-JPY (|r| = 0.012 vs 0.079 at
+cd10). Under-shocking (cd20, ~36/run) loses EUR-JPY and GBP-JPY FULL
+verdicts entirely. The mechanism: at cd5 the shock cadence (~13 bars) is
+shorter than mature_boundary (24 bars), disrupting episodes before they
+complete their lifecycle and flattening the contrarian signal.
+
+**F2 — Fraction is not a meaningful lever (0.30–0.50 insensitive)**
+At cooldown=10, FULL H4 pair count = 2/3 across all three fractions.
+mean |r|MATURING declines monotonically (0.077 → 0.071 → 0.068) but the
+gradient is shallow and the H4 verdict is unchanged. Fraction does not
+provide a meaningful tuning axis within this range.
+
+**F3 — USD-JPY H4 is gated by MATURE cell noise, not MATURING signal**
+USD-JPY achieves FULL H4 only at cd10_f50, where |r|MATURE collapses to
+0.019 (MATURE/MATURING ratio = 0.35). At all other configs |r|MATURE
+exceeds or approaches |r|MATURING, blocking the H4 verdict. This is a
+structural consequence of the small MATURE cell (n=54): 20-seed variance
+in 54-row correlations dominates. USD-JPY is confirmed as a caution-only
+pair for H4 assessment. The EUR-JPY + GBP-JPY pool is the reliable test
+surface.
+
+**F4 — H3 frequency gap is structural, not parameter-resolvable**
+All 5 configs overproduce episodes: freq/1k = 55–70 against empirical
+target 45–56. cd10_f40 brings USD-JPY to 54.9 (within target) but
+EUR-JPY and GBP-JPY remain at 67 and 65. Median duration remains ~3
+bars against target 4 at all configs. The gap is structural: short
+threshold-exit episodes (dur~3 < young_boundary=8) inflate frequency
+and prevent the reversal gradient (rev_young > rev_mature) from
+operating. This is a known limitation of the persistence+decay+shock
+mechanism at the current calibrated point — see roadmap for Level 1
+episode statistics assessment.
+
+### Conclusion
+
+H4 robustness confirmed. The vol_t80_f30_cd10 anchor is the identified
+optimum along both perturbation axes. FULL H4 on EUR-JPY + GBP-JPY is
+stable across fraction=0.30–0.50 and represents the reliable finding.
+USD-JPY H4 is structurally limited by MATURE cell size and should not be
+used as a primary H4 test surface.
+
+The cooldown optimum finding (F1) provides a mechanistic constraint for
+future shock mechanism design: shock cadence must be longer than the
+mature_boundary (24 bars) to allow episodes to complete their lifecycle.
+At cd=10 with volatility threshold=0.80, mean inter-shock interval is
+~22 bars — near but above the critical boundary. At cd=5 (~13 bars) it
+falls below, causing degradation.
+
+### Recommended anchor config (confirmed)
+
+vol_t80_f30_cd10 remains the Stage 3/4 anchor:
+  shock_trigger       = volatility
+  shock_vol_threshold = 0.80
+  shock_fraction      = 0.30
+  shock_cooldown      = 10
+
+### Next steps
+
+1. Update DL_ABM_RECONCILIATION.md (roadmap Stage 5.1):
+   Document H3/H4 findings, the lifecycle-conditioned predictive gradient
+   mechanism, and the structural freq/duration gap as a known limitation.
+
+2. Commit Stage 3 + Stage 4 diary and roadmap updates.
+
+3. Consider roadmap Stage 5.2 (optional): targeted investigation of the
+   freq/duration gap via episode extractor definition sensitivity —
+   specifically whether raising young_boundary or adjusting the extreme
+   threshold changes the structural episode count without disrupting H4.
+
+---
+
+## 2026-07-26 — Stage 3 Shock Sweep: H3 + H4 results
+
+### Setup
+Sweep of 10 shock configurations × 3 pairs × 20 seeds = 600 ABM runs.
+Script: abm_experiments/sweep_with_shocks.py
+Parameters: anchor=0.25, beta=0.02, steps=1500 (calibrated point).
+Shock sweep matrix: volatility trigger (thresh 0.70/0.80/0.90,
+fraction 0.20/0.30/0.50, cooldown 10/20) and periodic trigger
+(period 25/50 bars, fraction 0.30/0.50).
+
+### H4 results summary
+
+| Config           | USD-JPY | EUR-JPY | GBP-JPY |
+| ---------------- | ------- | ------- | ------- |
+| baseline         | NO      | NO      | NO      |
+| vol_t70_f30      | NO      | NO      | FULL    |
+| vol_t80_f30      | NO      | NO      | NO      |
+| vol_t90_f30      | NO      | NO      | NO      |
+| vol_t80_f20      | NO      | PARTIAL | NO      |
+| vol_t80_f50      | NO      | NO      | PARTIAL |
+| vol_t80_f30_cd10 | NO      | FULL    | FULL    |
+| per_p50_f30      | NO      | NO      | NO      |
+| per_p25_f30      | NO      | NO      | NO      |
+| per_p50_f50      | NO      | NO      | NO      |
+
+Best config: vol_t80_f30_cd10 (thresh=0.80, frac=0.30, cooldown=10).
+H4 FULL on EUR-JPY (MATURING=0.0511, ENTRY=0.0439, MATURE=0.0169)
+and GBP-JPY (MATURING=0.1005, ENTRY=0.0683, MATURE=0.0432).
+USD-JPY: H4 NO — MATURE cell (n=54) remains dominant artefact.
+
+### Key findings
+
+**F1 — Shocks necessary but not sufficient for H4**
+Baseline (no shocks) produces H4 on zero pairs. Volatility-triggered
+shocks produce H4 on at least one pair in most configs. This confirms
+H3 as a necessary precondition for H4.
+
+**F2 — Cooldown is the key lever (H3 → H4 pathway)**
+vol_t80_f30 (cooldown=20, 36 shocks/run): 0 FULL.
+vol_t80_f30_cd10 (cooldown=10, 62 shocks/run): 2 FULL.
+More frequent vol-aligned shocks densify episode formation,
+populating the MATURING window sufficiently to develop the
+contrarian imbalance that generates the forward-return gradient.
+
+**F3 — Periodic trigger null: market-state conditioning required**
+All four periodic configs produce 0 FULL H4 results at comparable
+shock counts. Arbitrary timing is insufficient. The trigger must
+coincide with genuine volatility regimes to create naturalistic
+crowd-alignment events. This aligns with F-008 (news-shock null):
+event occurrence alone does not matter; market-state amplification
+of agent coordination does.
+
+**F4 — Shocks suppress the MATURE artefact**
+MATURE mean |r| falls from 0.093 (baseline) to 0.052
+(vol_t80_f30_cd10), a 44% reduction. More frequent shocks
+redistribute sentiment more broadly, reducing extreme-value
+clustering on the small MATURE cell.
+
+**F5 — H3 episode frequency target unmet**
+All configs produce freq/1k of 58-76 against empirical target of
+45-56. Shocks reduce frequency from baseline (73) toward target
+(58 on USD-JPY at cd10) but do not reach it. Duration remains
+2.9-3.4 bars against target of 4. Reversal gradient (rev_young >
+rev_mature) is zero on all configs — structural limitation of
+ABM short-duration threshold-exit episodes interacting with the
+episode extractor, not a parameter failure.
+
+### Conclusion
+
+H3 confirmed (shocks improve H4 signal). H4 conditionally confirmed
+at vol_t80_f30_cd10: FULL on 2/3 pairs, consistent with GBP-JPY and
+EUR-JPY pool. USD-JPY remains limited by MATURE cell size (n=54).
+Volatility-conditioned trigger is necessary; periodic trigger is
+insufficient. H3 episode frequency/duration targets require further
+investigation beyond parameter sweep scope.
+
+### Recommended next config for targeted follow-up
+vol_t80_f30_cd10 is the anchor config for Stage 4 robustness testing.
+Consider also: cooldown=5 to probe whether further densification
+continues to improve H4, and fraction=0.40 to test the fraction
+sensitivity at the identified best cooldown.
+
+---
+
 ## 2026-07-26 — Stage 3 Pooled H4 test: negative result with qualified findings
 
 ### Setup

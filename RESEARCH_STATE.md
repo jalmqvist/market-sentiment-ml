@@ -310,7 +310,7 @@ representations are developed and independently validated.
 | Behavioral dataset augmentation        | High               | Deterministic augmentation pipeline implemented and validated. |
 | Behavioral ML integration              | Moderate–High      | Infrastructure largely complete; predictive evaluation now underway. |
 | Dynamic behavioral representations     | Low                | Conceptual direction supported by current findings but not yet investigated experimentally. |
-| Mechanistic interpretation (ABM)       | Low                | Active exploratory research with no definitive conclusions at present. |
+| Mechanistic interpretation (ABM)       | Low–Moderate       | Reactive-JPY lifecycle gradient reproduced mechanistically (Stages 3–4). Predictive structure confirmed (L3). Episode statistics gap (L1) remains open. No conclusions on other behavioral families. |
 
 ---
 

@@ -1,0 +1,337 @@
+{
+  "mode": "stage4_robustness_summary",
+  "runs": 20,
+  "steps": 1500,
+  "forward_col": "ret_24b",
+  "anchor_strength": 0.25,
+  "beta": 0.02,
+  "configs": [
+    "cd5_f30",
+    "cd10_f30",
+    "cd20_f30",
+    "cd10_f40",
+    "cd10_f50"
+  ],
+  "pairs": [
+    "usd-jpy",
+    "eur-jpy",
+    "gbp-jpy"
+  ],
+  "rows": [
+    {
+      "config": "cd5_f30",
+      "config_label": "cooldown=5  frac=0.30  (densification probe)",
+      "pair": "usd-jpy",
+      "shock_cooldown": 5,
+      "shock_fraction": 0.3,
+      "n_shocks_mean": 113.0,
+      "freq_per_1000": 59.766666666666666,
+      "median_duration": 3.15,
+      "rev_grad": false,
+      "abs_MATURING": 0.012299155759018448,
+      "abs_ENTRY": 0.0019016063462005718,
+      "abs_MATURE": 0.15891614393478867,
+      "h4_supported": false,
+      "h4_partial": false,
+      "h4_short": "NO",
+      "cautious": true,
+      "low_n_states": [
+        "MATURE"
+      ]
+    },
+    {
+      "config": "cd5_f30",
+      "config_label": "cooldown=5  frac=0.30  (densification probe)",
+      "pair": "eur-jpy",
+      "shock_cooldown": 5,
+      "shock_fraction": 0.3,
+      "n_shocks_mean": 106.0,
+      "freq_per_1000": 62.8,
+      "median_duration": 3.175,
+      "rev_grad": false,
+      "abs_MATURING": 0.10921671574915148,
+      "abs_ENTRY": 0.005864877992762027,
+      "abs_MATURE": 0.03529158571339412,
+      "h4_supported": false,
+      "h4_partial": true,
+      "h4_short": "PARTIAL",
+      "cautious": true,
+      "low_n_states": [
+        "MATURE"
+      ]
+    },
+    {
+      "config": "cd5_f30",
+      "config_label": "cooldown=5  frac=0.30  (densification probe)",
+      "pair": "gbp-jpy",
+      "shock_cooldown": 5,
+      "shock_fraction": 0.3,
+      "n_shocks_mean": 91.0,
+      "freq_per_1000": 70.16666666666666,
+      "median_duration": 2.925,
+      "rev_grad": false,
+      "abs_MATURING": 0.04612824812797955,
+      "abs_ENTRY": 0.041494041758251124,
+      "abs_MATURE": 0.02675337879598233,
+      "h4_supported": true,
+      "h4_partial": true,
+      "h4_short": "FULL",
+      "cautious": true,
+      "low_n_states": [
+        "MATURE"
+      ]
+    },
+    {
+      "config": "cd10_f30",
+      "config_label": "cooldown=10 frac=0.30  *** Stage 3 anchor ***",
+      "pair": "usd-jpy",
+      "shock_cooldown": 10,
+      "shock_fraction": 0.3,
+      "n_shocks_mean": 68.0,
+      "freq_per_1000": 58.233333333333334,
+      "median_duration": 3.325,
+      "rev_grad": false,
+      "abs_MATURING": 0.0790137778537556,
+      "abs_ENTRY": 0.0388071719462091,
+      "abs_MATURE": 0.09614529329418779,
+      "h4_supported": false,
+      "h4_partial": false,
+      "h4_short": "NO",
+      "cautious": true,
+      "low_n_states": [
+        "MATURE"
+      ]
+    },
+    {
+      "config": "cd10_f30",
+      "config_label": "cooldown=10 frac=0.30  *** Stage 3 anchor ***",
+      "pair": "eur-jpy",
+      "shock_cooldown": 10,
+      "shock_fraction": 0.3,
+      "n_shocks_mean": 64.0,
+      "freq_per_1000": 66.89999999999999,
+      "median_duration": 3.05,
+      "rev_grad": false,
+      "abs_MATURING": 0.051112485444728184,
+      "abs_ENTRY": 0.04386325199706496,
+      "abs_MATURE": 0.016941535962993273,
+      "h4_supported": true,
+      "h4_partial": true,
+      "h4_short": "FULL",
+      "cautious": true,
+      "low_n_states": [
+        "MATURE"
+      ]
+    },
+    {
+      "config": "cd10_f30",
+      "config_label": "cooldown=10 frac=0.30  *** Stage 3 anchor ***",
+      "pair": "gbp-jpy",
+      "shock_cooldown": 10,
+      "shock_fraction": 0.3,
+      "n_shocks_mean": 54.0,
+      "freq_per_1000": 65.76666666666667,
+      "median_duration": 3.075,
+      "rev_grad": false,
+      "abs_MATURING": 0.10045115254070273,
+      "abs_ENTRY": 0.06829039528542105,
+      "abs_MATURE": 0.043211771794126774,
+      "h4_supported": true,
+      "h4_partial": true,
+      "h4_short": "FULL",
+      "cautious": true,
+      "low_n_states": [
+        "MATURE"
+      ]
+    },
+    {
+      "config": "cd20_f30",
+      "config_label": "cooldown=20 frac=0.30  (Stage 3 lower bound ref)",
+      "pair": "usd-jpy",
+      "shock_cooldown": 20,
+      "shock_fraction": 0.3,
+      "n_shocks_mean": 38.0,
+      "freq_per_1000": 64.43333333333332,
+      "median_duration": 3.2,
+      "rev_grad": false,
+      "abs_MATURING": 0.04025098823406486,
+      "abs_ENTRY": 0.00669707617290057,
+      "abs_MATURE": 0.13067312542832216,
+      "h4_supported": false,
+      "h4_partial": false,
+      "h4_short": "NO",
+      "cautious": true,
+      "low_n_states": [
+        "MATURE"
+      ]
+    },
+    {
+      "config": "cd20_f30",
+      "config_label": "cooldown=20 frac=0.30  (Stage 3 lower bound ref)",
+      "pair": "eur-jpy",
+      "shock_cooldown": 20,
+      "shock_fraction": 0.3,
+      "n_shocks_mean": 37.0,
+      "freq_per_1000": 66.50000000000001,
+      "median_duration": 3.2,
+      "rev_grad": false,
+      "abs_MATURING": 0.011116065450558802,
+      "abs_ENTRY": 0.04172423930901389,
+      "abs_MATURE": 0.01275749588801905,
+      "h4_supported": false,
+      "h4_partial": false,
+      "h4_short": "NO",
+      "cautious": true,
+      "low_n_states": [
+        "MATURE"
+      ]
+    },
+    {
+      "config": "cd20_f30",
+      "config_label": "cooldown=20 frac=0.30  (Stage 3 lower bound ref)",
+      "pair": "gbp-jpy",
+      "shock_cooldown": 20,
+      "shock_fraction": 0.3,
+      "n_shocks_mean": 32.0,
+      "freq_per_1000": 68.00000000000001,
+      "median_duration": 3.075,
+      "rev_grad": false,
+      "abs_MATURING": 0.09791857995818415,
+      "abs_ENTRY": 0.05021118738801594,
+      "abs_MATURE": 0.10763931044838863,
+      "h4_supported": false,
+      "h4_partial": false,
+      "h4_short": "NO",
+      "cautious": true,
+      "low_n_states": [
+        "MATURE"
+      ]
+    },
+    {
+      "config": "cd10_f40",
+      "config_label": "cooldown=10 frac=0.40  (fraction probe)",
+      "pair": "usd-jpy",
+      "shock_cooldown": 10,
+      "shock_fraction": 0.4,
+      "n_shocks_mean": 68.0,
+      "freq_per_1000": 54.86666666666666,
+      "median_duration": 3.35,
+      "rev_grad": false,
+      "abs_MATURING": 0.06380072267391156,
+      "abs_ENTRY": 0.04623452472665573,
+      "abs_MATURE": 0.07557080470223952,
+      "h4_supported": false,
+      "h4_partial": false,
+      "h4_short": "NO",
+      "cautious": true,
+      "low_n_states": [
+        "MATURE"
+      ]
+    },
+    {
+      "config": "cd10_f40",
+      "config_label": "cooldown=10 frac=0.40  (fraction probe)",
+      "pair": "eur-jpy",
+      "shock_cooldown": 10,
+      "shock_fraction": 0.4,
+      "n_shocks_mean": 64.0,
+      "freq_per_1000": 67.43333333333332,
+      "median_duration": 3.0,
+      "rev_grad": false,
+      "abs_MATURING": 0.06821425220799124,
+      "abs_ENTRY": 0.037346405802709794,
+      "abs_MATURE": 0.03132841539189553,
+      "h4_supported": true,
+      "h4_partial": true,
+      "h4_short": "FULL",
+      "cautious": true,
+      "low_n_states": [
+        "MATURE"
+      ]
+    },
+    {
+      "config": "cd10_f40",
+      "config_label": "cooldown=10 frac=0.40  (fraction probe)",
+      "pair": "gbp-jpy",
+      "shock_cooldown": 10,
+      "shock_fraction": 0.4,
+      "n_shocks_mean": 54.0,
+      "freq_per_1000": 65.36666666666667,
+      "median_duration": 3.05,
+      "rev_grad": false,
+      "abs_MATURING": 0.08148526192854166,
+      "abs_ENTRY": 0.06753243127385417,
+      "abs_MATURE": 0.04306762938350471,
+      "h4_supported": true,
+      "h4_partial": true,
+      "h4_short": "FULL",
+      "cautious": true,
+      "low_n_states": [
+        "MATURE"
+      ]
+    },
+    {
+      "config": "cd10_f50",
+      "config_label": "cooldown=10 frac=0.50  (fraction upper bound)",
+      "pair": "usd-jpy",
+      "shock_cooldown": 10,
+      "shock_fraction": 0.5,
+      "n_shocks_mean": 68.0,
+      "freq_per_1000": 57.533333333333324,
+      "median_duration": 3.4,
+      "rev_grad": false,
+      "abs_MATURING": 0.05448343958235746,
+      "abs_ENTRY": 0.04379221668042979,
+      "abs_MATURE": 0.01916998020744874,
+      "h4_supported": true,
+      "h4_partial": true,
+      "h4_short": "FULL",
+      "cautious": true,
+      "low_n_states": [
+        "MATURE"
+      ]
+    },
+    {
+      "config": "cd10_f50",
+      "config_label": "cooldown=10 frac=0.50  (fraction upper bound)",
+      "pair": "eur-jpy",
+      "shock_cooldown": 10,
+      "shock_fraction": 0.5,
+      "n_shocks_mean": 64.0,
+      "freq_per_1000": 65.8,
+      "median_duration": 3.075,
+      "rev_grad": false,
+      "abs_MATURING": 0.06683570860774032,
+      "abs_ENTRY": 0.0443167167695792,
+      "abs_MATURE": 0.012488873843828838,
+      "h4_supported": true,
+      "h4_partial": true,
+      "h4_short": "FULL",
+      "cautious": true,
+      "low_n_states": [
+        "MATURE"
+      ]
+    },
+    {
+      "config": "cd10_f50",
+      "config_label": "cooldown=10 frac=0.50  (fraction upper bound)",
+      "pair": "gbp-jpy",
+      "shock_cooldown": 10,
+      "shock_fraction": 0.5,
+      "n_shocks_mean": 54.0,
+      "freq_per_1000": 68.43333333333332,
+      "median_duration": 3.15,
+      "rev_grad": false,
+      "abs_MATURING": 0.08384846141048771,
+      "abs_ENTRY": 0.05638295525883287,
+      "abs_MATURE": 0.09945238208891297,
+      "h4_supported": false,
+      "h4_partial": false,
+      "h4_short": "NO",
+      "cautious": true,
+      "low_n_states": [
+        "MATURE"
+      ]
+    }
+  ]
+}
