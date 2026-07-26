@@ -8,6 +8,74 @@ This diary captures the *chronological* path of ABM experiments and decisions th
 
 ---
 
+## 2026-07-26 — Stage 3 Pooled H4 test: negative result with qualified findings
+
+### Setup
+Pooled cross-pair H4 test: 20 runs × 3 pairs (USD-JPY, EUR-JPY, GBP-JPY),
+seeds 1-20, steps=1500, anchor=0.25, beta=0.02.
+Pooled frame: 64,100 rows. State counts: ENTRY=43,940 MATURING=15,960 MATURE=4,180.
+
+### Pooled result
+
+| State    | n      | Pearson r  | p      | Spearman r | p      |
+| -------- | ------ | ---------- | ------ | ---------- | ------ |
+| ENTRY    | 43,940 | -0.0216*** | 0.0000 | -0.0291*** | 0.0000 |
+| MATURING | 15,960 | +0.0293*** | 0.0002 | +0.0034 ns | 0.6638 |
+| MATURE   | 4,180  | +0.0013 ns | 0.9316 | -0.0172 ns | 0.2674 |
+
+H4 NOT SUPPORTED on pooled data. Empirical rank: ENTRY > MATURE > MATURING
+(Spearman). The 5-seed GBP-JPY confirmation was within-noise.
+
+### Key findings from decomposition
+
+**F1 — EUR-JPY ENTRY contrarian signal (genuine)**
+EUR-JPY ENTRY Spearman mean = -0.0585 ± 0.0427 (SNR=1.37) across 20 seeds.
+Both USD-JPY (+0.0001) and GBP-JPY (-0.0154) ENTRY signals are flat.
+The pooled ENTRY significance is driven by EUR-JPY (42.4% of rows).
+The negative sign is mechanistically coherent: high ABM sentiment at
+episode entry predicts contrarian 24-bar reversal. This is a real
+pair-specific finding but should not be generalised cross-pair.
+
+**F2 — MATURING Pearson/Spearman divergence (leverage artefact)**
+Pooled MATURING: Pearson r=+0.0293 (p=0.0002) vs Spearman r=+0.0034 (p=0.664).
+Gap of 0.026 at n=15,960 indicates high-leverage outlier influence — extreme
+ABM sentiment values co-occurring with large forward returns in specific runs
+(e.g. USD-JPY seed 18 Pearson r=+0.17). Not a rank-order distributional signal.
+
+**F3 — MATURING sign inconsistent across pairs (cancellation)**
+USD-JPY MATURING Spearman = +0.0493 (SNR=0.79)
+EUR-JPY MATURING Spearman = -0.0091 (SNR=0.14)
+GBP-JPY MATURING Spearman = -0.0342 (SNR=0.43)
+All SNRs below 1.0. Signs cancel in pooling. No pair individually
+exceeds one within-pair standard deviation. The MATURING gradient
+from the 5-seed run was a high-variance false positive.
+
+### H4 assessment (revised)
+
+H4 as formulated (MATURING > ENTRY > MATURE in |forward-return correlation|)
+is falsified at the calibrated parameter point by the 20-seed pooled test.
+The persistence + decay mechanism alone does not reproducibly generate the
+MATURING predictive gradient.
+
+The programme hypothesis that shocks are not needed to reproduce H4 (based
+on the 5-seed GBP-JPY result) is not confirmed. The shock mechanism (H3 /
+roadmap Stage 3) remains the next required investigation — now as a
+necessary condition for H4 rather than a formation-quality enhancement.
+
+### What remains valid
+
+- The calibrated parameter point (anchor=0.25, beta=0.02) produces correct
+  episode lifecycle structure (Stage 2 result, unchanged).
+- The EUR-JPY ENTRY contrarian signal is a genuine mechanistic finding
+  worth investigating further.
+- F-008 (news-shock null) is unaffected — scheduled news events do not
+  drive episode exits regardless of H4 outcome.
+- The endogenous lifecycle interpretation of H4 remains the correct
+  scientific framing; the current mechanism is simply insufficient to
+  reproduce the gradient without shock injection.
+
+---
+
 ## 2026-07-25 — Stage 3: BSVE State Label Injection, H4 hypothesis test
 
 ### Context

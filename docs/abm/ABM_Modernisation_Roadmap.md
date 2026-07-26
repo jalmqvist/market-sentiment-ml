@@ -225,6 +225,15 @@ Two independent lines of evidence support the endogenous interpretation:
    USD-JPY (MATURING > ENTRY direction holds on 2/3 pairs; MATURE
    cell n=54–89 is statistically unreliable).
 
+3. **Pooled ABM test (20 seeds × 3 pairs, Stage 3):** H4 is NOT reproduced
+   at the calibrated parameter point without shock injection. The MATURING
+   Spearman signal is near zero and sign-inconsistent across pairs (SNR < 1
+   on all three). The shock mechanism (H3) is therefore a necessary condition
+   for H4 reproduction, not merely a formation-quality improvement.
+   The EUR-JPY ENTRY contrarian signal (-0.0585 Spearman, SNR=1.37) is the
+   most robust ABM finding from the current parameter point.
+
+
 This hypothesis predicts that adding a shock mechanism (H3) will
 improve episode *formation rate and speed* to better match empirical
 BSVE diagnostics, but will not materially strengthen the MATURING
@@ -526,7 +535,7 @@ Capture the July 2026 pivot:
 | 3.2   | Integration                           | Shock + persistence + decay runs without error               |
 | 3.3   | Structure validation                  | All episode statistics within 2x of empirical                |
 | 4.1   | BSVE state injection                  | Complete. `--use-bsve-states` flag implemented, state label mapping (JPY_CONSENSUS_* → short labels) applied on load, non-episode rows excluded. |
-| 4.2  | Predictive gradient                    | ABM shows MATURING > ENTRY > MATURE on GBP-JPY (full); MATURING > MATURE on EUR-JPY (partial); USD-JPY inconclusive due to n=54 MATURE cell. MATURING is the strongest episode-state predictor on 2/3 pairs at the calibrated parameter point. |
+| 4.2  | Predictive gradient                    | NOT MET at calibrated point without shocks.                               EUR-JPY ENTRY contrarian signal confirmed                               (Spearman -0.0585, 20-seed stable).                               MATURING gradient requires shock mechanism (H3). Proceed to Stage 3 (shock injection). |
 | 4.3   | Robustness                            | Gradient stable across seeds and modest parameter variation  |
 | 5.x   | Documentation                         | All three MD files updated, diary entry complete             |
 

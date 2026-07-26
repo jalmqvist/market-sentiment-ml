@@ -121,6 +121,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--verbose", action="store_true")
     p.add_argument("--output-json", type=str, default=None,
                    help="Write result dict to this JSON path")
+    # Pooled cross-pair analysis
+    p.add_argument("--pool-pairs", action="store_true",
+                   help="Run all three JPY pairs, concatenate aligned DataFrames, "
+                        "and compute H4 on the pooled dataset. Overrides --pair.")
+    p.add_argument("--pool-pair-list", type=str,
+                   default="usd-jpy,eur-jpy,gbp-jpy",
+                   help="Comma-separated pairs to pool (default: all three JPY pairs)")
     return p
 
 
@@ -683,6 +690,266 @@ def print_price_regime_report(
 
     print(sep + "\n")
 
+# ---------------------------------------------------------------------------
+# Pooled cross-pair analysis
+# ---------------------------------------------------------------------------
+
+def run_pooled_analysis(
+    args: argparse.Namespace,
+    params: dict,
+    forward_col: str,
+    calibration_meta: Optional[dict],
+) -> dict:
+    """
+    Run the BSVE state injection for each pair in --pool-pair-list,
+    concatenate the aligned DataFrames across all pairs and all runs,
+    then compute a single pooled H4 correlation test.
+
+    This resolves the small-sample MATURE cell problem (n=54-89 per pair)
+    by pooling to n=209+ MATURE rows, giving stable correlation estimates.
+
+    Per-pair results are also computed and returned for comparison.
+    """
+    pairs = [p.strip() for p in args.pool_pair_list.split(",") if p.strip()]
+
+    if args.verbose:
+        print(f"\n[Pool] Pairs: {pairs}")
+        print(f"[Pool] Runs per pair: {args.runs}  Seeds: "
+              f"{args.seed} to {args.seed + args.runs - 1}")
+
+    # --- load all BSVE datasets upfront ---
+    bsve_datasets: Dict[str, pd.DataFrame] = {}
+    for pair in pairs:
+        if args.verbose:
+            print(f"\n[Pool] Loading BSVE dataset for pair={pair} ...")
+        df = load_bsve_dataset(args.bsve_states_path, pair)
+        if forward_col not in df.columns:
+            available = [c for c in df.columns if c.startswith("ret_")]
+            raise ValueError(
+                f"Column '{forward_col}' not found for pair='{pair}'. "
+                f"Available: {available}"
+            )
+        if args.verbose:
+            counts = df["state_id"].value_counts().to_dict()
+            print(f"[Pool]   rows={len(df)}  states={counts}")
+        bsve_datasets[pair] = df
+
+    # --- per-pair aggregated results (for the comparison table) ---
+    per_pair_aggregated: Dict[str, Dict[str, dict]] = {}
+    per_pair_h4: Dict[str, dict] = {}
+
+    # --- accumulate aligned frames across all pairs and runs ---
+    all_aligned_frames: List[pd.DataFrame] = []
+
+    for pair in pairs:
+        bsve_df = bsve_datasets[pair]
+        run_results: List[Dict[str, dict]] = []
+
+        for run_idx in range(args.runs):
+            seed = args.seed + run_idx
+            if args.verbose:
+                print(f"\n[Pool] pair={pair}  run={run_idx+1}/{args.runs}  seed={seed}")
+
+            abm_sentiment = run_abm_series(
+                steps   = args.steps,
+                seed    = seed,
+                params  = params,
+                pair    = pair,
+                verbose = args.verbose,
+            )
+
+            aligned_df = align_abm_to_bsve(
+                abm_sentiment, bsve_df, verbose=args.verbose
+            )
+
+            # Tag with pair and run index for traceability in the pooled frame
+            aligned_df = aligned_df.copy()
+            aligned_df["_pair"]    = pair
+            aligned_df["_run_idx"] = run_idx
+            aligned_df["_seed"]    = seed
+
+            all_aligned_frames.append(aligned_df)
+
+            run_corrs = compute_state_correlations(
+                aligned_df,
+                forward_col   = forward_col,
+                sentiment_col = "abm_net_sentiment",
+                verbose       = args.verbose,
+            )
+            run_results.append(run_corrs)
+
+        per_pair_aggregated[pair] = aggregate_runs(run_results, states=BSVE_STATES)
+
+        mean_corrs = {
+            state: {
+                "spearman_r": per_pair_aggregated[pair][state]["spearman_r_mean"],
+                "pearson_r":  per_pair_aggregated[pair][state]["pearson_r_mean"],
+                "n":          int(per_pair_aggregated[pair][state]["n_mean"]),
+                "pearson_p":  math.nan,
+                "spearman_p": math.nan,
+            }
+            for state in BSVE_STATES
+        }
+        per_pair_h4[pair] = test_h4_hypothesis(mean_corrs, metric="spearman_r")
+
+    # --- pooled correlation test ---
+    pooled_df = pd.concat(all_aligned_frames, ignore_index=True)
+
+    if args.verbose:
+        total_rows = len(pooled_df)
+        state_counts = pooled_df["state_id"].value_counts().to_dict()
+        print(f"\n[Pool] Pooled frame: {total_rows} rows  "
+              f"({args.runs} runs × {len(pairs)} pairs)")
+        print(f"[Pool] Pooled state counts: {state_counts}")
+
+    pooled_corrs = compute_state_correlations(
+        pooled_df,
+        forward_col   = forward_col,
+        sentiment_col = "abm_net_sentiment",
+        verbose       = args.verbose,
+    )
+
+    pooled_h4 = test_h4_hypothesis(pooled_corrs, metric="spearman_r")
+
+    # --- print reports ---
+    _print_pooled_report(
+        pairs             = pairs,
+        per_pair_agg      = per_pair_aggregated,
+        per_pair_h4       = per_pair_h4,
+        pooled_corrs      = pooled_corrs,
+        pooled_h4         = pooled_h4,
+        calibration_meta  = calibration_meta,
+        runs              = args.runs,
+        steps             = args.steps,
+        forward_horizon   = args.forward_horizon,
+    )
+
+    return {
+        "mode":             "pooled_bsve",
+        "pairs":            pairs,
+        "runs":             args.runs,
+        "steps":            args.steps,
+        "forward_horizon":  args.forward_horizon,
+        "forward_col":      forward_col,
+        "anchor_strength":  params["anchor_strength"],
+        "beta":             params["beta"],
+        "per_pair":         {
+            pair: {
+                "aggregated": per_pair_aggregated[pair],
+                "h4_verdict": per_pair_h4[pair],
+            }
+            for pair in pairs
+        },
+        "pooled": {
+            "correlations": pooled_corrs,
+            "h4_verdict":   pooled_h4,
+            "n_rows":       len(pooled_df),
+            "state_counts": pooled_df["state_id"].value_counts().to_dict(),
+        },
+        "calibration_meta": calibration_meta,
+    }
+
+
+def _print_pooled_report(
+    pairs: List[str],
+    per_pair_agg: Dict[str, Dict[str, dict]],
+    per_pair_h4: Dict[str, dict],
+    pooled_corrs: Dict[str, dict],
+    pooled_h4: dict,
+    calibration_meta: Optional[dict],
+    runs: int,
+    steps: int,
+    forward_horizon: int,
+) -> None:
+    sep  = "=" * 74
+    sep2 = "-" * 74
+
+    print(f"\n{sep}")
+    print(f"  Stage 3 — Pooled Cross-Pair H4 Test  |  {' + '.join(p.upper() for p in pairs)}")
+    print(f"  Runs/pair: {runs}  |  Steps/run: {steps}  |  Forward horizon: {forward_horizon}b")
+    if calibration_meta:
+        print(f"  Artifact: extreme_thresh="
+              f"{calibration_meta.get('thresholds', {}).get('extreme_threshold_net_pct')}  "
+              f"young={calibration_meta.get('thresholds', {}).get('young_boundary_bars')}  "
+              f"mature={calibration_meta.get('thresholds', {}).get('mature_boundary_bars')}")
+    print(sep)
+
+    # --- per-pair summary rows ---
+    print(f"\n  Per-pair Spearman |r| (mean across {runs} runs)")
+    print(f"  {'Pair':<12} {'|r| MATURING':>13}  {'|r| ENTRY':>10}  "
+          f"{'|r| MATURE':>11}  {'H4':>8}  {'Cautious':>9}")
+    print(f"  {'-'*12} {'-'*13}  {'-'*10}  {'-'*11}  {'-'*8}  {'-'*9}")
+
+    for pair in pairs:
+        v   = per_pair_h4[pair]
+        agg = per_pair_agg[pair]
+        am  = v.get("abs_MATURING", math.nan)
+        ae  = v.get("abs_ENTRY",    math.nan)
+        at  = v.get("abs_MATURE",   math.nan)
+        h4  = "FULL" if v.get("h4_supported") else (
+              "PARTIAL" if v.get("h4_partial_supported") else "NO")
+        cau = "⚠" if v.get("cautious") else ""
+        print(f"  {pair.upper():<12} {am:>13.4f}  {ae:>10.4f}  {at:>11.4f}  "
+              f"{h4:>8}  {cau:>9}")
+
+    print(f"\n{sep2}")
+
+    # --- pooled result ---
+    total_n = sum(pooled_corrs[s]["n"] for s in BSVE_STATES)
+    print(f"\n  POOLED ({total_n} rows = {len(pairs)} pairs × {runs} runs)")
+    print(f"\n  {'State':<12} {'n':>7}  {'Pearson r':>10}  {'p':>7}  "
+          f"{'Spearman r':>11}  {'p':>7}")
+    print(f"  {'-'*12} {'-'*7}  {'-'*10}  {'-'*7}  {'-'*11}  {'-'*7}")
+
+    for state in BSVE_STATES:
+        c   = pooled_corrs[state]
+        pr  = f"{c['pearson_r']:+.4f}"   if not math.isnan(c['pearson_r'])  else "   NaN"
+        pp  = f"{c['pearson_p']:.4f}"    if not math.isnan(c['pearson_p'])  else "   NaN"
+        sr  = f"{c['spearman_r']:+.4f}"  if not math.isnan(c['spearman_r']) else "   NaN"
+        sp  = f"{c['spearman_p']:.4f}"   if not math.isnan(c['spearman_p']) else "   NaN"
+        # significance stars
+        sig = ""
+        if not math.isnan(c.get('spearman_p', math.nan)):
+            if c['spearman_p'] < 0.001:  sig = "***"
+            elif c['spearman_p'] < 0.01: sig = "**"
+            elif c['spearman_p'] < 0.05: sig = "*"
+        print(f"  {state:<12} {c['n']:>7}  {pr:>10}  {pp:>7}  "
+              f"{sr:>11}{sig:<3}  {sp:>7}")
+
+    print(f"\n{sep2}")
+    print(f"\n  Pooled H4 Verdict  ({pooled_h4['metric']})")
+    print(f"  Expected rank : {' > '.join(H4_ORDER)}")
+    print(f"  Empirical rank: {' > '.join(pooled_h4.get('empirical_rank_order', ['?','?','?']))}")
+
+    supported = pooled_h4.get("h4_supported")
+    partial   = pooled_h4.get("h4_partial_supported")
+
+    if supported is None:
+        print(f"  Result  : INCONCLUSIVE — {pooled_h4.get('reason', '')}")
+    elif supported:
+        print(f"  Result  : H4 SUPPORTED (full gradient confirmed on pooled data)")
+    elif partial:
+        print(f"  Result  : H4 PARTIALLY SUPPORTED "
+              f"(MATURING > MATURE confirmed, ENTRY ordering not strict)")
+    else:
+        print(f"  Result  : H4 NOT SUPPORTED on pooled data")
+
+    if pooled_h4.get("cautious"):
+        low = ", ".join(
+            f"{s} (n={pooled_corrs[s]['n']})"
+            for s in pooled_h4["low_n_states"]
+        )
+        print(f"  ⚠ CAUTIOUS: low-n states — {low}")
+
+    print(f"\n  |corr| values — "
+          f"MATURING={pooled_h4.get('abs_MATURING', math.nan):.4f}  "
+          f"ENTRY={pooled_h4.get('abs_ENTRY', math.nan):.4f}  "
+          f"MATURE={pooled_h4.get('abs_MATURE', math.nan):.4f}")
+    print(sep + "\n")
+
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # Main entry point
@@ -711,7 +978,29 @@ def main() -> None:
     forward_col = f"ret_{args.forward_horizon}b"
 
     # ------------------------------------------------------------------
-    # BSVE STATE INJECTION PATH
+    # POOLED CROSS-PAIR PATH — checked first; overrides --use-bsve-states
+    # ------------------------------------------------------------------
+    if args.pool_pairs:
+        if not args.bsve_states_path:
+            parser.error("--bsve-states-path is required with --pool-pairs")
+
+        result_payload = run_pooled_analysis(
+            args             = args,
+            params           = params,
+            forward_col      = forward_col,
+            calibration_meta = calibration_meta,
+        )
+
+        if args.output_json:
+            out_path = Path(args.output_json)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(out_path, "w") as f:
+                json.dump(result_payload, f, indent=2, default=str)
+            print(f"[output] Results written to {out_path}")
+        return
+
+    # ------------------------------------------------------------------
+    # BSVE STATE INJECTION PATH (single pair)
     # ------------------------------------------------------------------
     if args.use_bsve_states:
         if not args.bsve_states_path:
@@ -720,7 +1009,6 @@ def main() -> None:
         print(f"\n[Stage 3] Loading BSVE dataset for pair={args.pair} ...")
         bsve_df = load_bsve_dataset(args.bsve_states_path, args.pair)
 
-        # Validate forward-return column exists
         if forward_col not in bsve_df.columns:
             available_ret = [c for c in bsve_df.columns if c.startswith("ret_")]
             raise ValueError(
@@ -732,7 +1020,6 @@ def main() -> None:
             state_counts = bsve_df["state_id"].value_counts().to_dict()
             print(f"[Stage 3] BSVE rows: {len(bsve_df)}  state counts: {state_counts}")
 
-        # Run ABM multiple times, collect per-run correlations
         run_results: List[Dict[str, dict]] = []
 
         for run_idx in range(args.runs):
@@ -758,16 +1045,14 @@ def main() -> None:
             )
             run_results.append(run_corrs)
 
-        # Aggregate across runs
         aggregated = aggregate_runs(run_results, states=BSVE_STATES)
 
-        # Build a flat corr dict from means for H4 test
         mean_corrs = {
             state: {
                 "spearman_r": aggregated[state]["spearman_r_mean"],
                 "pearson_r":  aggregated[state]["pearson_r_mean"],
                 "n":          int(aggregated[state]["n_mean"]),
-                "pearson_p":  math.nan,   # p-values not averaged (use run-level)
+                "pearson_p":  math.nan,
                 "spearman_p": math.nan,
             }
             for state in BSVE_STATES
@@ -786,22 +1071,19 @@ def main() -> None:
         )
 
         result_payload = {
-            "mode":            "bsve_state_injection",
-            "pair":            args.pair,
-            "runs":            args.runs,
-            "steps":           args.steps,
-            "forward_horizon": args.forward_horizon,
-            "forward_col":     forward_col,
-            "anchor_strength": params["anchor_strength"],
-            "beta":            params["beta"],
-            "aggregated":      aggregated,
-            "h4_verdict":      h4_verdict,
+            "mode":             "bsve_state_injection",
+            "pair":             args.pair,
+            "runs":             args.runs,
+            "steps":            args.steps,
+            "forward_horizon":  args.forward_horizon,
+            "forward_col":      forward_col,
+            "anchor_strength":  params["anchor_strength"],
+            "beta":             params["beta"],
+            "aggregated":       aggregated,
+            "h4_verdict":       h4_verdict,
             "calibration_meta": calibration_meta,
         }
 
-    # ------------------------------------------------------------------
-    # STAGE 2 FALLBACK PATH (price-only regime classification)
-    # ------------------------------------------------------------------
     # ------------------------------------------------------------------
     # STAGE 2 FALLBACK PATH (price-only regime classification)
     # ------------------------------------------------------------------
@@ -809,11 +1091,9 @@ def main() -> None:
         if args.verbose:
             print(f"\n[Stage 2 fallback] Price-regime hierarchy for pair={args.pair}")
 
-        # Load price data once — same source as run_abm_series
         import config as cfg
         dataset_path = (
-            cfg.OUTPUT_DIR
-            / "1.6.1"
+            cfg.OUTPUT_DIR / "1.6.1"
             / "master_research_dataset_reactive_jpy_v1_core.csv"
         )
         if not dataset_path.exists():
@@ -843,7 +1123,6 @@ def main() -> None:
             )
 
         price_series_full = sub["entry_close"].values
-
         run_results: List[Dict[str, dict]] = []
 
         for run_idx in range(args.runs):
@@ -859,22 +1138,14 @@ def main() -> None:
                 verbose = args.verbose,
             )
 
-            # Align price series length to sentiment series length.
-            # run_abm_series returns effective_steps rows (may be < args.steps
-            # if price data is the binding constraint). Take the matching window
-            # starting after warmup, mirroring FXSentimentSimulation.run().
             from research.abm.simulation import FXSentimentSimulation
-            _warmup = FXSentimentSimulation.__init__.__defaults__  # (48,) for warmup_steps
-            warmup = 48  # matches FXSentimentSimulation default
-            n_sent = len(abm_sentiment)
-            price_window = price_series_full[warmup + 1 : warmup + 1 + n_sent]
+            warmup   = 48
+            n_sent   = len(abm_sentiment)
+            price_window = price_series_full[warmup + 1: warmup + 1 + n_sent]
 
-            # Pad or trim to match sentiment length (safety guard)
             if len(price_window) < n_sent:
                 price_window = np.pad(
-                    price_window,
-                    (0, n_sent - len(price_window)),
-                    mode="edge",
+                    price_window, (0, n_sent - len(price_window)), mode="edge"
                 )
             else:
                 price_window = price_window[:n_sent]
@@ -916,6 +1187,10 @@ def main() -> None:
         with open(out_path, "w") as f:
             json.dump(result_payload, f, indent=2, default=str)
         print(f"[output] Results written to {out_path}")
+
+
+if __name__ == "__main__":
+    main()
 
 
 if __name__ == "__main__":
