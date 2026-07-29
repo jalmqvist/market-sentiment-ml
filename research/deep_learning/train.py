@@ -1,5 +1,6 @@
 import argparse
 import logging
+import random
 from pathlib import Path
 
 import numpy as np
@@ -177,8 +178,16 @@ def main():
     parser.add_argument("--wf-train-end", type=str, default=None)
     parser.add_argument("--wf-test-start", type=str, default=None)
     parser.add_argument("--wf-test-end", type=str, default=None)
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducible training.")
 
     args = parser.parse_args()
+
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(args.seed)
+        torch.cuda.manual_seed_all(args.seed)
     validate_partition_args(args.regime, args.surface, args.state)
     partition = resolve_partition(args.regime, args.surface, args.state)
 
@@ -210,6 +219,7 @@ def main():
     )
 
     logging.info("=== MLP Training ===")
+    logging.info(f"random_seed: {args.seed}")
     logging.info(
         f"CONFIG | model=mlp pair={args.pairs} train_pairs={train_pairs_arg} "
         f"predict_pairs={predict_pairs_arg} regime={args.regime} "
@@ -687,6 +697,7 @@ def main():
             "learning_rate": float(args.lr),
             "label_quantile": float(args.label_quantile),
             "label_threshold": float(threshold),
+            "seed": int(args.seed),
         },
 
         # --------------------------------------------------------
