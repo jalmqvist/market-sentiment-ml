@@ -361,6 +361,20 @@ The default walk-forward parameters are tuned for Behavioral Surface datasets (â
 These defaults typically produce multiple folds over a 2019â€“present dataset. The MPML reference
 default (`train_years=7`) can be restored via `--wf-train-years 7` when longer history is available.
 
+#### Reproducible training
+
+Both `research/deep_learning/train.py` and `research/deep_learning/train_lstm.py` accept a `--seed`
+argument that initialises all random number generators before model construction:
+
+```bash
+python research/deep_learning/train.py --dataset-version 1.5.1 --seed 42 ...
+python research/deep_learning/train_lstm.py --dataset-version 1.5.1 --seed 42 ...
+```
+
+The default seed is `42`. Omitting `--seed` is equivalent to passing `--seed 42`, so all existing
+invocations continue to work unchanged. The seed is logged as `random_seed: <value>` and recorded
+in the training provenance under `training.seed`.
+
 Stage 2 extends Stage 1 Characterization with causal out-of-sample validation, but it remains
 strictly non-trading. Trading conclusions are deferred to Stage 3 **Trading Validation** in MPML.
 
