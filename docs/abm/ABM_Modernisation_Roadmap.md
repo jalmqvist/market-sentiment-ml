@@ -580,8 +580,8 @@ updates, and reconciliation document.
 | 4.3 | Robustness | COMPLETE. FULL H4 on EUR-JPY + GBP-JPY stable across f=0.30/0.40/0.50 at cd=10 (2/3 consistent). cd10 confirmed as cooldown optimum (inverted-U: cd5=0.056 < cd10=0.077 > cd20=0.050 mean|
 | 5.1 | DL_ABM_RECONCILIATION.md | COMPLETE 2026-07-26. Layer 2 (Reactive-JPY) added. |
 | 5.2 | Episode extractor sensitivity | COMPLETE 2026-07-26. STRUCTURAL verdict on gradient. Partial definition sensitivity on freq/dur (closes at pct=65-70). Root cause: age-agnostic dissolution. Programme closed at L3. |
-| 5.3 | ABM_RUNBOOK.md Stage 4 entry | OPEN. |
-| 5.4 | Diary + roadmap commit | OPEN. |
+| 5.3 | ABM_RUNBOOK.md Stage 4 entry | COMPLETE |
+| 5.4 | Diary + roadmap commit | COMPLETE |
 | 5.x   | Documentation                         | All three MD files updated, diary entry complete             |
 
 ------

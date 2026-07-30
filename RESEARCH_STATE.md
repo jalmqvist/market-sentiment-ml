@@ -371,15 +371,18 @@ for the current prediction artifact contract and downstream integration schema.
 
 ### Mechanistic Understanding
 
-Empirical observations naturally motivate questions regarding the underlying mechanisms responsible for
-observed behavioral organization. Current questions include:
+Empirical observations naturally motivate questions regarding the underlying mechanisms responsible for observed behavioral organization. Current questions include:
 
 - Why do Persistent and Reactive behavioral families emerge?
 - Which interacting-agent mechanisms reproduce observed behavioral dynamics?
 - Can synthetic markets generate similar behavioral ontologies?
 - Which empirical findings remain unexplained by existing behavioral models?
 
-Addressing these questions represents the long-term objective of the Agent-Based Modeling programme.
+**Future work (Stage 6):** Introduce duration-dependent dissolution into the ABM to close L1/L2.
+
+The current ABM produces episodes that exit via threshold-crossing regardless of age, preventing the reversal gradient from emerging. A Stage 6 mechanism would condition dissolution probability on episode age (e.g., `lambda_t = f(vol_t, episode_age_t)`), such that young episodes dissolve faster than mature ones on average. This would allow the ABM to reproduce the empirical hazard-rate structure and close the episode statistics gap.
+
+This is a mechanistic extension, not a parameter tuning problem, and would require stateful modification of the agent update loop.
 
 ---
 
