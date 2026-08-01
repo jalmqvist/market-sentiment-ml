@@ -41,9 +41,17 @@ behavioral representation, predictive modelling, adaptive evaluation and mechani
 
 ---
 
-### FX Pair Families and Behavioral Surfaces
+### Definitions: Forex (FX) Pair Families and Behavioral Surfaces
 
-An **FX pair family** defines *which instruments* are being modeled (for example, the Reactive-JPY family consists of EURJPY, GBPJPY and USDJPY). A **Behavioral Surface** defines *how that family is represented*. Multiple Behavioral Surfaces may exist for the same FX pair family. For example, the Reactive-JPY family is currently represented by both a **Consensus Behavioral Surface** (Young, Maturing, Mature and Non-Extreme states) and a **Trend/Vol Behavioral Surface** (LVTF, HVTF, LVR and HVR regimes). BSVE constructs these Behavioral Surface representations, while MSML trains predictive models on them and MPML evaluates the resulting prediction artifacts.
+A **Behavioral Surface** defines the discrete state space used to represent behavior within an FX pair family. Different Behavioral Surfaces may represent the same family from different perspectives. For example, the Reactive-JPY family is currently represented by both a **Consensus Lifecycle Surface** (Young, Maturing, Mature, Non-Extreme) derived from crowd consensus dynamics, and a **Trend/Volatility Surface** (LVTF, HVTF, LVR, HVR) derived from market price behavior. BSVE constructs Behavioral Surfaces, MSML learns predictive models from them, and MPML evaluates the resulting Behavioral Prediction Artifacts.
+
+| Term                               | Meaning                                                      |
+| ---------------------------------- | ------------------------------------------------------------ |
+| **FX Pair Family**                 | The collection of instruments being modeled.                 |
+| **Behavioral Surface**             | A discrete state representation defined over an FX Pair Family. |
+| **Behavioral State**               | An individual state within a Behavioral Surface.             |
+| **Behavioral Observation**         | One timestamp/pair assigned to exactly one Behavioral State. |
+| **Behavioral Prediction Artifact** | A predictive model trained on a Behavioral Surface.          |
 
 ---
 
