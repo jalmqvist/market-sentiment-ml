@@ -41,6 +41,12 @@ behavioral representation, predictive modelling, adaptive evaluation and mechani
 
 ---
 
+### FX Pair Families and Behavioral Surfaces
+
+An **FX pair family** defines *which instruments* are being modeled (for example, the Reactive-JPY family consists of EURJPY, GBPJPY and USDJPY). A **Behavioral Surface** defines *how that family is represented*. Multiple Behavioral Surfaces may exist for the same FX pair family. For example, the Reactive-JPY family is currently represented by both a **Consensus Behavioral Surface** (Young, Maturing, Mature and Non-Extreme states) and a **Trend/Vol Behavioral Surface** (LVTF, HVTF, LVR and HVR regimes). BSVE constructs these Behavioral Surface representations, while MSML trains predictive models on them and MPML evaluates the resulting prediction artifacts.
+
+---
+
 ## Repository Architecture
 
 The following diagram shows the flow of artifacts through the pipeline from raw market observations to
