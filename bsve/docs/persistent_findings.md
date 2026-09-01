@@ -12,7 +12,7 @@ Figures 1–5 examine these long-lived episodes from complementary perspectives 
 
 ### 1. Long-lived episodes are associated with volatility transitions rather than static regimes
 
-![04_behavioral_transition_classes](figures/04_behavioral_transition_classes.png)
+![04_behavioral_transition_classes](figures/persistent/04_behavioral_transition_classes.png)
 
 > **Figure 1. Behavioral transition classes.** Episodes are grouped according to whether trend and/or volatility differ between the first and last regime of the episode. The upper panel shows that nearly 80% of episodes begin and end in the same behavioral class. The lower panel reveals that these common episodes are *less* likely to become long-lived, whereas episodes involving volatility changes are enriched by approximately 3–4× among episodes lasting more than 100 bars. The figure introduces the central finding of this study: persistence is associated with **regime evolution** rather than remaining within a single market state.
 
