@@ -12,7 +12,7 @@ Figures 1–5 examine these long-lived episodes from complementary perspectives 
 
 ### 1. Long-lived episodes are associated with volatility transitions rather than static regimes
 
-![04_behavioral_transition_classes](/home/almqvist/Documents/PycharmProjects/market-sentiment-ml/analysis.persistent/output/04_behavioral_transition_classes.png)
+![04_behavioral_transition_classes](figures/04_behavioral_transition_classes.png)
 
 > **Figure 1. Behavioral transition classes.** Episodes are grouped according to whether trend and/or volatility differ between the first and last regime of the episode. The upper panel shows that nearly 80% of episodes begin and end in the same behavioral class. The lower panel reveals that these common episodes are *less* likely to become long-lived, whereas episodes involving volatility changes are enriched by approximately 3–4× among episodes lasting more than 100 bars. The figure introduces the central finding of this study: persistence is associated with **regime evolution** rather than remaining within a single market state.
 
@@ -26,7 +26,7 @@ This indicates that persistence is associated with regime evolution rather than 
 
 ### 2. Transition families reveal where extreme persistence develops
 
-![01_transition_summary](/home/almqvist/Documents/PycharmProjects/market-sentiment-ml/analysis.persistent/output/01_transition_summary.png)
+![01_transition_summary](figures/persistent/01_transition_summary.png)
 
 > **Figure 2. Episode transition families.** The behavioral classes from Figure 1 are resolved into individual regime-to-regime transitions. While LVTF→LVTF and HVTF→HVTF dominate the overall population, the strongest enrichment among long-lived episodes occurs for transitions connecting low- and high-volatility trend-following regimes, particularly LVTF→HVTF. This identifies the specific trajectories responsible for the enrichment observed in Figure 1.
 
@@ -42,7 +42,7 @@ Taken together, these results indicate that persistence preferentially develops 
 
 ### 3. Regime evolution follows a highly structured state space
 
-![02_internal_transition_matrix](/home/almqvist/Documents/PycharmProjects/market-sentiment-ml/analysis.persistent/output/02_internal_transition_matrix.png)
+![02_internal_transition_matrix](figures/persistent/02_internal_transition_matrix.png)
 
 > **Figure 3. Within-episode regime transition probabilities.** Heatmap of transition probabilities between consecutive regime observations within persistent sentiment episodes. Trend-following regimes exhibit strong self-persistence (>85%), whereas range regimes preferentially transition into trend-following states instead of remaining in range. The figure demonstrates that persistent episodes evolve within a highly structured state space rather than through random regime switching.
 
@@ -63,7 +63,7 @@ This suggests that trend formation represents the principal direction of regime 
 
 ### 4. Timing analysis shows that transitions occur throughout an episode
 
-![03_transition_timing](/home/almqvist/Documents/PycharmProjects/market-sentiment-ml/analysis.persistent/output/03_transition_timing.png)
+![03_transition_timing](figures/persistent/03_transition_timing.png)
 
 > **Figure 4. Timing of regime transitions within an episode.** Histograms showing where each transition type occurs during the normalized lifetime of an episode. Each transition family is normalized independently to facilitate comparison despite different sample sizes. Neither volatility nor trend transitions are confined to episode initiation or termination; instead, they occur throughout the episode, indicating continuous structural evolution rather than a sequence of discrete phases.
 
@@ -77,7 +77,7 @@ This suggests that persistent sentiment episodes evolve continuously rather than
 
 ### 5. Persistence depends on regime evolution
 
-![05_duration_by_behavior](/home/almqvist/Documents/PycharmProjects/market-sentiment-ml/analysis.persistent/output/05_duration_by_behavior.png)
+![05_duration_by_behavior](figures/persistent/05_duration_by_behavior.png)
 
 > **Figure 5. Persistence distributions by behavioral transition class.** Distribution of episode durations grouped by their overall start/end transition class. Episodes involving volatility changes exhibit substantially longer durations than episodes with no behavioral change, while episodes changing both trend and volatility display the longest median persistence despite representing only a small fraction of all observations. Together with Figures 1–4, this supports the interpretation that long persistence is linked to the path an episode follows through regime space rather than to any individual regime.
 

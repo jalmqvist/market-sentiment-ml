@@ -69,7 +69,7 @@ The results did not support the existence of obvious volatility regimes based so
 
 However, a unimodal distribution does not imply behavioral irrelevance. Volatility may still contain predictive information even if natural regime boundaries are not visually apparent.
 
-![volatility_distributions](/home/almqvist/Documents/PycharmProjects/market-sentiment-ml/bsve/calibration_artifacts/plots/volatility_distributions.png)
+![volatility_distributions](../calibration_artifacts/plots/volatility_distributions.png)
 
 > **Figure -1A. CHF volatility distributions (2019–2026).** Distribution of rolling volatility measures used during the CHF exploratory studies. Both the 12-bar (`vol_12b`) and 48-bar (`vol_48b`) measures exhibit largely unimodal, right-skewed distributions. Elevated-volatility observations occur as a continuous tail rather than as clearly separated clusters. This suggests that volatility environments in CHF are not naturally partitioned into discrete low-, medium-, and high-volatility regimes based on distributional structure alone. Notice the volatility range difference between the two plots.
 
@@ -98,7 +98,7 @@ Results:
 - The relationship appeared nonlinear and threshold-like rather than purely linear.
 
 The most stable signal was observed in side_streak. Extreme-state persistence displayed the same broad direction but with greater noise.
-![eurchf_vol48b_sidestreak_median_extremestreak70_vol48b_percentile_bin](/home/almqvist/Documents/PycharmProjects/market-sentiment-ml/bsve/calibration_artifacts/plots/eurchf_vol48b_sidestreak_median_extremestreak70_vol48b_percentile_bin.png)
+![eurchf_vol48b_sidestreak_median_extremestreak70_vol48b_percentile_bin](../calibration_artifacts/plots/eurchf_vol48b_sidestreak_median_extremestreak70_vol48b_percentile_bin.png)
 
 > **Figure -1B. Volatility versus persistence in EURCHF.**
 >
@@ -208,7 +208,7 @@ Equivalent episodes were largely absent in elevated-volatility environments.
 
 This indicates that volatility primarily influences the persistence tail rather than the typical episode.
 
-![fig1](/home/almqvist/Documents/PycharmProjects/market-sentiment-ml/analysis.chf/study_0a_v2/fig1.png)
+![fig1](figures/reactive_chf/fig1.png)
 
 ---
 
@@ -229,7 +229,7 @@ The relationship is therefore asymmetric:
 
 Low volatility appears necessary but not sufficient for ultra-persistent crowd behavior.
 
-![fig2](/home/almqvist/Documents/PycharmProjects/market-sentiment-ml/analysis.chf/study_0a_v2/fig2.png)
+![fig2](figures/reactive_chf/fig2.png)
 
 ------
 
@@ -270,7 +270,7 @@ The result is visible in every volatility quintile and is consistent across both
 
 The analysis demonstrates that volatility contains information not only about expected duration but about the entire persistence distribution.
 
-![fig3](/home/almqvist/Documents/PycharmProjects/market-sentiment-ml/analysis.chf/study_0a_v2/fig3.png)
+![fig3](figures/reactive_chf/fig3.png)
 
 ---
 
@@ -284,7 +284,7 @@ Higher-volatility regimes exhibit much thinner persistence tails.
 
 This suggests that volatility primarily controls the probability of extreme persistence rather than median persistence alone.
 
-![fig4](/home/almqvist/Documents/PycharmProjects/market-sentiment-ml/analysis.chf/study_0a_v2/fig4.png)
+![fig4](figures/reactive_chf/fig4.png)
 
 ---
 
