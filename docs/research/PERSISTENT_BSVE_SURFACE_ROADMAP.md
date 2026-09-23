@@ -4,7 +4,7 @@
 **Surface:** Persistent Commitment Lifecycle  
 **Candidate version:** v0.1.0  
 **Dataset:** 1.6.1  
-**Last updated:** 2026-09-22
+**Last updated:** 2026-09-23
 
 ---
 
@@ -22,6 +22,30 @@ representation in MSML.
 
 The candidate surface must therefore be treated as a **research hypothesis**,
 not as an established predictive or trading model.
+### Coverage-aware calibration constraint
+
+P0C-BSVE-0 and P0C-BSVE-1 established an important data-quality constraint
+for Persistent calibration.
+
+P0C-BSVE-0 confirmed two synchronized sentiment-coverage outages across all
+five Persistent pairs in dataset 1.6.1:
+
+- 2024-08-23 to 2024-10-03;
+- 2024-10-31 to 2025-05-09.
+
+The audit detected 1,626 empirical long gaps in the Persistent sample. P0C-BSVE-1
+found that 407 of the 1,421 canonical Persistent episodes cross at least one
+long gap. Therefore canonical same-crowd-side continuity cannot be assumed
+across a long coverage gap.
+
+For BSVE calibration, a long gap is consequently treated as a **hard
+observational break**. No sentiment state is forward-filled, interpolated, or
+otherwise reconstructed across such a gap.
+
+This does not redefine the historical P0C-0 canonical episode reconstruction.
+Instead, calibration uses a coverage-aware **observed segment** representation
+alongside the canonical episode representation.
+
 
 ---
 
@@ -62,6 +86,32 @@ This distinction is important.
 
 The candidate surface is therefore being developed as a **behavioral
 representation**, not as a direct return predictor.
+
+---
+
+## 2A. P0C-BSVE Coverage Findings
+
+P0C-BSVE-0 established that the major 2024-2025 sentiment-collection gaps
+are present across the full Persistent family rather than being specific to
+CHF pairs or to episode construction.
+
+P0C-BSVE-1 then quantified their effect on Persistent episode continuity:
+
+| Quantity | Result |
+| --- | ---: |
+| Persistent observations | 16,204 |
+| Canonical episodes | 1,421 |
+| Empirical long gaps | 1,626 |
+| Canonical episodes crossing >=1 long gap | 407 |
+| Single-segment episodes | 1,014 |
+| Observations with >=4 within-segment observations | 12,078 |
+
+The last figure is based on the provisional joint-history rule used in the
+study and is not a final calibration eligibility count.
+
+These findings motivate the coverage-aware calibration rules in Section 7.
+They do not imply a cause for the missing data and do not justify reconstructing
+unobserved sentiment states.
 
 ---
 
@@ -255,6 +305,43 @@ The semantic definition of the surface should be fixed now.
 
 The numerical boundaries should be calibrated using only information permitted
  by the chosen evaluation protocol.
+### Coverage-aware calibration eligibility
+
+The following rules are now part of the candidate calibration protocol:
+
+1. A long empirical observation gap is a hard observational break.
+2. A canonical episode that crosses a long gap is retained for provenance and
+   audit, but is not treated as one continuous calibration episode.
+3. The first observation after a long gap begins a new observed segment, even
+   when `crowd_side` is unchanged across the gap.
+4. `Level` and `Trajectory` history must be computed only from observations
+   within the current observed segment.
+5. No feature may use inferred, forward-filled, interpolated, or otherwise
+   reconstructed sentiment during a gap.
+6. A post-gap observed segment may become calibration-eligible once it has
+   accumulated sufficient within-segment history.
+7. Gap adjacency and gap crossing should remain explicit provenance fields;
+   they should not be silently encoded as behavioral states.
+
+P0C-BSVE-1 used provisional minimum-history thresholds of three observations
+for Level and four observations for Trajectory to quantify the available
+population. Under those provisional thresholds, 12,078 of 16,204 observations
+had sufficient joint history. These thresholds are **not yet frozen ontology
+rules** and must be resolved before implementation.
+
+The intended distinction is therefore:
+
+```text
+canonical episode
+    = historical P0C episode representation
+
+observed segment
+    = continuous observed history eligible for calibration
+```
+
+This separation preserves the P0C research reconstruction while preventing
+unobserved intervals from becoming implicit behavioral continuity.
+
 
 ------
 
@@ -660,13 +747,39 @@ The following questions must be resolved before the Copilot implementation PR.
 
 ### Q1 — Calibration protocol
 
+The calibration protocol must include the coverage-aware observed-segment rules
+defined in Section 7. In particular, calibration must not allow information
+from an evaluation period to affect state boundaries.
+
 Should v0.1 use:
 
 - fixed development calibration,
 - fold-specific walk-forward calibration,
 - or a hybrid ontology/fold-calibration approach?
 
-### Q2 — State granularity
+### Q2 — Coverage and minimum-history thresholds
+
+P0C-BSVE-1 established the observed-segment rule, but the minimum amount of
+within-segment history required before Level and Trajectory become valid
+calibration inputs remains open.
+
+Questions:
+
+- What minimum history is required for `prior_mean_depth`?
+- What minimum history is required for `early_late_commitment_delta`?
+- Should very young observed segments receive an explicit insufficient-history
+  status, or another BSVE-compatible representation?
+- Should gap-adjacent segments receive special provenance only, or any additional
+  eligibility restriction?
+
+Current provisional study thresholds:
+
+- Level: >= 3 observations;
+- Trajectory: >= 4 observations.
+
+These are measurement-study thresholds, not final ontology decisions.
+
+### Q3 — State granularity
 
 Should v0.1 remain:
 
@@ -679,19 +792,19 @@ or should an experiment establish whether a coarser representation is
 
 Current default: retain 3×3 unless evidence argues otherwise.
 
-### Q3 — Episode age
+### Q4 — Episode age
 
 Should `maturity_bars` be explicitly documented as episode age for Persistent?
 
 Current proposal: yes.
 
-### Q4 — Transition events
+### Q5 — Transition events
 
 Should `state_transition` be a first-class Persistent transition event?
 
 Current proposal: yes, subject to schema/implementation verification.
 
-### Q5 — Continuous vs discrete representation
+### Q6 — Continuous vs discrete representation
 
 Should MSML receive:
 
@@ -711,6 +824,9 @@ Initial candidate surface should remain discrete for BSVE compatibility.
 
 Finalize:
 
+- coverage-aware observed-segment semantics;
+- minimum Level/Trajectory history;
+- treatment of young and gap-adjacent segments;
 - calibration protocol;
 - state granularity;
 - maturity semantics;
@@ -812,6 +928,12 @@ It is deliberately being tested rather than assumed to be correct.
 | `crowd_side` as ontology dimension                        | Rejected for v0.1 | OOS directional evidence not stable         |
 | `state_transition` event                                  | Open              | Requires schema/implementation confirmation |
 | Retrospective global thresholds as production calibration | Rejected          | Would compromise clean OOS evaluation       |
+| Long coverage gap = hard observational break              | Established       | P0C-BSVE-0/1 coverage audit                 |
+| Cross-gap canonical continuity for calibration            | Rejected          | 407/1,421 canonical episodes cross gaps     |
+| Observed segment used for calibration history             | Proposed          | Prevents inferred continuity across gaps     |
+| No gap reconstruction / forward fill                      | Established       | Coverage audit cannot support reconstruction |
+| Minimum Level history = 3                                 | Provisional       | P0C-BSVE-1 measurement threshold             |
+| Minimum Trajectory history = 4                            | Provisional       | P0C-BSVE-1 measurement threshold             |
 | Continuous Level/Trajectory in public surface             | Open              | Prefer discrete BSVE surface initially      |
 | Registry promotion                                        | Deferred          | Requires downstream evidence                |
 
@@ -822,6 +944,10 @@ It is deliberately being tested rather than assumed to be correct.
 **P0C behavioral discovery:** complete enough for candidate-surface design.
 
 **Candidate semantics:** substantially defined.
+
+**Coverage-aware calibration semantics:** established enough for protocol design.
+
+**Minimum Level/Trajectory history:** provisional; unresolved.
 
 **Calibration protocol:** unresolved.
 
