@@ -457,7 +457,10 @@ class TestPluginRegistration:
         registry = CalibrationRegistry()
         register_all_plugins(registry)
         register_all_plugins(registry)
-        assert len(registry.registered_keys()) == 1
+        keys = set(registry.registered_keys())
+        assert ("reactive_jpy", "1.0.0") in keys
+        assert ("persistent", "0.1.0") in keys
+        assert len(keys) == 2
 
     def test_bootstrap_uses_default_registry_when_none_given(self):
         from bsve.calibration.bootstrap import register_all_plugins

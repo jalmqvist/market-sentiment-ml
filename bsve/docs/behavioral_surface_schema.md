@@ -24,18 +24,29 @@ or future research pipelines.
 | `episode_id`       | string   | Deterministic episode identifier. Unique per consensus episode per pair. Format: `{pair}:{counter:08d}`.                                                                                                                                                                   |
 | `maturity_bars`    | int      | Running episode maturity. Counts consecutive consensus bars within the current episode; resets to `0` on non-extreme observations and to `1` on a new consensus episode.                                                                                                   |
 | `crowd_side`       | string   | Crowd direction during consensus. Canonical values: `LONG`, `SHORT`, or `""` (neutral/unknown). Integer encodings from the master research dataset (`1`, `-1`, `0`) are normalised to these strings before export.                                                         |
-| `transition_event` | string   | **String enum.** Stable transition label produced by the ontology state engine. Current Reactive-JPY values are `entry`, `continuation`, `exit_reversal`, and `exit_unknown`. Semantics are defined below. The schema is versioned; new values may be added in future ontology versions but existing values and semantics remain stable. |
+| `transition_event` | string   | **String enum.** Stable transition label produced by the ontology state engine. Values include `entry`, `continuation`, `state_transition`, `exit_reversal`, and `exit_unknown` (with additional legacy-compatible values allowed by schema validation). Semantics are ontology-specific and versioned. |
 
 ---
 
 ## Transition Event Semantics
 
-| Value            | Condition                                                                           |
-| ---------------- | ----------------------------------------------------------------------------------- |
-| `entry`          | First bar of a new consensus episode (`consensus_active == True`, new episode).     |
-| `continuation`   | Continuing within an active consensus episode (`consensus_active == True`, ongoing).|
-| `exit_reversal`  | First non-extreme bar immediately following a consensus episode.                    |
-| `exit_unknown`   | Any other non-extreme bar (no prior consensus context, or multiple bars after exit).|
+| Value              | Condition |
+| ------------------ | --------- |
+| `entry`            | First observation of a newly entered ontology episode. |
+| `continuation`     | Episode continues and ontology state is unchanged. |
+| `state_transition` | Episode continues but ontology state changes. |
+| `exit_reversal`    | Episode terminates due to a causal reversal event under the ontology. |
+| `exit_unknown`     | Episode termination cannot be assigned a more specific causal label. |
+
+### Persistent-specific transition event semantics
+
+| Value | Condition |
+|---|---|
+| `entry` | First observation of a crowd-side episode, including the first observation after a hard observational gap. |
+| `continuation` | Episode continues and Persistent Level × Trajectory state is unchanged. |
+| `state_transition` | Episode continues but Level × Trajectory state changes. |
+| `exit_reversal` | **First bar of the new crowd-side episode** (the bar that caused the reversal). Note: this differs from Reactive-JPY where `exit_reversal` labels the first non-extreme bar after consensus ends. |
+| `exit_unknown` | Observation with no active crowd side (neutral or missing). |
 
 ---
 

@@ -45,7 +45,13 @@ CANONICAL_COLUMNS = [
     "transition_event",
 ]
 
-VALID_TRANSITION_EVENTS = {"entry", "continuation", "exit_reversal", "exit_unknown"}
+VALID_TRANSITION_EVENTS = {
+    "entry",
+    "continuation",
+    "state_transition",
+    "exit_reversal",
+    "exit_unknown",
+}
 
 # ---------------------------------------------------------------------------
 # Fixtures

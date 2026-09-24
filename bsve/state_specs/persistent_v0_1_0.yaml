@@ -1,0 +1,65 @@
+environment:
+  id: "persistent"
+  version: "0.1.0"
+  family: "persistent"
+  subfamily: "commitment_lifecycle"
+  pairs:
+    - "EURUSD"
+    - "GBPUSD"
+    - "NZDUSD"
+    - "EURGBP"
+    - "EURAUD"
+  timeframe: "H1"
+  sentiment_required: true
+
+ontology:
+  name: "Persistent Commitment Lifecycle"
+  behavioral_object: "persistent_commitment_lifecycle"
+  status: "candidate"
+  deterministic: true
+  causal: true
+  calibration_required: true
+  description: >
+    Candidate Persistent BSVE ontology using Commitment Level × Commitment
+    Trajectory with frozen calibration boundaries.
+
+minimum_history:
+  level: 3
+  trajectory: 4
+
+observed_segments:
+  max_gap: "30D"
+  rule: "hard_observational_break"
+  # 30D approximates the empirical sentiment-collection outages identified
+  # in P0C-BSVE-0 (2024-08-23 and 2024-10-31). The shorter outage was
+  # ~41 days so 30D is a conservative threshold. This value is a fixed
+  # wall-clock approximation — it is not derived from the explicit gap
+  # list in the dataset.
+
+features:
+  level: "prior_mean_depth"
+  trajectory: "early_late_commitment_delta"
+  trajectory_split: "floor_half"
+  # Split convention: early = prior_depths[:floor(n/2)], late = prior_depths[floor(n/2):]
+  # For n=4 (binding minimum): early=[obs0,obs1], late=[obs2,obs3].
+  # For n=5: early=[obs0,obs1], late=[obs2,obs3,obs4].
+  # The middle observation belongs to the late half when n is odd.
+  # This convention is identical in calibration and surface generation.
+
+states:
+  - state_id: "PERSISTENT_LL"
+  - state_id: "PERSISTENT_LM"
+  - state_id: "PERSISTENT_LH"
+  - state_id: "PERSISTENT_ML"
+  - state_id: "PERSISTENT_MM"
+  - state_id: "PERSISTENT_MH"
+  - state_id: "PERSISTENT_HL"
+  - state_id: "PERSISTENT_HM"
+  - state_id: "PERSISTENT_HH"
+
+transition_events:
+  - "entry"
+  - "continuation"
+  - "state_transition"
+  - "exit_reversal"
+  - "exit_unknown"

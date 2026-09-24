@@ -16,7 +16,7 @@ from bsve.state_machine.engine import (
     build_behavioral_surface_manifest,
     generate_behavioral_surface,
 )
-from bsve.state_machine.plugins import ReactiveJPYPlugin
+from bsve.state_machine.plugins import make_plugin
 
 _DEFAULT_CALIBRATION_ARTIFACT = Path("bsve/calibration_artifacts/reactive_jpy_calibration_v1.json")
 _DEFAULT_STATE_SPEC = Path("bsve/state_specs/reactive_jpy_v1.yaml")
@@ -28,6 +28,11 @@ def _resolve_pairs(
     spec: dict[str, Any],
     pairs: list[str] | None,
 ) -> list[str]:
+    allowed = {
+        adapter.normalize_pair(p)
+        for p in spec.get("environment", {}).get("pairs", [])
+    }
+
     if pairs:
         resolved = [adapter.normalize_pair(p) for p in pairs]
     else:
@@ -36,6 +41,12 @@ def _resolve_pairs(
 
     if not resolved:
         raise ValueError("No pairs configured. Pass --pairs or add pairs to state spec.")
+
+    unsupported = sorted({p for p in resolved if allowed and p not in allowed})
+    if unsupported:
+        raise ValueError(
+            f"Pairs not supported by state spec {spec.get('environment', {}).get('id', '')!r}: {unsupported}"
+        )
     return sorted(set(resolved))
 
 
@@ -63,7 +74,11 @@ def run_behavioral_surface_pipeline(
     if ds.empty:
         raise ValueError(f"No dataset rows available for pairs: {resolved_pairs}")
 
-    plugin = ReactiveJPYPlugin()
+    ontology_id = str(spec.get("environment", {}).get("id", "")).strip()
+    if not ontology_id:
+        raise ValueError("state spec missing environment.id")
+    plugin = make_plugin(ontology_id)
+    max_gap = spec.get("observed_segments", {}).get("max_gap")
     surface = generate_behavioral_surface(
         ds,
         plugin=plugin,
@@ -72,6 +87,7 @@ def run_behavioral_surface_pipeline(
         pair_col=adapter.config.pair_col,
         timestamp_col=adapter.config.timestamp_col,
         crowd_side_col="crowd_side",
+        max_gap=max_gap,
     )
 
     output_dir = Path(output_dir)
