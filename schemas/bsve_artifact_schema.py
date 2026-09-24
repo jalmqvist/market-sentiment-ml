@@ -42,6 +42,7 @@ BSVE_MATURITY_CLASS_VALUES = {"young", "maturing", "mature", "n_a"}
 BSVE_TRANSITION_EVENT_VALUES = {
     "entry",
     "continuation",
+    "state_transition",
     "exit_reversal",
     "exit_threshold",
     "exit_late_reversal",

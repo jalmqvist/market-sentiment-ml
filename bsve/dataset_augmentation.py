@@ -266,6 +266,7 @@ def augment_with_behavioral_surface(
     )
 
     stats = {
+        "rows_loaded": original_len,
         "dataset_rows": original_len,
         "surface_rows": len(surface),
         "rows_matched": rows_matched,

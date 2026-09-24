@@ -54,6 +54,8 @@ class _PairRuntime:
     last_consensus_active: bool
     last_maturity: int
     current_episode_id: str
+    last_state_id: str | None = None
+    plugin_state: dict[str, Any] | None = None
 
 
 class BehavioralSurfaceEngine:
@@ -108,11 +110,9 @@ class BehavioralSurfaceEngine:
         normalised_observation = dict(observation)
         normalised_observation[self.crowd_side_col] = crowd_side
 
-        consensus_active = self.plugin.is_consensus_active(normalised_observation, self.calibration_artifact)
-
         prior = self._pair_state.get(pair)
         if prior is None:
-            boundary = True
+            gap_detected = False
         else:
             if timestamp <= prior.last_timestamp:
                 raise ValueError(
@@ -124,6 +124,25 @@ class BehavioralSurfaceEngine:
                 self.max_gap is not None
                 and (timestamp - prior.last_timestamp) > self.max_gap
             )
+
+        custom_step = getattr(self.plugin, "process_observation", None)
+        if callable(custom_step):
+            custom_row, custom_runtime = custom_step(
+                observation=normalised_observation,
+                pair=pair,
+                timestamp=timestamp,
+                prior=prior,
+                gap_detected=gap_detected,
+                calibration_artifact=self.calibration_artifact,
+                next_episode_id=lambda: self._next_episode_id(pair),
+            )
+            self._pair_state[pair] = custom_runtime
+            return custom_row
+
+        consensus_active = self.plugin.is_consensus_active(normalised_observation, self.calibration_artifact)
+        if prior is None:
+            boundary = True
+        else:
             extreme_changed = consensus_active != prior.last_consensus_active
             boundary = gap_detected or extreme_changed
 
@@ -148,6 +167,8 @@ class BehavioralSurfaceEngine:
             last_consensus_active=consensus_active,
             last_maturity=maturity,
             current_episode_id=episode_id,
+            last_state_id=state_id,
+            plugin_state=None,
         )
 
         return {
@@ -185,6 +206,7 @@ def generate_behavioral_surface(
     pair_col: str = "pair",
     timestamp_col: str = "entry_time",
     crowd_side_col: str = "crowd_side",
+    max_gap: str | None = None,
 ) -> pd.DataFrame:
     """Generate one deterministic behavioral-state assignment per pair/timestamp row.
 
@@ -205,6 +227,7 @@ def generate_behavioral_surface(
         pair_col=pair_col,
         timestamp_col=timestamp_col,
         crowd_side_col=crowd_side_col,
+        max_gap=max_gap,
     )
 
     rows = [engine.process_observation(row) for row in working.to_dict(orient="records")]

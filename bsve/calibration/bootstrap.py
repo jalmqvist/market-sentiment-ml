@@ -23,6 +23,7 @@ Design:
 
 Currently registered plugins:
     * reactive_jpy / 1.0.0  → JPYMaturityCalibrationPlugin
+    * persistent / 0.1.0    → PersistentCalibrationPlugin
 """
 
 from __future__ import annotations
@@ -64,6 +65,17 @@ def register_all_plugins(
         "reactive_jpy",
         "1.0.0",
         JPYMaturityCalibrationPlugin(),
+    )
+
+    # ------------------------------------------------------------------
+    # persistent / 0.1.0
+    # ------------------------------------------------------------------
+    from bsve.calibration.persistent_calibration import PersistentCalibrationPlugin
+
+    registry.register(
+        "persistent",
+        "0.1.0",
+        PersistentCalibrationPlugin(),
     )
 
     return registry
