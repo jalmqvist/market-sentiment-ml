@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 from dataclasses import dataclass
 from typing import Any
 
@@ -235,3 +236,71 @@ class PersistentCalibrationPlugin:
         mid = int(((values >= q33) & (values < q67)).sum())
         high = int((values >= q67).sum())
         return low > 0 and mid > 0 and high > 0
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point
+# ---------------------------------------------------------------------------
+
+
+def _parse_args():
+    """Parse CLI arguments for running persistent calibration from a dataset artifact."""
+    parser = argparse.ArgumentParser(
+        description="Persistent commitment lifecycle calibration"
+    )
+    parser.add_argument(
+        "--dataset-path", required=True,
+        help="Path to master research dataset artifact (CSV or parquet)",
+    )
+    parser.add_argument("--dataset-version", required=True)
+    parser.add_argument("--output-dir", default="bsve/calibration_artifacts")
+    parser.add_argument(
+        "--state-spec",
+        default="bsve/state_specs/persistent_v0_1_0.yaml",
+        help="Path to persistent state-spec YAML",
+    )
+    parser.add_argument(
+        "--calibration-id", default=None,
+        help="Calibration ID (defaults to persistent_v0_1_0_<YYYYMMDD>)",
+    )
+    parser.add_argument(
+        "--pairs", nargs="+",
+        default=["EURUSD", "GBPUSD", "NZDUSD", "EURGBP", "EURAUD"],
+    )
+    parser.add_argument("--start", default="2019-01-01")
+    parser.add_argument("--end", default="2026-12-31")
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    import datetime
+
+    from bsve.adapters.dataset_adapter import MasterResearchDatasetAdapter
+    from bsve.calibration.bootstrap import register_all_plugins
+    from bsve.calibration.calibration_runner import CalibrationRunner
+
+    args = _parse_args()
+
+    adapter = MasterResearchDatasetAdapter.from_artifact(args.dataset_path)
+
+    register_all_plugins()
+    runner = CalibrationRunner(output_dir=args.output_dir)
+
+    calibration_id = args.calibration_id or (
+        f"persistent_v0_1_0_{datetime.date.today().strftime('%Y%m%d')}"
+    )
+
+    artifact_path = runner.run(
+        ontology_id="persistent",
+        ontology_version="0.1.0",
+        state_spec_path=args.state_spec,
+        dataset_adapter=adapter,
+        calibration_params={
+            "calibration_id": calibration_id,
+            "dataset_version": args.dataset_version,
+            "calibration_window_start": args.start,
+            "calibration_window_end": args.end,
+            "pairs": args.pairs,
+        },
+    )
+    print(f"[BSVE] Calibration artifact written → {artifact_path}")
