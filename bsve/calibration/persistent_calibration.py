@@ -244,6 +244,7 @@ class PersistentCalibrationPlugin:
 
 
 def _parse_args():
+    """Parse CLI arguments for running persistent calibration from a dataset artifact."""
     parser = argparse.ArgumentParser(
         description="Persistent commitment lifecycle calibration"
     )
