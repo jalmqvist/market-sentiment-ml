@@ -119,6 +119,79 @@ def test_exit_unknown_for_missing_crowd_side(calibration_artifact: dict) -> None
     assert surface.iloc[4]["transition_event"] == "exit_unknown"
 
 
+def test_trajectory_split_convention_n4(calibration_artifact: dict) -> None:
+    """For 4 prior observations the split is exactly [0,1] early and [2,3] late."""
+    # depths = [10, 20, 30, 40]; split_idx=2; early=[10,20], late=[30,40]
+    # trajectory = mean([30,40]) - mean([10,20]) = 35 - 15 = 20.0
+    from bsve.calibration.calibration_contract import build_calibration_artifact as _bca
+
+    art = _bca(
+        calibration_id="traj_split_test",
+        ontology_id="persistent",
+        ontology_version="0.1.0",
+        calibration_window_start="2019-01-01",
+        calibration_window_end="2030-01-01",
+        dataset_version="test",
+        calibration_method="test",
+        outcome="success",
+        thresholds={
+            "level_q33": 0.0,
+            "level_q67": 100.0,
+            "trajectory_q33": 15.0,
+            "trajectory_q67": 22.0,
+            "min_level_history": 3,
+            "min_trajectory_history": 4,
+        },
+    )
+    s = _generate(_frame([10, 20, 30, 40, 50]), art)
+    assert s.iloc[4]["state_id"] == "PERSISTENT_MM"
+
+
+def test_trajectory_split_convention_n5(calibration_artifact: dict) -> None:
+    """For 5 prior observations the middle observation belongs to the late half."""
+    # depths = [10,20,30,40,50]; split_idx=2; early=[10,20], late=[30,40,50]
+    # trajectory = mean([30,40,50]) - mean([10,20]) = 40 - 15 = 25.0
+    from bsve.calibration.calibration_contract import build_calibration_artifact as _bca
+
+    art = _bca(
+        calibration_id="traj_split_n5_test",
+        ontology_id="persistent",
+        ontology_version="0.1.0",
+        calibration_window_start="2019-01-01",
+        calibration_window_end="2030-01-01",
+        dataset_version="test",
+        calibration_method="test",
+        outcome="success",
+        thresholds={
+            "level_q33": 0.0,
+            "level_q67": 100.0,
+            "trajectory_q33": 15.0,
+            "trajectory_q67": 22.0,
+            "min_level_history": 3,
+            "min_trajectory_history": 4,
+        },
+    )
+    s = _generate(_frame([10, 20, 30, 40, 50, 60]), art)
+    assert s.iloc[5]["state_id"] == "PERSISTENT_MH"
+
+
+def test_causality_prefix_independence(calibration_artifact: dict) -> None:
+    """Prefix outputs must be identical whether or not future observations exist.
+
+    This is the minimal automated causality check: truncating the dataset
+    at any point must not change the state assignments for the retained prefix.
+    """
+    full = _frame([10, 20, 30, 40, 50, 60, 70, 80])
+    truncated = _frame([10, 20, 30, 40, 50])
+    s_full = _generate(full, calibration_artifact)
+    s_trunc = _generate(truncated, calibration_artifact)
+    pd.testing.assert_frame_equal(
+        s_full.iloc[:5].reset_index(drop=True),
+        s_trunc.reset_index(drop=True),
+        check_like=False,
+    )
+
+
 def test_deterministic_generation(calibration_artifact: dict) -> None:
     df = _frame([10, 20, 30, 40, 50, 60])
     s1 = _generate(df, calibration_artifact)

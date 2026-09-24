@@ -989,6 +989,7 @@ It is deliberately being tested rather than assumed to be correct.
 | `state_transition` event                                  | Proposed          | Candidate semantics; confirm against BSVE schema/implementation |
 | Retrospective global thresholds as production calibration | Rejected          | Would compromise clean OOS evaluation       |
 | Long coverage gap = hard observational break              | Established       | P0C-BSVE-0/1 coverage audit                 |
+| Episode identity across hard gaps                         | Established       | `episode_id` resets at every gap even when `crowd_side` is unchanged. Surface `episode_id` represents observed segments, not canonical P0C episodes. Simpler implementation; avoids two identity concepts in one artifact field. P0C canonical episode count (1,421) will not match surface episode count. |
 | Cross-gap canonical continuity for calibration            | Rejected          | 407/1,421 canonical episodes cross gaps     |
 | Observed segment used for calibration history             | Established       | Prevents inferred continuity across gaps     |
 | No gap reconstruction / forward fill                      | Established       | Coverage audit cannot support reconstruction |

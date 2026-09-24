@@ -97,7 +97,7 @@ def test_persistent_calibration_rejects_degenerate_input() -> None:
     adapter = MasterResearchDatasetAdapter(df)
     plugin = PersistentCalibrationPlugin()
 
-    with pytest.raises(ValueError, match="distinct level values|degenerate level tertiles|empty level bin"):
+    with pytest.raises(ValueError, match="at least 3 distinct level values"):
         plugin.calibrate(
             adapter,
             _spec(),

@@ -154,6 +154,12 @@ class PersistentPlugin:
             maturity = 1
             history = []
         elif gap_detected:
+            # A hard observational gap creates a new episode_id even when
+            # crowd_side is unchanged across the gap. This differs from the
+            # P0C canonical episode representation (1,421 episodes) — the
+            # surface episode_id represents observed segments, not canonical
+            # P0C episodes. Documented in PERSISTENT_BSVE_SURFACE_ROADMAP.md
+            # Decision Log.
             episode_id = next_episode_id()
             maturity = 1
             history = []
@@ -184,6 +190,11 @@ class PersistentPlugin:
         if prior is None:
             transition_event = "entry"
         elif side_changed:
+            # exit_reversal is assigned to the first bar of the new crowd-side
+            # episode (the bar that caused the reversal). This differs from
+            # Reactive-JPY where exit_reversal labels the first non-extreme bar
+            # after consensus ends. Both conventions are internally consistent
+            # within their respective ontologies.
             transition_event = "exit_reversal"
         elif gap_detected:
             transition_event = "entry"

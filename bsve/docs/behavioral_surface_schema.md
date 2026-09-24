@@ -38,6 +38,16 @@ or future research pipelines.
 | `exit_reversal`    | Episode terminates due to a causal reversal event under the ontology. |
 | `exit_unknown`     | Episode termination cannot be assigned a more specific causal label. |
 
+### Persistent-specific transition event semantics
+
+| Value | Condition |
+|---|---|
+| `entry` | First observation of a crowd-side episode, including the first observation after a hard observational gap. |
+| `continuation` | Episode continues and Persistent Level × Trajectory state is unchanged. |
+| `state_transition` | Episode continues but Level × Trajectory state changes. |
+| `exit_reversal` | **First bar of the new crowd-side episode** (the bar that caused the reversal). Note: this differs from Reactive-JPY where `exit_reversal` labels the first non-extreme bar after consensus ends. |
+| `exit_unknown` | Observation with no active crowd side (neutral or missing). |
+
 ---
 
 ## Key Properties

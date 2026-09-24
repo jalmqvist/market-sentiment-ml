@@ -30,10 +30,21 @@ minimum_history:
 observed_segments:
   max_gap: "30D"
   rule: "hard_observational_break"
+  # 30D approximates the empirical sentiment-collection outages identified
+  # in P0C-BSVE-0 (2024-08-23 and 2024-10-31). The shorter outage was
+  # ~41 days so 30D is a conservative threshold. This value is a fixed
+  # wall-clock approximation — it is not derived from the explicit gap
+  # list in the dataset.
 
 features:
   level: "prior_mean_depth"
   trajectory: "early_late_commitment_delta"
+  trajectory_split: "floor_half"
+  # Split convention: early = prior_depths[:floor(n/2)], late = prior_depths[floor(n/2):]
+  # For n=4 (binding minimum): early=[obs0,obs1], late=[obs2,obs3].
+  # For n=5: early=[obs0,obs1], late=[obs2,obs3,obs4].
+  # The middle observation belongs to the late half when n is odd.
+  # This convention is identical in calibration and surface generation.
 
 states:
   - state_id: "PERSISTENT_LL"
