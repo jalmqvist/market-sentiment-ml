@@ -4,7 +4,7 @@
 **Surface:** Persistent Commitment Lifecycle  
 **Candidate version:** v0.1.0  
 **Dataset:** 1.6.1  
-**Last updated:** 2026-09-23
+**Last updated:** 2026-09-24
 
 ---
 
@@ -149,6 +149,77 @@ In particular:
 
 The candidate should therefore be compatible with BSVE without assuming that
  Persistent and Reactive-JPY have identical behavioral mechanisms.
+
+### Implementation-contract constraints
+
+The implementation must preserve the existing BSVE public artifact and
+calibration contracts. The Persistent surface is a new ontology implementation,
+not a redefinition of Reactive-JPY semantics.
+
+In particular:
+
+- the public Behavioral Surface remains one row per `(timestamp, pair)` and
+  uses the existing canonical fields;
+- Level and Trajectory are internal state-assignment variables and should not
+  become additional public surface columns;
+- Persistent calibration must use the existing versioned and hashed calibration
+  artifact mechanism rather than introduce a parallel artifact format;
+- the Persistent calibration artifact must carry the four numerical boundaries
+  required for state assignment;
+- MSML consumes the resulting Behavioral Surface / Behavioral Dataset Variant
+  and must not reproduce Persistent episode, gap, feature, or calibration
+  semantics;
+- existing Reactive-JPY surfaces and behavior must remain unchanged.
+
+The implementation should make the smallest backwards-compatible extension to
+the generic BSVE machinery required to support Persistent semantics. It must not
+force Persistent into Reactive-JPY's consensus semantics merely for code reuse.
+
+The Persistent state engine must explicitly support the distinction between:
+
+```text
+canonical crowd-side episode
+    = historical P0C episode representation
+
+observed segment
+    = continuous observed history used for causal feature calculation
+```
+
+A long observational gap therefore resets Persistent historical feature state,
+even when the canonical crowd-side episode remains continuous for provenance.
+
+The public `maturity_bars` field is retained. For Persistent it is defined as
+the current crowd-side episode age, not Reactive-JPY consensus maturity.
+
+The public `transition_event` field is retained. Persistent candidate semantics
+are:
+
+```text
+entry
+continuation
+state_transition
+exit_reversal
+exit_unknown
+```
+
+where `state_transition` means that the Persistent Level × Trajectory state
+changes while the underlying crowd-side episode continues. This value must be
+verified against the existing schema and implementation before it is frozen;
+existing Reactive-JPY transition semantics must not be changed.
+
+Persistent insufficient-history observations are not behavioral ontology states.
+They require an explicit non-state handling compatible with the existing BSVE
+artifact and MSML dataset contracts.
+
+The implementation must preserve deterministic assignment:
+
+```text
+same dataset
++
+same Persistent calibration artifact
+=
+same Persistent surface
+```
 
 ------
 
@@ -323,11 +394,12 @@ The following rules are now part of the candidate calibration protocol:
 7. Gap adjacency and gap crossing should remain explicit provenance fields;
    they should not be silently encoded as behavioral states.
 
-P0C-BSVE-1 used provisional minimum-history thresholds of three observations
-for Level and four observations for Trajectory to quantify the available
-population. Under those provisional thresholds, 12,078 of 16,204 observations
-had sufficient joint history. These thresholds are **not yet frozen ontology
-rules** and must be resolved before implementation.
+P0C-BSVE-2 subsequently tested Level minima of 2–5 and Trajectory minima of
+4–6 using the canonical feature definitions. The study supports freezing the
+minimum history at **3 prior observations for Level and 4 prior observations
+for Trajectory**. The Trajectory requirement is binding; the Level minimum is
+retained as an explicit protocol parameter but is non-binding in the jointly
+eligible population.
 
 The intended distinction is therefore:
 
@@ -400,8 +472,9 @@ but requires explicit BSVE/MSML support.
 
 ### Decision
 
-This remains an open design question and must be resolved before the
- implementation PR.
+**Resolved:** use the hybrid approach. Ontology semantics are fixed globally,
+while numerical Level/Trajectory boundaries are calibrated from the training
+portion of each MSML fold and then frozen for that fold's test period.
 
 ------
 
@@ -743,118 +816,104 @@ Before merging the candidate surface implementation, the PR should include
 
 # 20. Research Questions Remaining Before Implementation
 
-The following questions must be resolved before the Copilot implementation PR.
+The core research-design questions are now resolved. The remaining questions
+are implementation/schema confirmations derived from the existing BSVE and
+MSML contracts.
 
-### Q1 — Calibration protocol
+### Resolved research decisions
 
-The calibration protocol must include the coverage-aware observed-segment rules
-defined in Section 7. In particular, calibration must not allow information
-from an evaluation period to affect state boundaries.
+- hybrid calibration: fixed ontology semantics with fold-specific numerical
+  calibration;
+- pooled Persistent-family training population;
+- hard observational gaps;
+- no cross-gap history;
+- post-gap eligibility after sufficient within-segment history;
+- gap adjacency as provenance only;
+- Level minimum = 3 prior observations;
+- Trajectory minimum = 4 prior observations;
+- training-only Q33/Q67;
+- no test-period recalibration;
+- deterministic half-open bins;
+- insufficient-history observations are not behavioral states.
 
-Should v0.1 use:
+### Q1 — State granularity
 
-- fixed development calibration,
-- fold-specific walk-forward calibration,
-- or a hybrid ontology/fold-calibration approach?
+Retain:
 
-### Q2 — Coverage and minimum-history thresholds
-
-P0C-BSVE-1 established the observed-segment rule, but the minimum amount of
-within-segment history required before Level and Trajectory become valid
-calibration inputs remains open.
-
-Questions:
-
-- What minimum history is required for `prior_mean_depth`?
-- What minimum history is required for `early_late_commitment_delta`?
-- Should very young observed segments receive an explicit insufficient-history
-  status, or another BSVE-compatible representation?
-- Should gap-adjacent segments receive special provenance only, or any additional
-  eligibility restriction?
-
-Current provisional study thresholds:
-
-- Level: >= 3 observations;
-- Trajectory: >= 4 observations.
-
-These are measurement-study thresholds, not final ontology decisions.
-
-### Q3 — State granularity
-
-Should v0.1 remain:
-
-```
+```text
 3 × 3 = 9 states
 ```
 
-or should an experiment establish whether a coarser representation is
- preferable?
+The nine-state representation is frozen for v0.1.
 
-Current default: retain 3×3 unless evidence argues otherwise.
+### Q2 — Episode age
 
-### Q4 — Episode age
+`maturity_bars` is defined for Persistent as current crowd-side episode age.
+Final confirmation is an implementation-contract test, not a research-design
+question.
 
-Should `maturity_bars` be explicitly documented as episode age for Persistent?
+### Q3 — Transition events
 
-Current proposal: yes.
+`state_transition` is the candidate Persistent event when the Level × Trajectory
+state changes while the crowd-side episode continues. Final confirmation
+against the existing schema/implementation is required before merge.
 
-### Q5 — Transition events
+### Q4 — Continuous vs discrete representation
 
-Should `state_transition` be a first-class Persistent transition event?
-
-Current proposal: yes, subject to schema/implementation verification.
-
-### Q6 — Continuous vs discrete representation
-
-Should MSML receive:
-
-- only discrete states;
-- continuous Level/Trajectory values;
-- or both?
-
-Initial candidate surface should remain discrete for BSVE compatibility.
- Continuous variables may be retained as experimental controls in MSML rather
- than incorporated into the public surface.
-
+The public BSVE surface remains discrete for v0.1. Continuous Level/Trajectory
+values may be retained as experimental MSML controls but are not part of the
+public behavioral state vocabulary.
 ------
 
 # 21. Planned Research Sequence
 
-### Step 1 — Resolve design questions
+### Step 1 — Research design
 
-Finalize:
+Completed:
 
 - coverage-aware observed-segment semantics;
 - minimum Level/Trajectory history;
 - treatment of young and gap-adjacent segments;
-- calibration protocol;
-- state granularity;
+- hybrid calibration protocol;
+- pooled family calibration;
+- training-only tertiles;
+- frozen test-fold calibration.
+
+### Step 2 — Contract reconciliation
+
+Completed against the BSVE and MSML documentation:
+
+- public Behavioral Surface schema;
+- calibration artifact contract;
+- state-engine/plugin architecture;
 - maturity semantics;
-- transition semantics;
-- continuous/discrete treatment.
+- transition-event contract;
+- BSVE → Behavioral Dataset Variant → MSML boundary;
+- backwards-compatibility requirements.
 
-### Step 2 — Update this roadmap
+### Step 3 — Commit this roadmap
 
-Record the decisions and their rationale.
-
-### Step 3 — Commit roadmap
-
-The roadmap becomes the version-controlled specification for the
- implementation PR.
+This document is the version-controlled research and implementation
+specification for the Persistent candidate surface.
 
 ### Step 4 — Write Copilot implementation prompt
 
-The prompt should explicitly instruct Copilot to:
+The prompt must explicitly instruct Copilot to:
 
 - read this roadmap first;
-- inspect existing BSVE implementation;
-- reuse existing contracts where appropriate;
-- avoid copying Reactive-JPY assumptions;
-- implement the Persistent candidate surface;
-- add tests;
-- add calibration artifacts;
-- add documentation;
-- preserve existing surfaces and behavior.
+- inspect the existing BSVE implementation and tests;
+- inspect the MSML integration/documentation;
+- reuse existing contracts and artifact formats where appropriate;
+- implement Persistent as a distinct ontology rather than a Reactive-JPY fork;
+- make only the smallest backwards-compatible generic-engine extension
+  required by Persistent semantics;
+- implement coverage-aware observed-segment history;
+- implement causal Level/Trajectory features;
+- implement fold-specific Persistent calibration;
+- add the Persistent calibration and surface artifacts;
+- add comprehensive Persistent-specific tests;
+- preserve all existing surfaces and behavior;
+- update documentation without silently changing scientific semantics.
 
 ### Step 5 — Copilot PR
 
@@ -862,22 +921,23 @@ Copilot implements the candidate surface according to the frozen roadmap.
 
 ### Step 6 — Local validation
 
-Run the complete BSVE test suite and Persistent-specific validation.
+Run the complete BSVE test suite and Persistent-specific validation, including
+causality, gap handling, calibration freezing, determinism, state coverage,
+artifact-schema validation, and MSML consumption.
 
 ### Step 7 — MSML representation benchmark
 
-Use the frozen surface in a controlled MSML experiment.
+Use the frozen Persistent surface in a controlled MSML experiment.
 
 ### Step 8 — MPML
 
-Only if MSML produces credible OOS representation value, evaluate the
- resulting prediction artifact in MPML.
+Only if MSML produces credible OOS representation value, evaluate the resulting
+prediction artifact in MPML.
 
 ### Step 9 — Registry promotion
 
 Do not promote the surface to a stronger scientific status until the evidence
- supports doing so.
-
+supports doing so.
 ------
 
 # 22. Success Criteria
@@ -918,23 +978,28 @@ It is deliberately being tested rather than assumed to be correct.
 | Decision                                                  | Status            | Rationale                                   |
 | --------------------------------------------------------- | ----------------- | ------------------------------------------- |
 | Persistent family = 5 pairs                               | Established       | Existing Persistent family definition       |
-| Behavioral object = commitment lifecycle                  | Proposed          | P0C findings                                |
-| Level = `prior_mean_depth`                                | Proposed          | P0C dimensional reduction                   |
-| Trajectory = `early_late_commitment_delta`                | Proposed          | P0C dimensional reduction                   |
-| 3×3 state space                                           | Proposed          | Compact representation of P0C surface       |
-| Nine canonical states                                     | Proposed          | Direct representation of 3×3 grid           |
-| `maturity_bars` = episode age                             | Open              | Requires BSVE contract confirmation         |
-| `crowd_side` retained                                     | Proposed          | Existing BSVE / episode semantics           |
+| Behavioral object = commitment lifecycle                  | Established       | P0C findings                                |
+| Level = `prior_mean_depth`                                | Established       | P0C dimensional reduction                   |
+| Trajectory = `early_late_commitment_delta`                | Established       | P0C dimensional reduction                   |
+| 3×3 state space                                           | Established       | Compact representation of P0C surface       |
+| Nine canonical states                                     | Established       | Direct representation of 3×3 grid           |
+| `maturity_bars` = episode age                             | Established       | Persistent meaning = crowd-side episode age; contract test required |
+| `crowd_side` retained                                     | Established       | Existing BSVE / episode semantics           |
 | `crowd_side` as ontology dimension                        | Rejected for v0.1 | OOS directional evidence not stable         |
-| `state_transition` event                                  | Open              | Requires schema/implementation confirmation |
+| `state_transition` event                                  | Proposed          | Candidate semantics; confirm against BSVE schema/implementation |
 | Retrospective global thresholds as production calibration | Rejected          | Would compromise clean OOS evaluation       |
 | Long coverage gap = hard observational break              | Established       | P0C-BSVE-0/1 coverage audit                 |
 | Cross-gap canonical continuity for calibration            | Rejected          | 407/1,421 canonical episodes cross gaps     |
-| Observed segment used for calibration history             | Proposed          | Prevents inferred continuity across gaps     |
+| Observed segment used for calibration history             | Established       | Prevents inferred continuity across gaps     |
 | No gap reconstruction / forward fill                      | Established       | Coverage audit cannot support reconstruction |
-| Minimum Level history = 3                                 | Provisional       | P0C-BSVE-1 measurement threshold             |
-| Minimum Trajectory history = 4                            | Provisional       | P0C-BSVE-1 measurement threshold             |
-| Continuous Level/Trajectory in public surface             | Open              | Prefer discrete BSVE surface initially      |
+| Minimum Level history = 3                                 | Established       | P0C-BSVE-2; non-binding under joint eligibility |
+| Minimum Trajectory history = 4                            | Established       | P0C-BSVE-2; binding minimum-history constraint |
+| Hybrid fold-specific numerical calibration                | Established       | Fixed semantics; training-only fold boundaries |
+| Pooled family calibration                                  | Established       | Five Persistent pairs share calibration boundaries |
+| Training-only Q33/Q67                                     | Established       | Boundaries frozen before each test fold      |
+| Test-period recalibration                                 | Rejected          | Would violate clean OOS evaluation          |
+| Young observations = insufficient-history status          | Established       | Not a behavioral ontology state             |
+| Continuous Level/Trajectory in public surface             | Rejected for v0.1 | Retain discrete public surface; continuous values remain MSML controls |
 | Registry promotion                                        | Deferred          | Requires downstream evidence                |
 
 ------
@@ -947,11 +1012,14 @@ It is deliberately being tested rather than assumed to be correct.
 
 **Coverage-aware calibration semantics:** established enough for protocol design.
 
-**Minimum Level/Trajectory history:** provisional; unresolved.
+**Minimum Level/Trajectory history:** established at 3 / 4 by P0C-BSVE-2.
 
-**Calibration protocol:** unresolved.
+**Calibration protocol:** substantially resolved: hybrid fold-specific
+numerical calibration, pooled training population, training-only Q33/Q67,
+frozen before test evaluation.
 
-**Artifact semantics:** partially unresolved.
+**Artifact semantics:** reconciled against the existing BSVE and MSML contracts;
+remaining items are implementation-level confirmations/tests.
 
 **Implementation:** not started.
 
@@ -959,5 +1027,72 @@ It is deliberately being tested rather than assumed to be correct.
 
 **MPML evaluation:** deferred.
 
-The next action is to resolve the remaining design questions and update this
- document before implementation.
+The next action is to inspect the existing BSVE artifact contracts and MSML
+documentation, then resolve only the remaining implementation/schema questions
+before the Copilot implementation PR.
+
+---
+
+## Update 2026-09-24: Final calibration and contract decisions
+
+| Question | Decision | Status |
+| --- | --- | --- |
+| Calibration strategy | **Hybrid: fixed ontology semantics + fold-specific numerical calibration** | **Established** |
+| Calibration population | **Pooled Persistent family; training observations only; eligible observations rather than episodes as statistical units** | **Established** |
+| Gap treatment | **Hard observational break** | **Established** |
+| Cross-gap continuity | **Never used for calibration history** | **Established** |
+| Post-gap segment | **Eligible after sufficient within-segment history** | **Established** |
+| Gap adjacency | **Provenance only; no automatic exclusion** | **Established** |
+| Pair-specific boundaries | **No; pooled family calibration across the five Persistent pairs** | **Established** |
+| Tertiles | **Training-only Q33/Q67** | **Established** |
+| Test recalibration | **Never** | **Established** |
+| Quantile tie handling | **Deterministic half-open bins; no arbitrary tie splitting** | **Established** |
+| Young observations | **Insufficient-history status, not a behavioral state** | **Established** |
+| Calibration failure | **Fail loudly on insufficient/degenerate calibration populations or boundaries** | **Established** |
+| Level minimum | **3 prior observations** | **Established by P0C-BSVE-2; non-binding in the joint population** |
+| Trajectory minimum | **4 prior observations** | **Established by P0C-BSVE-2; binding minimum** |
+
+### P0C-BSVE-2 minimum-history sensitivity result
+
+The minimum-history sensitivity study tested Level minima of 2, 3, 4, and 5
+observations against Trajectory minima of 4, 5, and 6 observations, using the
+canonical feature definitions and coverage-aware observed segments.
+
+Decision-relevant findings:
+
+- Level minimum 2→5 produced **no change** in the jointly eligible population,
+  calibration boundaries, or nine-state representation once the Trajectory
+  requirement was imposed.
+- Trajectory minimum 4 and 5 produced **identical** results.
+- Trajectory minimum 6 removed 895 observations from the L3/T4 reference
+  population and shifted the numerical tertile boundaries modestly, but all
+  five Persistent pairs and all nine candidate states remained represented.
+- Nested eligibility checks passed for all tested configurations.
+- No configuration failed the distinct-value or state-coverage checks.
+
+The reference L3/T4 population contains 8,630 jointly eligible observations
+(53.26% of the 16,204 Persistent observations), 1,060 observed segments, and
+436 canonical episodes. Its pooled descriptive boundaries are:
+
+```text
+Level Q33 = 58.307692
+Level Q67 = 65.200000
+
+Trajectory Q33 = -1.916667
+Trajectory Q67 = 0.750000
+```
+
+These full-sample values are descriptive study outputs only. They are **not**
+production calibration values; production boundaries remain fold-specific and
+training-only under the hybrid calibration protocol.
+
+The minimum-history decision is therefore frozen at:
+
+```text
+minimum Level history      = 3 prior observations
+minimum Trajectory history = 4 prior observations
+```
+
+Trajectory is the binding constraint. Level 3 remains an explicit protocol
+parameter for clarity and reproducibility, even though tightening it above 3
+does not reduce the jointly eligible population in the tested configurations.
