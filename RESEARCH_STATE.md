@@ -1,114 +1,97 @@
 # Research State
 
-Last updated: July 2026
+**Last updated:** 11 October 2026  
+**Reference dataset:** `1.6.1`  
+**Current focus:** Persistent Commitment-Lifecycle surface research, reference-model evaluation, and downstream strategy screening.
 
-This document is intentionally evidence-centric. Conclusions recorded here should summarize the
-current body of evidence rather than the history of how that evidence was obtained. Experimental
-details, statistical analyses and implementation notes belong in the corresponding research documents.
+This document is intentionally evidence-centric. It summarizes the current body of evidence rather than the history of how it was obtained. Experimental details, statistical analyses, implementation notes, and individual study protocols belong in the corresponding research documents and findings register.
 
 ## Purpose
 
-This document summarizes the current scientific state of the Market Sentiment ML (MSML) research program.
+This document summarizes the current scientific state of the Market Sentiment ML (MSML) research programme. It records current evidence, established findings, open questions, and immediate priorities. It is not a complete experiment chronology.
 
-Unlike the project documentation, which describes the repository architecture and implementation, this
-document focuses exclusively on research progress. It records the current evidence, established findings,
-open questions, and immediate research priorities.
-
-The intended audience is researchers and contributors who wish to understand the present state of the
-project without reconstructing its history from commits or experimental logs.
-
-For implementation details, see:
-
-- `README.md` — repository architecture and developer orientation.
-- `PROJECT_DESCRIPTION.md` — scientific motivation, research methodology and long-term vision.
-- `docs/` — subsystem-specific documentation.
+For implementation details, see `README.md`, `PROJECT_DESCRIPTION.md`, and `docs/`. For study-level evidence, consult the findings register and the research documents listed below.
 
 ---
 
 ## Executive Summary
 
-The project has now completed the transition toward behavioral representation research.
+The programme has moved from treating retail positioning as a direct predictive signal toward investigating whether its temporal and relational organization can be transformed into useful behavioral representations.
 
-Current work is centered on three scientific questions:
+The central working proposition is that **retail positional information contains latent behavioral organization that can be transformed into predictive representations useful for downstream machine learning and adaptive decision-making**. This is a research-supported direction, not a claim that the current candidate ontology is conclusively validated or universally profitable.
 
-- Which behavioral representations can be validated independently?
-- Do validated behavioral representations improve predictive learning?
-- Can behavioral organization ultimately be explained mechanistically?
+Reactive-JPY remains the first complete Behavioral Surface and an important reference ontology. Since July, the Persistent family has progressed from behavioral discovery and lifecycle analysis to a candidate **Persistent Commitment-Lifecycle Surface v0.1.0**. The candidate has been constructed around Commitment Level and Commitment Trajectory, implemented through an expanded Behavioral Surface Validation Engine (BSVE), tested with coverage-aware calibration and validation procedures, used to train reference artifacts in MSML, and evaluated downstream in MPML. Strategy-level screening is now underway.
 
-The first complete behavioral ontology (Reactive-JPY) has been frozen following independent validation and
-integrated into the MSML data pipeline. This document summarizes the current body of scientific knowledge
-and is updated as new evidence becomes available.
+The current Persistent surface is already useful as a research and modelling representation: it makes behavioral organization explicit, enables reproducible state-conditioned modelling, and provides structured inputs for downstream evaluation. At the same time, its status must remain accurately qualified: it is a **candidate surface under ongoing research**, and evidence for representation usefulness is stronger than evidence for a universal or causal improvement in trading outcomes.
 
-Background on the scientific evolution of the project is provided in `PROJECT_DESCRIPTION.md`.
-
----
-
-### Behavioral Surface Predictive Learning (July 2026)
-
-The first predictive evaluation of the frozen Reactive-JPY Behavioral Surface has now been completed using independent walk-forward validation across both MLP and LSTM architectures. Epoch-sweep experiments produced several consistent findings.
-
-Both architectures demonstrated reproducible improvements over multiple control baselines, including permutation, random partitioning, trend/volatility partitioning and base-rate controls. While the magnitude of improvement varied between architectures, the qualitative ordering of behavioral states remained remarkably consistent.
-
-The experiments further suggest that individual behavioral states exhibit distinct learning dynamics. Some states converge rapidly and remain largely insensitive to training duration, whereas others continue to accumulate predictive signal over extended training or exhibit substantially more complex optimization behaviour. These differences were reproduced across independent neural architectures, indicating that they are more likely to reflect intrinsic properties of the Behavioral Surface than optimizer-specific artefacts.
-
-Taken together, these results provide the first evidence that independently validated Behavioral Surfaces not only represent meaningful behavioral organization, but also simplify downstream predictive learning. Although the current findings are limited to the Reactive-JPY ontology and require replication on additional Behavioral Surfaces, they represent an important milestone in the project's transition from behavioral representation discovery to predictive validation.
+The main research questions are now:
+- How robust and generalizable is the candidate surface under additional validation and data conditions?
+- Do its states support predictive learning beyond appropriate controls?
+- When and where do the resulting prediction artifacts improve adaptive strategy decisions?
+- Which observed effects are stable, pair-specific, state-specific, or architecture-dependent?
+- What mechanisms could explain the observed behavioral organization?
 
 ---
 
-### Behavioral Representation Diversity (July 2026)
+## Behavioral Surface Predictive Learning
 
-A complementary prediction-level analysis has now been completed to determine whether independently validated Behavioral Surfaces produce genuinely distinct predictive representations.
+Earlier Reactive-JPY work compared reference models under independent walk-forward evaluation and across MLP and LSTM architectures. Those experiments reported predictive differences across behavioral states and between model/control configurations. The results motivated evaluation of behavioral specialization as a way to organize learning, rather than assuming that raw sentiment levels themselves carry a universal predictive signal.
 
-Rather than analyzing downstream trading behaviour, this study compared the raw prediction artifacts exported by MSML prior to any MPML routing, strategy selection or evaluation logic. Prediction artifacts generated from the Reactive-JPY Behavioral Surface were compared directly against those generated from the traditional Trend/Volatility Behavioral Surface during periods where both models produced valid predictions.
+The Persistent research programme extends that direction to a distinct behavioral family and a different candidate ontology. MSML reference artifacts have been trained for the Persistent Commitment-Lifecycle states and for Persistent Trend/Volatility environments. MLP/LSTM comparisons show strong agreement in the direction of pair/configuration responses: reported ΔSharpe correlations are Pearson 0.917 and Spearman 0.865, with matching direction in 84 of 85 pair-by-configuration comparisons. Pair-level mean responses are also highly correlated (0.996). These are useful reproducibility indicators across the tested architectures; they do not prove that the surface causes improved prediction or that all states generalize equally well.
 
-Across all three Reactive-JPY currency pairs, the two Behavioral Surfaces exhibited consistently low prediction correlation, only moderate directional agreement, and limited shared explanatory variance. These results indicate that the Behavioral Surfaces do not merely represent alternative partitions of the same predictive signal. Instead, they appear to encode substantially different predictive representations of market behaviour.
-
-This finding is scientifically important because it establishes that Behavioral Surface diversity originates within the predictive learning process itself rather than emerging as a downstream consequence of MPML routing or strategy selection. Together with the independent Operational Diversity results observed within MPML, the evidence now supports treating Behavioral Surfaces as genuinely distinct predictive ontologies rather than alternative implementations of a common representation.
-
-The current analysis is limited to prediction diversity between the frozen Reactive-JPY ontology and the Trend/Volatility Behavioral Surface. Whether similar representation diversity exists for additional Behavioral Surfaces remains an open research question.
+The current evidence supports continuing predictive evaluation of behavioral representations. Claims should remain scoped to the datasets, pairs, model configurations, validation designs, and metrics actually tested.
 
 ---
 
-### Representative Prediction Artifact Comparison
+## Behavioral Representation Diversity
 
-![scatter_grid__EURJPY](docs/images/scatter_grid__EURJPY.png)
+Prior prediction-artifact comparisons between Reactive-JPY and Trend/Volatility representations found that their predictions were not simply interchangeable partitions of one common signal. The Persistent programme adds another candidate representation and broadens the comparison space.
 
-**Figure 1** illustrates a representative prediction comparison between the *Reactive-JPY Behavioral Surface* and the traditional *Trend/Volatility Behavioral Surface* for EURJPY. Each point represents a timestamp where both Behavioral Surfaces produced a valid prediction. Rows correspond to Behavioral States within the Reactive-JPY ontology, while columns correspond to Trend/Volatility states.
+Across the current Persistent reference-model experiments, responses vary by pair and configuration. The synthesis reports positive mean responses for EURAUD and NZDUSD, a smaller positive response for GBPUSD, and negative responses for EURGBP and EURUSD in the current matrix. Trend/Volatility feature-set contrasts are mixed; in the four-environment LSTM comparison, mean ΔSharpe is approximately -0.008. These patterns argue against treating a behavioral surface as uniformly beneficial across instruments or model settings.
 
-Each subplot therefore compares prediction values generated by two independently trained models under a specific pair of behavioral contexts.
+A similar subfamily pattern is also visible in the control/baseline results. The current baseline pair-level Sharpe values are EURAUD +0.146, EURGBP −0.218, EURUSD −0.178, GBPUSD +0.034, and NZDUSD −0.031. The similarity in signs and relative pattern means that the observed pair grouping cannot yet be attributed specifically to the Persistent surface or its learned representations. One plausible explanation is the evaluation setup itself: the two evaluation strategies and the PhaseAware combinations used by the MPML dynamic selector may contribute to this structure. Different PhaseAware combinations are currently being evaluated, so this remains an active confound to investigate rather than a settled explanation. For that reason, pair-level response patterns should be compared against matched baselines and across selector/strategy configurations before being interpreted as surface-specific effects.
 
-The reported Pearson correlation is computed only from observations within that state combination.
+Prediction diversity and downstream operational effects are separate forms of evidence. Distinct prediction artifacts may be useful even when aggregate trading metrics are mixed, but their practical value must be evaluated in the downstream decision process rather than inferred from prediction diversity alone.
 
-Several important qualitative observations emerge immediately:
+---
 
-- many state combinations exhibit little or no linear relationship;
-- moderate correlations remain visibly diffuse rather than collapsing onto a single diagonal;
-- prediction confidence differs substantially between Behavioral Surfaces, often producing distinct geometric structures rather than simple linear transformations.
+## Representative Prediction Artifact Comparison
 
-These visual observations closely match the quantitative analysis, supporting the conclusion that independently validated Behavioral Surfaces encode substantially different predictive representations rather than alternative parameterizations of a common predictive signal.
+A complementary prediction-level analysis examined whether independently constructed behavioral representations produce genuinely different predictive outputs. The original comparison used prediction artifacts exported by MSML before MPML routing, strategy selection, or downstream evaluation logic. It compared models trained using the Reactive-JPY Behavioral Surface with models trained using the traditional Trend/Volatility Behavioral Surface, restricted to timestamps where both produced valid predictions. This helps separate differences originating in the predictive-learning process from effects introduced later by adaptive selection.
+
+![Representative prediction comparison for EURJPY: Reactive-JPY and Trend/Volatility surfaces](docs/images/scatter_grid__EURJPY.png)
+
+**Figure 1. Representative Prediction Artifact Comparison (EURJPY).** Rows correspond to behavioral states within the Reactive-JPY ontology; columns correspond to Trend/Volatility states. Each subplot compares prediction values from the two independently trained models for timestamps where both surfaces produced a valid prediction. Pearson correlation is calculated only over observations within the corresponding state combination.
+
+The original analysis reported that many state combinations showed little or no linear relationship, while moderate correlations remained diffuse rather than collapsing onto a single diagonal. Prediction confidence also differed between surfaces, producing distinct geometric structures rather than simple linear transformations. Together, these observations support the view that the two surfaces can encode different predictive representations, rather than merely alternative partitions of an identical signal.
+
+This is evidence of prediction-level diversity, not by itself proof that either representation is more accurate, that the differences are caused uniquely by the ontology, or that they improve trading outcomes. The comparison is scoped to the Reactive-JPY and Trend/Volatility artifacts and the overlapping observations tested. Persistent reference-model and downstream results are summarized in the sections above and below; whether comparable diversity is useful across all Persistent states and settings remains an active question.
 
 ---
 
 ## Current Phase Supporting Documents
 
-The following documents contain the primary evidence and implementation guidance supporting the current
-phase of the research programme.
+### Behavioral Representation and Persistent Research
 
-### Behavioral Representation
+- `FINDINGS_REGISTER.md` — current research findings and evidence status.
+- `Persistent Family Research/` — phase-based record of the discovery, construction, and validation work.
+- `PERSISTENT_BSVE_SURFACE_ROADMAP_final.md` — Persistent surface design and validation roadmap.
+- `Persistent_Research_Synthesis_20261006.md` — synthesis of the Persistent research programme.
+- `bsve/docs/persistent_findings.md` — Persistent-family empirical findings, where maintained in the working repository.
+- `bsve/docs/reactive_jpy_findings.md` — Reactive-JPY ontology and validation findings.
+- `bsve/docs/reactive_chf_findings.md` — exploratory Reactive-CHF work.
 
-- `bsve/docs/reactive_jpy_findings.md` — Reactive-JPY ontology, validation methodology and results
-- `bsve/docs/reactive_chf_findings.md` — Reactive-CHF exploratory findings and ongoing investigations
-- `bsve/docs/persistent_findings.md` — Persistent behavioral family empirical evidence
-- `bsve/docs/synthesis_document.md` — complete BSVE methodology from ontology construction through validation
+### Predictive and Downstream Evaluation
 
-### Integration
-
-- `docs/BSVE_MSML_integration_architecture.md` — behavioral surface integration into predictive pipeline
-- `docs/integration/dl_prediction_artifacts.md` — prediction artifact schema and downstream contracts
+- `Persistent_MLP_MPML_Downstream_Evaluation.md` — MSML reference artifacts and MPML downstream evaluation.
+- `persistent_strategy_screening_results_report.md` — current descriptive strategy-screening results.
+- `docs/BSVE_MSML_integration_architecture.md` — behavioral surface integration into the predictive pipeline.
+- `docs/integration/dl_prediction_artifacts.md` — prediction artifact schema and downstream contracts.
 
 ### Research Planning
 
-- `docs/research/RESEARCH_STRATEGY.md` — research priorities and strategic direction
+- `docs/research/RESEARCH_STRATEGY.md` — research priorities and strategic direction.
+- `PROJECT_DESCRIPTION.md` — scientific motivation and programme overview.
 
 ---
 
@@ -116,371 +99,207 @@ phase of the research programme.
 
 ### Area Status
 
-| Area                            | Status                     |
-| ------------------------------- | -------------------------- |
-| Master research dataset         | ✓ Stable                   |
-| Dataset validation              | ✓ Complete                 |
-| Leakage auditing                | ✓ Complete                 |
-| Pair-family discovery           | ✓ Established              |
-| Persistent-family studies       | ✓ Complete (current phase) |
-| Reactive-JPY ontology           | ✓ Frozen                   |
-| Reactive-CHF ontology           | ◐ Exploratory              |
-| BSVE framework                  | ✓ Operational              |
-| Behavioral surface export       | ✓ Operational              |
-| Dataset behavioral augmentation | ✓ Operational              |
-| MSML behavioral integration     | ◐ In progress              |
-| MPML behavioral integration     | ✓ Operational              |
-| Deep-learning evaluation        | Ongoing                    |
-| Agent-based modelling           | Ongoing                    |
+| Area | Status | Interpretation |
+|---|---|---|
+| Master research dataset and causal alignment | Stable; reference dataset `1.6.1` | Existing dataset validation and leakage controls remain foundational. |
+| Retail sentiment as a direct predictor | Negative finding established | Raw sentiment has little reliable standalone predictive value under tested procedures. |
+| Behavioral organization | Strong working evidence | Results support studying structured behavioral representations rather than raw sentiment alone. |
+| Reactive-JPY ontology | Frozen reference ontology | First complete end-to-end BSVE example; its preregistered validation was formally inconclusive despite operational usefulness. |
+| Persistent behavioral family | Substantial empirical evidence | Lifecycle and transition structure motivated construction of a dedicated candidate surface. |
+| Persistent Commitment-Lifecycle surface | Candidate v0.1.0; ongoing research | Two dimensions and nine states; useful for reproducible modelling, not yet proven as a universal or causal ontology. |
+| News association studies | Completed contextual analyses | Raw proximity did not exceed the empirical-calendar null; prior-exposure evidence was weak/inconclusive. |
+| BSVE multi-surface support | Extended and operational | Surface contracts now support Persistent beyond the original Reactive-JPY use case. |
+| Persistent validation/calibration | Completed for current candidate settings | Coverage-aware history resets, eligibility, and calibration sensitivity were assessed; one composition-adjusted temporal audit remains incomplete. |
+| MSML Persistent reference artifacts | Trained | MLP/LSTM artifacts enable controlled pair/state/configuration comparisons. |
+| MPML Persistent integration | Operational | Reference artifacts are consumed downstream; effects are heterogeneous and not by themselves causal evidence. |
+| Strategy-level screening | In progress | Descriptive trade-level results identify candidates for stricter follow-up evaluation. |
+| Agent-based modelling | Exploratory | Mechanistic explanation remains open and separate from empirical/predictive validation. |
 
 ### Research Infrastructure
 
-The research infrastructure required for the current programme is considered operational. This includes:
-
-- validated dataset construction,
-- artifact versioning,
-- leakage auditing,
-- deterministic behavioral representation generation,
-- reproducible validation workflows.
-
-The findings summarized below therefore concern scientific conclusions rather than implementation maturity.
+The infrastructure required for this phase is operational: dataset validation and leakage auditing, artifact versioning, deterministic behavioral representation generation, generalized surface contracts, coverage-aware eligibility and calibration, reference-model training, and reproducible downstream evaluation. Infrastructure maturity should not be conflated with scientific confirmation of every surface hypothesis.
 
 ---
 
 ## Methodological Infrastructure
 
-Development of the Behavioral Surface Validation Engine (BSVE) represents an important methodological
-contribution of the project.
+The Behavioral Surface Validation Engine (BSVE) separates behavioral representation construction and validation from predictive modelling. It supports deterministic state assignment, surface generation, calibration, explicit artifact contracts, independent checks, and dataset augmentation. It has been extended beyond Reactive-JPY to support surfaces with different semantics, including the Persistent Commitment-Lifecycle candidate.
 
-The framework now provides:
+For Persistent, the reference representation uses two dimensions:
+- **Commitment Level:** `prior_mean_depth`
+- **Commitment Trajectory:** `early_late_commitment_delta`
 
-- deterministic behavioral ontology calibration,
-- explicit behavioral state assignment,
-- behavioral surface generation,
-- reproducible artifact contracts,
-- independent behavioral validation,
-- deterministic dataset augmentation.
+Their discretization yields nine states in candidate surface v0.1.0. The representation was evaluated across five pairs: EURAUD, EURGBP, EURUSD, GBPUSD, and NZDUSD. The BSVE work explicitly accounts for gaps in source observations: long gaps create segment boundaries and reset history rather than being interpolated across. Calibration and sensitivity analyses retained all five pairs and all nine states across the tested settings, although stricter eligibility thresholds reduce the available population.
 
-Importantly, BSVE separates behavioral validation from predictive modelling. Behavioral representations are
-therefore evaluated as independent scientific hypotheses before being incorporated into machine-learning
-experiments. This separation has become one of the defining methodological characteristics of the repository.
+These procedures support reproducible construction and coverage-aware use of the candidate. They do not, by themselves, establish that the chosen dimensions are uniquely correct, that all state interpretations are mechanistically true, or that any downstream performance difference is caused by the surface.
 
 ---
 
-## Established Scientific Findings
+## Established Scientific Findings and Current Evidence
 
-The findings summarized below represent the current body of scientific knowledge rather than the complete
-experimental history of the project.
-
-As evidence accumulates, hypotheses are promoted from active research questions to established findings.
-Conversely, hypotheses that fail independent validation are removed from the active research programme
-and retained only within the archived research documentation.
-
-This document therefore records the current state of knowledge rather than every experiment performed
-during the evolution of the project.
-
----
+The findings below distinguish negative results, evidence supporting a research direction, and claims that remain provisional. “Established” here means supported within the tested scope, not universally true across all instruments or conditions.
 
 ### Retail Sentiment
 
-Early research investigated retail positioning as a direct predictive signal.
+Early research tested retail positioning as a direct predictive signal. Independent validation found little standalone predictive power; apparent pipeline-based effects did not survive raw-signal, shift, and shuffle checks. Simple additive price-plus-sentiment formulations destroyed rather than improved the tested price-based signal, while a simple extreme-regime filter showed no measurable improvement over price-only.
 
-Current evidence indicates that this interpretation is inadequate.
+These results reject a simple, universal sentiment-alpha interpretation under the tested formulations. They do **not** show that positional information is useless. Rather, they motivated a different question: whether the sequence, persistence, and transitions of positional observations contain organization that is obscured when the data are treated as raw scalar features.
 
-Established findings include:
+The accumulated Persistent work supports that latter direction. It has produced a deterministic, testable candidate representation and downstream model artifacts. The appropriate current statement is that the evidence indicates latent behavioral organization in retail positional information that can be operationalized into potentially useful predictive representations—not that all predictive or trading claims are already proven.
 
-- Raw retail positioning exhibits little standalone predictive power.
-- Simple linear combinations of price and sentiment do not improve predictive performance.
-- Sentiment contributes little additional information when treated as a conventional predictive feature.
-- Predictive value appears highly conditional rather than universal.
-- Although raw retail positioning exhibits little standalone predictive power, the accumulated evidence suggests that it contains latent behavioral structure which can be transformed into predictive representations through deterministic Behavioral Surface construction.
+### Behavioral Organization and Pair Families
 
-The negative findings were scientifically important because they motivated the transition from sentiment
-prediction toward behavioral representation learning. The project therefore no longer regards retail sentiment
-as the primary scientific object. Instead, it is treated as a behavioral observation from which latent market
-organization may be inferred.
+Multiple analyses have identified repeatable differences among FX pair families and motivated family-specific behavioral models. The Persistent family shows long-lived organization and lifecycle structure rather than only isolated sentiment effects. Transition and lifecycle information has proved more informative for constructing the current representation than raw positioning levels alone.
 
-### Behavioral Organization
+This evidence supports family-aware representation research. It does not imply that pair-family assignments are immutable, that all pairs share identical dynamics, or that observed organization has a single established mechanism.
 
-One of the principal discoveries of the project is that foreign exchange markets exhibit reproducible behavioral
-organization.
+### Persistent Commitment-Lifecycle Surface
 
-Multiple independent analyses indicate that currency pairs cannot be adequately described using a single
-behavioral model.
+The current Persistent candidate is built from Commitment Level and Commitment Trajectory, producing nine states. It is the result of a research sequence spanning behavioral discovery, lifecycle and commitment analysis, dimensional reduction, surface construction, family-level validation, coverage-aware BSVE validation, and calibration sensitivity checks.
 
-Instead:
+The candidate is already useful in several concrete research senses:
+- it turns a complex temporal behavioral hypothesis into deterministic, auditable state assignments;
+- it permits state-conditioned MSML training and comparison across pairs and architectures;
+- it supports controlled export of prediction artifacts into MPML;
+- it makes state coverage, history eligibility, and downstream behavior measurable;
+- it enables explicit tests of whether a behavioral representation helps adaptive decision-making.
 
-- distinct behavioral families emerge repeatedly across independent analyses,
-- behavioral differences remain stable across multiple validation approaches,
-- behavioral organization appears substantially more informative than raw sentiment values,
-- behavioral representations provide a more useful abstraction than individual sentiment observations.
+The candidate should nevertheless remain labeled **v0.1.0 / under ongoing research**. Validation and calibration show that the surface can be constructed and used consistently under the tested rules; they do not amount to final proof of ontology validity, causal interpretation, universal generalization, or profitability.
 
-These findings motivated the development of explicit behavioral ontologies and the Behavioral Surface
-Validation Engine (BSVE). Behavioral organization is therefore regarded as the central scientific object of
-the current research programme.
+### Persistent News Association
 
-Current evidence further suggests that independently validated behavioral representations are not merely alternative partitions of the same data, but encode distinct predictive representations.
+Two contextual studies investigated whether news exposure was associated with Persistent episode exits and subsequent event response.
 
-### Persistent Behavioral Family
+In P0C-3, 61.79% of 1,416 exits had relevant news in the examined interval, but the observed exposure was not significantly above the empirical-calendar permutation null (observed 61.79% versus null mean 61.14%, `p = 0.289`). High-impact news exposure also did not exceed the null (`p = 0.157`). In P0C-4A, prior exposure had nominal evidence at a six-hour window (`LR = 3.90`, `p = 0.048`), but was weaker at twelve hours (`LR = 3.31`, `p = 0.069`); high-impact status and the exposure-by-impact interaction were unsupported.
 
-Research into Persistent currency pairs has produced one of the strongest bodies of evidence within the
-project.
+The studies therefore do not establish an independent news-conditioned behavioral mechanism. News remains contextual evidence, while age-dependent persistence and lifecycle organization remain the more useful working frame.
 
-Current evidence supports the following conclusions:
+### Coverage, Eligibility, and Calibration
 
-- Persistent pairs exhibit long-lived behavioral organization rather than isolated predictive effects.
-- Behavioral persistence appears to evolve through identifiable stages rather than remaining stationary.
-- Transition structure carries substantially more information than raw positioning alone.
-- Behavioral evolution is closely coupled to changes in underlying market conditions rather than instantaneous sentiment values.
-- Persistent-family behavior is sufficiently reproducible to motivate ontology construction.
+BSVE validation explicitly considered source-data gaps and minimum-history requirements. Long gaps were treated as segment boundaries, with history reset rather than continuity assumed. Episode-level calibration excluded episodes that crossed long gaps; observation-level eligibility depended on sufficient Level and Trajectory history.
 
-The Persistent family therefore represents a validated behavioral phenomenon rather than an isolated
-empirical observation. Research emphasis has consequently shifted from establishing its existence toward
-understanding the mechanisms responsible for its behavior.
+Under the reference minimum-history settings (Level ≥3 and Trajectory ≥4), 12,078 of 16,204 observations met joint eligibility (74.54%) in the broad eligibility assessment. The later reference calibration population comprised 8,630 eligible observations, 1,060 eligible segments, and 436 eligible canonical episodes across five pairs and all nine states. The different counts refer to different stages/populations and should not be treated as contradictory estimates of one identical sample. Sensitivity checks using stricter history thresholds reduced coverage while retaining all pairs and states.
 
-Supporting documentation: `bsve/docs/persistent_findings.md`
+The intended composition-adjusted temporal audit P0C-5F.3.4 did not complete: part of its source population could not be uniquely reconstructed from available provenance. This is an unresolved audit limitation, not a negative scientific result. Findings from the completed temporal audit and the later BSVE coverage/calibration work should be interpreted within their stated populations.
 
-### Reactive JPY
+### MSML Reference Models
 
-Reactive-JPY represents the first complete behavioral ontology developed within the project.
+Persistent MLP and LSTM reference artifacts have been trained for the candidate behavioral states and comparison configurations. Across 85 pair-by-configuration comparisons, the reported ΔSharpe responses agreed in direction in 84 comparisons; their cross-architecture correlation was Pearson 0.917 and Spearman 0.865. Pair-level mean responses correlated at 0.996.
 
-Current evidence supports:
+These results support using the artifacts for controlled downstream comparison and suggest that many pair/configuration response patterns are not specific to one architecture. Responses are heterogeneous: the current matrix reports positive mean responses for EURAUD and NZDUSD, smaller positive responses for GBPUSD, and negative responses for EURGBP and EURUSD. The tested Trend/Volatility feature-set contrast is mixed. These findings do not show that every behavioral state adds value or that architectural agreement alone establishes predictive superiority.
 
-- reproducible consensus lifecycle structure,
-- deterministic identification of consensus episodes,
-- empirically calibrated maturity boundaries,
-- reproducible hazard-rate evolution throughout consensus lifecycles,
-- deterministic Behavioral Surface generation,
-- successful independent behavioral validation under the BSVE framework.
+### MPML Downstream Evaluation
 
-Behavioral validation produced results that were close to satisfying predefined confirmation criteria but
-ultimately remained formally inconclusive under the preregistered evaluation protocol.
+Persistent artifacts have been consumed by MPML, enabling evaluation of their effects on selector behavior and downstream strategy outcomes. In the reported benchmark, DL was available on 4,418 observations and 786 selector interventions occurred (17.79%). Across state/pair cells, mean incremental return was approximately neutral, with a modestly positive mean incremental Sharpe but a median of zero. Effects varied across pairs, folds, and states.
 
-This distinction is important. The ontology is considered scientifically useful and operationally mature, while
-acknowledging that the current evidence does not yet justify treating every behavioral interpretation as
-conclusively established.
+This indicates that the artifacts can participate in and affect adaptive selection, but the observed benchmark does not establish uniform portfolio-level improvement or a causal benefit attributable solely to the surface. Sparse DL coverage and the conditional nature of selector interventions matter when interpreting aggregate metrics.
 
-Reactive-JPY nevertheless provides the first complete demonstration of the full BSVE methodology from
-behavioral hypothesis through deterministic state assignment and behavioral surface generation.
+### Strategy-Level Screening
 
-Supporting documentation: `bsve/docs/reactive_jpy_findings.md`
+The current screening report covers 180 runs: 10 baseline runs, 90 Persistent behavioral runs, and 80 Persistent Trend/Volatility runs. The trade artifacts contain 2,586 behavioral records and 7,316 Trend/Volatility records.
 
-### Reactive CHF
+MR1 showed positive mean trade return in all nine Persistent behavioral states, including states with at least ten eligible trades; MR5, MR32, and MR42 also showed positive state-average returns, with differing consistency. This is a useful screening result and justifies more targeted evaluation. It is not yet evidence of statistical significance, selector-level superiority, or portfolio profitability. Trade-level averages can be affected by sample size, dependence, selection, and the way trades are aggregated; follow-up tests must account for those issues.
 
-Reactive-CHF remains under active investigation.
+In 40 matched Trend/Volatility comparisons, the `price_trend` and `trend_vol_only` outputs had identical reported counts and return statistics. This observation has not yet been explained and does not establish that the models' predictions are equivalent. It should be treated as a reproducibility/diagnostic question for follow-up.
 
-Current exploratory studies indicate that:
+### Reactive-JPY and Reactive-CHF
 
-- volatility strongly organizes persistence behaviour, while persistence appears more closely associated with crowd outcomes than volatility itself,
-- behavioral transitions appear continuous rather than discretely separated,
-- volatility-derived behavioral representations remain promising,
-- deterministic ontology construction appears feasible.
+Reactive-JPY remains the first complete reference ontology, with deterministic lifecycle identification, calibrated maturity boundaries, hazard-rate analysis, and an operational BSVE workflow. Its preregistered behavioral validation was formally inconclusive, despite its value as a methodological and operational reference. That qualification should remain visible.
 
-However, the ontology has not yet reached the validation maturity achieved for Reactive-JPY.
-Consequently, Reactive-CHF should currently be regarded as an active research programme rather than an
-established behavioral representation.
-
-Supporting documentation: `bsve/docs/reactive_chf_findings.md`
+Reactive-CHF remains exploratory. Existing observations suggest volatility-related organization, but the ontology has not reached the same level of construction and evaluation as the current Persistent candidate or the Reactive-JPY reference.
 
 ---
 
 ## Current Confidence Assessment
 
-Validated as of: July 2026
-
-Scientific progress depends not only on identifying promising hypotheses, but also on understanding the
-strength of the available evidence.
-
-The following table summarizes the current confidence associated with the principal components of the
-research programme. Confidence assessments should be interpreted as summaries of the current body of
-evidence rather than permanent classifications. They are expected to evolve as additional behavioral
-representations are developed and independently validated.
-
-| Research Area                          | Current Confidence | Comments                                                     |
-| -------------------------------------- | ------------------ | ------------------------------------------------------------ |
-| Master Research Dataset                | Very High          | Construction pipeline validated, leakage audits complete, stable artifact contracts. |
-| Dataset methodology                    | Very High          | Reproducible dataset generation and causal alignment considered mature. |
-| Retail sentiment as a direct predictor | High               | Multiple independent studies consistently show limited standalone predictive value. |
-| Behavioral organization                | High               | Strong evidence that behavioral structure exists beyond raw sentiment observations. |
-| Currency pair families                 | High               | Reproduced across several independent analyses and experimental methodologies. |
-| Persistent behavioral family           | High               | Mature empirical findings with consistent behavioral characteristics. |
-| Reactive-JPY ontology                  | Moderate–High      | Deterministic ontology complete; behavioral validation narrowly inconclusive under preregistered criteria. |
-| Reactive-CHF ontology                  | Moderate           | Promising exploratory evidence; ontology construction and validation ongoing. |
-| BSVE methodology                       | High               | Framework operational and successfully applied to Reactive-JPY. |
-| Behavioral dataset augmentation        | High               | Deterministic augmentation pipeline implemented and validated. |
-| Behavioral ML integration              | Moderate–High      | Infrastructure largely complete; predictive evaluation now underway. |
-| Dynamic behavioral representations     | Low                | Conceptual direction supported by current findings but not yet investigated experimentally. |
-| Mechanistic interpretation (ABM)       | Low–Moderate       | Reactive-JPY lifecycle gradient reproduced mechanistically (Stages 3–4). Predictive structure confirmed (L3). Episode statistics gap (L1) remains open. No conclusions on other behavioral families. |
+| Research area | Current assessment | Basis and limitation |
+|---|---|---|
+| Dataset construction and causal alignment | High | Pipeline validation and leakage audits completed for the reference dataset. |
+| Raw sentiment as a direct predictor | High confidence in the negative finding within tested formulations | Raw, shifted, and shuffled checks did not support the tested direct-signal claims; not every conceivable conditional use has been ruled out. |
+| Latent behavioral organization in positional data | Strong supporting evidence; active research | Multiple analyses motivate reproducible behavioral representations; scope and generalization remain under test. |
+| Persistent behavioral family | Strong empirical support | Repeated lifecycle and transition findings support dedicated representation work. |
+| Persistent Commitment-Lifecycle surface v0.1.0 | Promising candidate; ongoing validation | Deterministic and operational, with calibration and downstream artifacts; not conclusively proven or universal. |
+| Reactive-JPY ontology | Moderate; operational reference | Full workflow demonstrated, but preregistered validation remained formally inconclusive. |
+| BSVE multi-surface methodology | High operational confidence | Successfully extended to Persistent; population/provenance limitations remain for one incomplete audit. |
+| MSML architecture agreement | Strong within tested comparisons | MLP/LSTM responses agree in direction in 84/85 comparisons; this is not proof of absolute predictive improvement. |
+| MPML adaptive value | Preliminary and heterogeneous | Selector interventions and metric changes observed; mean incremental return approximately neutral and no causal claim established. |
+| Strategy-level Persistent screening | Preliminary | Encouraging descriptive patterns nominate candidates; significance and portfolio-level performance remain unestablished. |
+| News-conditioned mechanism | Weak/inconclusive | Permutation null and follow-up exposure tests do not establish an independent news effect. |
+| Mechanistic interpretation (ABM) | Open / exploratory | Mechanisms remain to be tested against the empirical lifecycle and family evidence. |
 
 ---
 
 ## Open Scientific Questions
 
-The project has successfully answered several important questions regarding behavioral organization in
-foreign exchange markets. At the same time, each completed research programme has generated new
-scientific questions.
-
-The following questions currently define the next phase of the project.
-
 ### Behavioral Representation
 
-Several questions concern the nature of behavioral representations themselves. Current questions include:
-
-- How many distinct behavioral representations exist within foreign exchange markets?
-- Which market observations best reveal latent behavioral organization?
-- How should deterministic behavioral ontologies be constructed?
-- Which behavioral phenomena are universal, and which are market-specific?
-- Can behavioral representations be generalized across different financial instruments?
+- How stable is the Persistent Commitment-Lifecycle surface under additional samples, periods, pairs, and calibration choices?
+- Are the two current dimensions sufficient, or do additional dimensions materially improve representation?
+- Which aspects of the surface generalize across pair families, and which remain family-specific?
+- How should confidence and uncertainty in state assignment be represented?
 
 ### Behavioral Dynamics
 
-Current findings suggest that behavioral organization is dynamic rather than stationary. Important open
-questions include:
-
-- Are observed currency pair families permanent or transient?
-- Can markets transition between different behavioral representations?
-- What mechanisms govern these transitions?
-- How stable are behavioral representations across changing macroeconomic environments?
-
-Understanding behavioral evolution is expected to become one of the major themes of future research.
+- Are observed family characteristics stable or do pairs transition between behavioral organizations?
+- Which lifecycle and transition properties are robust across market environments?
+- How do missing coverage and history eligibility affect interpretation of episode-level results?
+- Which mechanisms govern transitions and dissolution?
 
 ### Predictive Learning
 
-Behavioral representations are ultimately valuable only if they simplify predictive learning. Current questions
-include:
+- Do Persistent states improve learning over well-matched non-surface controls under leakage-safe walk-forward evaluation?
+- Which architectures and state/configuration combinations benefit, and are effects stable across folds and pairs?
+- How should architecture agreement, prediction diversity, and state-level performance be combined without overstating evidence?
+- Why are `price_trend` and `trend_vol_only` outputs identical in the matched screening cases?
 
-- Which predictive architectures benefit most from behavioral specialization?
-- How should behavioral representations be encoded for machine learning?
-- Do behavioral representations improve generalization more than raw predictive accuracy?
-- Which behavioral representations provide the greatest downstream value?
+### Adaptive Decision-Making
 
-These questions now represent the primary focus of ongoing MSML development. Related implementation
-guidance is available in `docs/BSVE_MSML_integration_architecture.md` and `docs/research/RESEARCH_STRATEGY.md`.
-
-### Adaptive Decision Making
-
-Predictive improvements must ultimately demonstrate practical utility. Current research therefore investigates:
-
-- Which behavioral representations produce the largest improvements in adaptive strategy selection?
-- Should predictive models specialize within behavioral representations?
-- How should multiple behavioral representations be combined?
-- Can representation selection itself become adaptive?
-
-These questions motivate ongoing integration with the MPML framework. See `docs/integration/dl_prediction_artifacts.md`
-for the current prediction artifact contract and downstream integration schema.
+- Under what conditions do Persistent artifacts alter selector choices and improve realized outcomes?
+- Which screening findings survive uncertainty estimates, dependence-aware inference, and realistic execution assumptions?
+- Are benefits concentrated in specific pairs, states, strategies, or periods?
+- How should sparse model availability and intervention rates be reflected in downstream evaluation?
+- Can multiple behavioral surfaces be combined or selected adaptively without hindsight bias?
 
 ### Mechanistic Understanding
 
-Empirical observations naturally motivate questions regarding the underlying mechanisms responsible for observed behavioral organization. Current questions include:
-
-- Why do Persistent and Reactive behavioral families emerge?
-- Which interacting-agent mechanisms reproduce observed behavioral dynamics?
-- Can synthetic markets generate similar behavioral ontologies?
-- Which empirical findings remain unexplained by existing behavioral models?
-
-**Future work (Stage 6):** Introduce duration-dependent dissolution into the ABM to close L1/L2.
-
-The current ABM produces episodes that exit via threshold-crossing regardless of age, preventing the reversal gradient from emerging. A Stage 6 mechanism would condition dissolution probability on episode age (e.g., `lambda_t = f(vol_t, episode_age_t)`), such that young episodes dissolve faster than mature ones on average. This would allow the ABM to reproduce the empirical hazard-rate structure and close the episode statistics gap.
-
-This is a mechanistic extension, not a parameter tuning problem, and would require stateful modification of the agent update loop.
+- Can interacting-agent models reproduce the observed Persistent lifecycle and state structure?
+- Which empirical findings remain unexplained by current ABM mechanisms?
+- Can a duration-dependent dissolution mechanism account for the observed age-related lifecycle patterns?
 
 ---
 
 ## Current Research Priorities
 
-The immediate objective of the project is no longer the discovery of additional behavioral phenomena in
-isolation. Instead, the focus has shifted toward determining whether validated behavioral representations
-improve predictive modelling and downstream adaptive decision-making.
+### Priority 1 — Continue validation of the Persistent candidate
 
-Several complementary research programmes are therefore progressing in parallel.
+Preserve v0.1.0 as a stable reference while clearly recording limitations. Complete or explicitly retire the unresolved P0C-5F.3.4 audit once the population provenance issue is resolved. Continue robustness checks without retroactively changing the reference surface based on downstream outcomes.
 
-### Priority 1 — Behavioral Predictive Validation
+### Priority 2 — Strengthen predictive evaluation
 
-The highest current priority is evaluating whether validated behavioral representations simplify predictive
-learning.
+Compare Persistent state-specialized models with appropriate baselines under matched, leakage-safe walk-forward protocols. Report pair/state sample sizes and uncertainty, and distinguish architecture reproducibility from absolute predictive superiority.
 
-This work focuses on integrating Behavioral Surfaces into the MSML training pipeline and comparing
-behavioral representations against traditional volatility/trend partitioning under identical walk-forward
-evaluation protocols.
+### Priority 3 — Evaluate strategy-level findings rigorously
 
-The principal scientific question is: **Do validated behavioral representations improve predictive learning?**
+Use current screening results to prioritize follow-up tests, not to declare winners. Evaluate robustness across folds and pairs, account for dependent trades and multiple comparisons, and separate trade-level summaries from selector-level and portfolio-level outcomes.
 
-This represents the first complete evaluation of the Behavioral Surface methodology using predictive machine
-learning.
+### Priority 4 — Understand representation diversity and multi-surface use
 
-### Priority 2 — Behavioral Surface Expansion
+Compare prediction artifacts and downstream behavior across Persistent, Reactive-JPY, and Trend/Volatility representations. Determine whether diversity contributes incremental decision value, and evaluate any surface-selection logic without using future outcomes to select states or models.
 
-Reactive-JPY represents the first complete Behavioral Surface produced by the BSVE framework. Current
-work focuses on extending the methodology to additional behavioral phenomena while preserving
-deterministic ontology construction and independent validation.
+### Priority 5 — Mechanistic explanation
 
-Important objectives include:
-
-- completion of the Reactive-CHF ontology,
-- comparison between alternative behavioral representations,
-- generalization of BSVE to support multiple concurrent behavioral surfaces,
-- continued refinement of behavioral validation methodology.
-
-The long-term objective is a library of independently validated behavioral representations rather than a
-single ontology.
-
-### Priority 3 — MPML Integration
-
-Behavioral representations have now entered the predictive modelling pipeline. The next stage is evaluating
-whether those representations improve adaptive strategy selection within the downstream MPML framework.
-
-Current work includes:
-
-- behavioral-state model specialization,
-- behavioral routing,
-- walk-forward adaptive evaluation,
-- comparison against traditional market-state partitioning.
-
-The principal scientific question is no longer whether Behavioral Surfaces can be constructed, but whether
-they improve adaptive decision-making under realistic deployment conditions.
-
-**Initial MPML integration milestone (July 2026).** The first end-to-end integration experiments using the frozen Reactive-JPY Behavioral Surface have now been completed. Behavioral Prediction Artifacts generated by MSML were successfully consumed by the downstream MPML framework without architectural modifications to the adaptive selector. Initial walk-forward experiments demonstrate that Behavioral Surface specialization influences downstream strategy selection and produces measurable changes in out-of-sample trading performance. Importantly, currency pairs outside the Reactive-JPY Behavioral Surface remained unchanged across behavioral-state experiments, providing an internal negative control confirming correct behavioral routing. Although predictive performance remains preliminary and further model optimization is expected, current evidence indicates that validated Behavioral Prediction Artifacts influence downstream adaptive strategy selection in a reproducible manner.
-
-### Priority 4 — Mechanistic Understanding
-
-Empirical behavioral organization has now been demonstrated sufficiently to motivate renewed emphasis on
-mechanistic explanation.
-
-Agent-Based Modelling (ABM) therefore enters a new phase. Rather than generating synthetic market
-behaviour in isolation, future work will increasingly investigate whether observed behavioral representations
-can emerge naturally from interacting market participants.
-
-Long-term success will therefore require connecting three independent forms of evidence:
-
-- empirical behavioral observations,
-- predictive validation,
-- mechanistic simulation.
-
-Achieving agreement between these three perspectives represents one of the most ambitious objectives of
-the project.
+Continue ABM as a separate line of inquiry. Mechanistic claims should be tied to explicit empirical targets and remain distinct from evidence that a representation is operationally useful.
 
 ---
 
 ## Immediate Research Direction
 
-The current empirical evidence establishes that deterministic behavioral
-representations can be validated independently and contribute useful
-predictive information.
+The immediate programme is not simply to discover more behavioral phenomena or to wait for a perfect ontology. It is to **use the current candidate surface as a testable research instrument while continuing to challenge and refine it**.
 
-Consequently, the immediate research programme focuses on:
-
-- expansion of independently validated Behavioral Surfaces,
-- comparison between competing behavioral representations,
-- evaluation within downstream adaptive decision-making,
-- mechanistic explanation of observed behavioral organization.
-
-Detailed implementation priorities are maintained separately in
-`PROJECT_DESCRIPTION.md` and `docs/research/RESEARCH_STRATEGY.md`.
-
----
+The current evidence supports the proposition that retail positional information contains latent behavioral organization and that this organization can be represented deterministically, used to train predictive models, and evaluated in an adaptive decision pipeline. The remaining work is to determine how robust, incremental, and decision-relevant that information is across settings—and to quantify the limits as carefully as the positive findings.
 
 ## Closing Remarks
 
-The project has completed its transition from sentiment prediction toward behavioral representation research.
-For background on this evolution, see `PROJECT_DESCRIPTION.md`. This document records where that
-programme currently stands.
+The project has progressed from testing sentiment as a direct predictor to treating positional data as observations of potentially structured behavior. The Persistent Commitment-Lifecycle surface v0.1.0 is an important, useful candidate in that transition: it makes a behavioral hypothesis explicit and enables reproducible downstream experiments. Its value should be reported now, alongside the uncertainty and limitations that remain, rather than withheld until every question is resolved.
+
+For programme history and implementation guidance, see `PROJECT_DESCRIPTION.md`, `docs/research/RESEARCH_STRATEGY.md`, and the current findings register.
