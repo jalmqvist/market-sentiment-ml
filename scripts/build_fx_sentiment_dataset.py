@@ -16,7 +16,7 @@ import pandas as pd
 # =========================
 
 SENTIMENT_DIR = Path("data/input/sentiment")
-PRICE_DIR = Path("data/input/fx")
+PRICE_DIR = Path("data/input/fx_tickvolume_correction_v2_1")
 DEFAULT_VERSION = "v1"
 
 HORIZONS = [1, 2, 4, 6, 12, 24, 48]
@@ -490,6 +490,7 @@ def write_dataset_manifest(
     version: str,
     tag: Optional[str] = None,
     git_commit: str | None = None,
+    price_dir: Path = PRICE_DIR,
 ) -> None:
     versioned_prefix = f"data/output/{version}"
     canonical_dataset = f"{versioned_prefix}/master_research_dataset_core.csv"
@@ -503,6 +504,7 @@ def write_dataset_manifest(
         "dataset_tag": tag,
         "dataset_hash": dataset_hash,
         "canonical_dataset": canonical_dataset,
+        "price_dir": str(price_dir),
         "dataset_variants": {
             "full": f"{versioned_prefix}/master_research_dataset.csv",
             "core": f"{versioned_prefix}/master_research_dataset_core.csv",
@@ -870,6 +872,7 @@ def build_master_dataset(
         version=version,
         tag=tag,
         git_commit=git_commit,
+        price_dir=price_dir,
     )
 
     return master_valid

@@ -48,7 +48,7 @@ import pandas as pd
 SCHEMA_VERSION = "sentiment_features_h1_v1"
 STALE_HOURS_THRESHOLD = 24
 
-PRICE_DIR = Path("data/input/fx")
+PRICE_DIR = Path("data/input/fx_tickvolume_correction_v2_1")
 SOURCE_DATASET = Path("data/output/master_research_dataset.csv")
 
 OUTPUT_DIR = Path("data/output/features")
@@ -315,7 +315,7 @@ def build_feature_contract(
     result.to_parquet(output_parquet, index=False)
     print(f"\nWrote parquet:  {output_parquet.resolve()}")
 
-    _write_manifest(result, source_dataset, output_manifest)
+    _write_manifest(result, source_dataset, output_manifest, price_dir)
     print(f"Wrote manifest: {output_manifest.resolve()}")
 
     return result
@@ -383,6 +383,7 @@ def _write_manifest(
     df: pd.DataFrame,
     source_dataset: Path,
     output_manifest: Path,
+    price_dir: Path,
 ) -> None:
     """Write the JSON manifest for the feature contract artifact."""
 
@@ -409,7 +410,7 @@ def _write_manifest(
                 "All timestamps present in the price files are used as "
                 "entry_time; no manual filtering or hour-invention."
             ),
-            "price_dir": str(PRICE_DIR),
+            "price_dir": str(price_dir),
         },
         "semantics": {
             "as_of_rule": "latest snapshot_time <= entry_time per pair",
